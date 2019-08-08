@@ -43,7 +43,7 @@ fn get_higher_byte(value: u16) -> u16 {
 
 fn get_lower_byte(value: u16) -> u16 {
 
-    let nibble = value & 0xFF;
+    let nibble = (value & 0xFF) << 8;
     nibble
 }
 
@@ -76,7 +76,7 @@ pub fn init_cpu(rom: Vec<u8>) {
         sp: 0xFFFE,
 
         stack: Vec::new(),
-        ram: Vec::new(),
+        ram: vec![0; 8192],
         loaded_rom: rom,
 
         should_execute: true,
@@ -129,7 +129,7 @@ fn memory_read_u16(addr: &u16, state: &CpuState) -> u16 {
     let mut target: Vec<u8> = vec![0; 2];
     let target_addr: u16;
 
-    if address > 0x0000 || address <= 0x3FFF
+    if address > 0x0000 && address <= 0x3FFF
     {
         let memory_addr: usize = address.try_into().unwrap();
         target[0] = state.loaded_rom[memory_addr];
@@ -137,7 +137,7 @@ fn memory_read_u16(addr: &u16, state: &CpuState) -> u16 {
         target_addr = LittleEndian::read_u16(&target);
         target_addr
     }
-    else if address >= 0x4000 || address <= 0x7FFF
+    else if address >= 0x4000 && address <= 0x7FFF
     {
         let memory_addr: usize = (address - 0x4000).try_into().unwrap();
         target[0] = state.loaded_rom[memory_addr];
@@ -145,7 +145,7 @@ fn memory_read_u16(addr: &u16, state: &CpuState) -> u16 {
         target_addr = LittleEndian::read_u16(&target);
         target_addr
     }
-    else if address >= 0xC000 || address <= 0xCFFF
+    else if address >= 0xC000 && address <= 0xCFFF
     {
         let memory_addr: usize = (address - 0xC000).try_into().unwrap();
         target[0] = state.ram[memory_addr];
@@ -163,15 +163,15 @@ fn memory_write(address: u16, value: u8, state: CpuState) -> CpuState {
 
     let mut result_state = state;
 
-    if address > 0x0000 || address <= 0x3FFF
+    if address > 0x0000 && address <= 0x3FFF
     {
         panic!("Tried to write to cart, illegal write");
     }
-    else if address >= 0x4000 || address <= 0x7FFF
+    else if address >= 0x4000 && address <= 0x7FFF
     {
         panic!("Tried to write to cart, illegal write");
     }
-    else if address >= 0xC000 || address <= 0xCFFF
+    else if address >= 0xC000 && address <= 0xCFFF
     {
         let memory_addr: usize = (address - 0xC000).try_into().unwrap();
         result_state.ram[memory_addr] = value;
@@ -195,10 +195,12 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
 
         0x00 => result_state = nop(result_state),
         0x01 => result_state = ld_full_from_imm(result_state, TargetReg::BC),
+        0x02 => result_state = save_reg_to_full(result_state, TargetReg::A, TargetReg::BC),
         0x06 => result_state = ld_hi_from_imm(result_state, TargetReg::B),
         0x0E => result_state = ld_low_from_imm(result_state, TargetReg::C),
 
         0x11 => result_state = ld_full_from_imm(result_state, TargetReg::DE),
+        0x12 => result_state = save_reg_to_full(result_state, TargetReg::A, TargetReg::DE),
         0x16 => result_state = ld_hi_from_imm(result_state, TargetReg::D),
         0x1E => result_state = ld_low_from_imm(result_state, TargetReg::E),
 
@@ -211,6 +213,13 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         0x3E => result_state = ld_low_from_imm(result_state, TargetReg::A),
 
         0x47 => result_state = ld_hi_into_hi(result_state, TargetReg::A, TargetReg::B),
+
+        0x70 => result_state = save_reg_to_full(result_state, TargetReg::B, TargetReg::HL),
+        0x71 => result_state = save_reg_to_full(result_state, TargetReg::C, TargetReg::HL),
+        0x72 => result_state = save_reg_to_full(result_state, TargetReg::D, TargetReg::HL),
+        0x73 => result_state = save_reg_to_full(result_state, TargetReg::E, TargetReg::HL),
+        0x74 => result_state = save_reg_to_full(result_state, TargetReg::H, TargetReg::HL),
+        0x75 => result_state = save_reg_to_full(result_state, TargetReg::L, TargetReg::HL),
 
         0xC3 => result_state = jmp(result_state),
 
@@ -346,5 +355,39 @@ fn ld_a_from_hl_inc(state: CpuState) -> CpuState {
     result_state.af = set_higher_byte(result_state.af, new_value);
     result_state.hl += 1;
     result_state.pc += 1;
+    result_state
+}
+
+fn save_reg_to_full(state: CpuState, target_reg: TargetReg, addr_reg: TargetReg) -> CpuState {
+
+    let mut result_state = state;
+    let value: u8;
+    let addr: u16;
+
+    match addr_reg {
+
+        TargetReg::BC => addr = result_state.bc,
+        TargetReg::DE => addr = result_state.de,
+        TargetReg::HL => addr = result_state.hl,
+
+        _ => panic!("Unvalid reg for instruction"),
+    }
+
+    match target_reg {
+
+        TargetReg::A => value = get_higher_byte(result_state.af).try_into().unwrap(),
+        TargetReg::B => value = get_higher_byte(result_state.bc).try_into().unwrap(),
+        TargetReg::C => value = get_lower_byte(result_state.bc).try_into().unwrap(),
+        TargetReg::D => value = get_higher_byte(result_state.de).try_into().unwrap(),
+        TargetReg::E => value = get_lower_byte(result_state.de).try_into().unwrap(),
+        TargetReg::H => value = get_higher_byte(result_state.hl).try_into().unwrap(),
+        TargetReg::L => value = get_lower_byte(result_state.hl).try_into().unwrap(),
+
+        _ => panic!("Unvalid reg for instruction"),
+    }
+
+    result_state = memory_write(addr, value, result_state);
+    result_state.pc += 1;
+
     result_state
 }
