@@ -108,18 +108,12 @@ fn set_rb(value: u16, rb_val: u8) -> u16 {
     value & !0xFF | rb_val as u16
 }
 
-fn set_bit(value: u16, bit: u8) -> u16 {
-    
-    let mut result = value;
-    result |= 1 << bit;
-    result
+fn set_bit(value: u16, offset: u8) -> u16 {
+    value | 1 << offset
 }
 
-fn reset_bit(value: u16, bit: u8) -> u16 {
-    
-    let mut result = value;
-    result &= !(1 << bit);
-    result
+fn reset_bit(value: u16, offset: u8) -> u16 {
+    value & !(1 << offset)
 }
 
 pub fn init_cpu(rom: Vec<u8>) {
