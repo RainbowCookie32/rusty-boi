@@ -2,6 +2,8 @@ use std::convert::TryInto;
 
 use byteorder::{ByteOrder, LittleEndian};
 
+
+
 pub struct CpuState {
     pub af: u16,
     pub bc: u16,
@@ -16,6 +18,23 @@ pub struct CpuState {
     pub loaded_rom: Vec<u8>,
 
     pub should_execute: bool,
+    pub nops: u8,
+}
+
+enum JumpCondition {
+
+    ZSet,
+    ZNotSet,
+    CSet,
+    CNotSet,
+}
+
+enum TargetFlag {
+
+    ZFlag,
+    NFlag,
+    HFlag,
+    CFlag,
 }
 
 enum TargetReg {
@@ -35,24 +54,55 @@ enum TargetReg {
     L,
 }
 
+
+
+fn set_flag(flag: TargetFlag, state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+
+    match flag {
+        TargetFlag::ZFlag => result_state.af = set_bit(result_state.af, 7),
+        TargetFlag::NFlag => result_state.af = set_bit(result_state.af, 6),
+        TargetFlag::HFlag => result_state.af = set_bit(result_state.af, 5),
+        TargetFlag::CFlag => result_state.af = set_bit(result_state.af, 4),
+    }
+
+    println!("Flag should be set");
+    result_state
+}
+
+fn reset_flag(flag: TargetFlag, state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+
+    match flag {
+        TargetFlag::ZFlag => result_state.af = reset_bit(result_state.af, 7),
+        TargetFlag::NFlag => result_state.af = reset_bit(result_state.af, 6),
+        TargetFlag::HFlag => result_state.af = reset_bit(result_state.af, 5),
+        TargetFlag::CFlag => result_state.af = reset_bit(result_state.af, 4),
+    }
+
+    println!("Flag should be reset");
+    result_state
+}
+
 fn get_higher_byte(value: u16) -> u16 {
 
-    let nibble = (value & 0xFF00) >> 8;
-    nibble
+    let byte = (value & 0xFF00) >> 8;
+    byte
 }
 
-fn get_lower_byte(value: u16) -> u16 {
+fn get_lower_byte(value: u16) -> u8 {
 
-    let nibble = (value & 0xFF) << 8;
-    nibble
+    let byte = (value & 0xFF) as u8;
+    byte
 }
 
-fn set_lower_byte(target_value: u16, new_value: u16) -> u16 {
+fn set_lower_byte(target_value: u16, new_value: u8) -> u16 {
 
     let mut result = target_value;
-    let value = new_value << 8;
     result &= 0xFF00;
-    result |= value & 0xFF;
+    result |= (new_value & 0xFF) as u16;
     result
 }
 
@@ -62,6 +112,20 @@ fn set_higher_byte(target_value: u16, new_value: u16) -> u16 {
     let value = new_value << 8;
     result &= 0xFF;
     result |= value & 0xFF00;
+    result
+}
+
+fn set_bit(value: u16, bit: u8) -> u16 {
+    
+    let mut result = value;
+    result |= 1 << bit;
+    result
+}
+
+fn reset_bit(value: u16, bit: u8) -> u16 {
+    
+    let mut result = value;
+    result &= !(1 << bit);
     result
 }
 
@@ -80,6 +144,7 @@ pub fn init_cpu(rom: Vec<u8>) {
         loaded_rom: rom,
 
         should_execute: true,
+        nops: 0,
     };
 
     println!("CPU initialized");
@@ -102,19 +167,24 @@ fn exec_loop(state: CpuState) {
 fn memory_read_u8(addr: &u16, state: &CpuState) -> u8 {
 
     let address: u16 = *addr;
-    if address > 0x0000 || address <= 0x3FFF
+    if address > 0x0000 && address <= 0x3FFF
     {
         let memory_addr: usize = address.try_into().unwrap();
         state.loaded_rom[memory_addr]
     }
-    else if address >= 0x4000 || address <= 0x7FFF
+    else if address >= 0x4000 && address <= 0x7FFF
     {
-        let memory_addr: usize = (address - 0x4000).try_into().unwrap();
+        let memory_addr: usize = address.try_into().unwrap();
         state.loaded_rom[memory_addr]
     }
-    else if address >= 0xC000 || address <= 0xCFFF
+    else if address >= 0xC000 && address <= 0xCFFF
     {
         let memory_addr: usize = (address - 0xC000).try_into().unwrap();
+        state.ram[memory_addr]
+    }
+    else if address >= 0xD000 && address <= 0xDFFF
+    {
+        let memory_addr: usize = (address - 0xD000).try_into().unwrap();
         state.ram[memory_addr]
     }
     else
@@ -139,7 +209,7 @@ fn memory_read_u16(addr: &u16, state: &CpuState) -> u16 {
     }
     else if address >= 0x4000 && address <= 0x7FFF
     {
-        let memory_addr: usize = (address - 0x4000).try_into().unwrap();
+        let memory_addr: usize = address.try_into().unwrap();
         target[0] = state.loaded_rom[memory_addr];
         target[1] = state.loaded_rom[memory_addr + 1];
         target_addr = LittleEndian::read_u16(&target);
@@ -148,6 +218,14 @@ fn memory_read_u16(addr: &u16, state: &CpuState) -> u16 {
     else if address >= 0xC000 && address <= 0xCFFF
     {
         let memory_addr: usize = (address - 0xC000).try_into().unwrap();
+        target[0] = state.ram[memory_addr];
+        target[1] = state.ram[memory_addr + 1];
+        target_addr = LittleEndian::read_u16(&target);
+        target_addr
+    }
+    else if address >= 0xD000 && address <= 0xDFFF
+    {
+        let memory_addr: usize = (address - 0xD000).try_into().unwrap();
         target[0] = state.ram[memory_addr];
         target[1] = state.ram[memory_addr + 1];
         target_addr = LittleEndian::read_u16(&target);
@@ -173,7 +251,13 @@ fn memory_write(address: u16, value: u8, state: CpuState) -> CpuState {
     }
     else if address >= 0xC000 && address <= 0xCFFF
     {
-        let memory_addr: usize = (address - 0xC000).try_into().unwrap();
+        let memory_addr: usize = (address - 0xC000).try_into().unwrap();        
+        result_state.ram[memory_addr] = value;
+        result_state
+    }
+    else if address >= 0xD000 && address <= 0xDFFF
+    {
+        let memory_addr: usize = (address - 0xD000).try_into().unwrap();
         result_state.ram[memory_addr] = value;
         result_state
     }
@@ -189,27 +273,64 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
     // TODO: Maybe copying the state around isn't the best approach, fix soon™
     let mut result_state = state;
 
-    println!("Running opcode {}", format!("{:#X}", opcode));
+    println!("Running opcode {} at PC: {}", format!("{:#X}", opcode), format!("{:#X}", result_state.pc));
+
+    if opcode == 0x00 { 
+        if result_state.nops == 5
+        {
+            result_state.should_execute = false;
+            println!("We got flooded by NOPs, something's wrong");
+        }
+        else
+        {
+            result_state.nops += 1;
+        }
+    }
 
     match opcode {
 
         0x00 => result_state = nop(result_state),
         0x01 => result_state = ld_full_from_imm(result_state, TargetReg::BC),
         0x02 => result_state = save_reg_to_full(result_state, TargetReg::A, TargetReg::BC),
+        0x03 => result_state = increment_full_reg(result_state, TargetReg::BC),
+        0x04 => result_state = increment_reg(result_state, TargetReg::B),
+        0x05 => result_state = decrement_reg(result_state, TargetReg::B),
         0x06 => result_state = ld_hi_from_imm(result_state, TargetReg::B),
+        0x0B => result_state = decrement_full_reg(result_state, TargetReg::BC),
+        0x0C => result_state = increment_reg(result_state, TargetReg::C),
+        0x0D => result_state = decrement_reg(result_state, TargetReg::C),
         0x0E => result_state = ld_low_from_imm(result_state, TargetReg::C),
 
         0x11 => result_state = ld_full_from_imm(result_state, TargetReg::DE),
         0x12 => result_state = save_reg_to_full(result_state, TargetReg::A, TargetReg::DE),
+        0x13 => result_state = increment_full_reg(result_state, TargetReg::DE),
+        0x14 => result_state = increment_reg(result_state, TargetReg::D),
+        0x15 => result_state = decrement_reg(result_state, TargetReg::D),
         0x16 => result_state = ld_hi_from_imm(result_state, TargetReg::D),
+        0x18 => result_state = relative_jmp(result_state),
+        0x1B => result_state = decrement_full_reg(result_state, TargetReg::DE),
+        0x1C => result_state = increment_reg(result_state, TargetReg::E),
+        0x1D => result_state = decrement_reg(result_state, TargetReg::E),
         0x1E => result_state = ld_low_from_imm(result_state, TargetReg::E),
 
+        0x20 => result_state = conditional_relative_jump(result_state, JumpCondition::ZNotSet),
         0x21 => result_state = ld_full_from_imm(result_state, TargetReg::HL),
+        0x23 => result_state = increment_full_reg(result_state, TargetReg::HL),
+        0x24 => result_state = increment_reg(result_state, TargetReg::H),
+        0x25 => result_state = decrement_reg(result_state, TargetReg::H),
         0x26 => result_state = ld_hi_from_imm(result_state, TargetReg::H),
+        0x28 => result_state = conditional_relative_jump(result_state, JumpCondition::ZSet),
         0x2A => result_state = ld_a_from_hl_inc(result_state),
+        0x2B => result_state = decrement_full_reg(result_state, TargetReg::HL),
+        0x2C => result_state = increment_reg(result_state, TargetReg::L),
+        0x2D => result_state = decrement_reg(result_state, TargetReg::L),
         0x2E => result_state = ld_low_from_imm(result_state, TargetReg::L),
 
+        0x30 => result_state = conditional_relative_jump(result_state, JumpCondition::CNotSet),
         0x31 => result_state = ld_full_from_imm(result_state, TargetReg::SP),
+        0x38 => result_state = conditional_relative_jump(result_state, JumpCondition::CSet),
+        0x3C => result_state = increment_reg(result_state, TargetReg::A),
+        0x3D => result_state = decrement_reg(result_state, TargetReg::A),
         0x3E => result_state = ld_low_from_imm(result_state, TargetReg::A),
 
         0x47 => result_state = ld_hi_into_hi(result_state, TargetReg::A, TargetReg::B),
@@ -220,6 +341,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         0x73 => result_state = save_reg_to_full(result_state, TargetReg::E, TargetReg::HL),
         0x74 => result_state = save_reg_to_full(result_state, TargetReg::H, TargetReg::HL),
         0x75 => result_state = save_reg_to_full(result_state, TargetReg::L, TargetReg::HL),
+        0x78 => result_state = ld_hi_into_hi(result_state, TargetReg::B, TargetReg::A),
 
         0xC3 => result_state = jmp(result_state),
 
@@ -227,7 +349,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         _    => 
         {
             result_state.should_execute = false;
-            println!("Unrecognized opcode: {}", format!("{:#X}", opcode));
+            println!("Unrecognized opcode: {} at PC {}", format!("{:#X}", opcode), format!("{:#X}", result_state.pc));
         },
     }
 
@@ -246,6 +368,44 @@ fn jmp(state: CpuState) -> CpuState {
     let mut result_state = state;
     result_state.pc = memory_read_u16(&(result_state.pc + 1), &result_state);
     result_state
+}
+
+fn relative_jmp(state: CpuState) -> CpuState {
+
+    let mut result_state: CpuState = state;
+    let signed_byte: i8 = memory_read_u8(&(result_state.pc + 1), &result_state) as i8;
+    let target_addr: u16 = result_state.pc.wrapping_add(signed_byte as u16);
+    
+    result_state.pc = target_addr + 2;
+
+    result_state
+}
+
+fn conditional_relative_jump(state: CpuState, condition: JumpCondition) -> CpuState {
+
+    let mut result_state = state;
+    let jump: bool;
+
+    match condition {
+
+        JumpCondition::CNotSet => jump = (get_lower_byte(result_state.af) & (1 << 4)) == 0,
+        JumpCondition::ZNotSet => {
+            let value = get_lower_byte(result_state.af);
+            jump = (value & (1 << 7)) == 0;
+        }
+        JumpCondition::CSet => jump = (get_lower_byte(result_state.af) & (1 << 4)) == 1,
+        JumpCondition::ZSet => jump = (get_lower_byte(result_state.af) & (1 << 7))  == 1,
+    }
+
+    if jump {
+        result_state = relative_jmp(result_state);
+    }
+    else {
+        result_state.pc += 2;
+    }
+    
+    result_state
+    
 }
 
 fn ld_full_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
@@ -273,7 +433,7 @@ fn ld_full_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 fn ld_hi_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 
     let mut result_state = state;
-    let new_value: u16 = memory_read_u8(&(result_state.pc + 1), &result_state).into();
+    let new_value: u16 = memory_read_u8(&(result_state.pc + 1), &result_state) as u16;
 
     match target_reg {
 
@@ -293,11 +453,10 @@ fn ld_hi_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 fn ld_low_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 
     let mut result_state = state;
-    let new_value: u16 = memory_read_u8(&(result_state.pc + 1), &result_state).into();
+    let new_value = memory_read_u8(&(result_state.pc + 1), &result_state);
 
     match target_reg {
 
-        TargetReg::A => result_state.af = set_higher_byte(result_state.af, new_value),
         TargetReg::C => result_state.bc = set_lower_byte(result_state.bc, new_value),
         TargetReg::E => result_state.de = set_lower_byte(result_state.de, new_value),
         TargetReg::L => result_state.hl = set_lower_byte(result_state.hl, new_value),
@@ -351,7 +510,7 @@ fn ld_hi_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) 
 fn ld_a_from_hl_inc(state: CpuState) -> CpuState {
 
     let mut result_state = state;
-    let new_value:u16 = memory_read_u8(&result_state.hl, &result_state).try_into().unwrap();
+    let new_value:u16 = memory_read_u8(&result_state.hl, &result_state) as u16;
     result_state.af = set_higher_byte(result_state.af, new_value);
     result_state.hl += 1;
     result_state.pc += 1;
@@ -375,19 +534,221 @@ fn save_reg_to_full(state: CpuState, target_reg: TargetReg, addr_reg: TargetReg)
 
     match target_reg {
 
-        TargetReg::A => value = get_higher_byte(result_state.af).try_into().unwrap(),
-        TargetReg::B => value = get_higher_byte(result_state.bc).try_into().unwrap(),
-        TargetReg::C => value = get_lower_byte(result_state.bc).try_into().unwrap(),
-        TargetReg::D => value = get_higher_byte(result_state.de).try_into().unwrap(),
-        TargetReg::E => value = get_lower_byte(result_state.de).try_into().unwrap(),
-        TargetReg::H => value = get_higher_byte(result_state.hl).try_into().unwrap(),
-        TargetReg::L => value = get_lower_byte(result_state.hl).try_into().unwrap(),
+        TargetReg::A => value = get_higher_byte(result_state.af) as u8,
+        TargetReg::B => value = get_higher_byte(result_state.bc) as u8,
+        TargetReg::C => value = get_lower_byte(result_state.bc) as u8,
+        TargetReg::D => value = get_higher_byte(result_state.de) as u8,
+        TargetReg::E => value = get_lower_byte(result_state.de) as u8,
+        TargetReg::H => value = get_higher_byte(result_state.hl) as u8,
+        TargetReg::L => value = get_lower_byte(result_state.hl) as u8,
 
         _ => panic!("Unvalid reg for instruction"),
     }
 
+    println!("About to write {} to {}", format!("{:#X}", value), format!("{:#X}", addr));
+
     result_state = memory_write(addr, value, result_state);
     result_state.pc += 1;
 
+    result_state
+}
+
+fn increment_reg(state: CpuState, reg: TargetReg) -> CpuState {
+
+    let mut result_state = state;
+
+    match reg {
+
+        TargetReg::A => {
+            let result = get_higher_byte(result_state.af).overflowing_add(1);
+
+            result_state.af = set_higher_byte(result_state.af, result.0);
+            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = reset_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::B => {
+            let result = get_higher_byte(result_state.bc).overflowing_add(1);
+
+            result_state.bc = set_higher_byte(result_state.bc, result.0);
+            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = reset_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::C => {
+            let result = get_lower_byte(result_state.bc).overflowing_add(1);
+
+            result_state.bc = set_lower_byte(result_state.bc, result.0);
+            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = reset_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::D => {
+            let result = get_higher_byte(result_state.de).overflowing_add(1);
+
+            result_state.de = set_higher_byte(result_state.de, result.0);
+            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = reset_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::E => {
+            let result = get_lower_byte(result_state.de).overflowing_add(1);
+
+            result_state.de = set_lower_byte(result_state.de, result.0);
+            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = reset_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::H => {
+            let result = get_higher_byte(result_state.hl).overflowing_add(1);
+
+            result_state.hl = set_higher_byte(result_state.hl, result.0);
+            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = reset_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::L => {
+            let result = get_lower_byte(result_state.hl).overflowing_add(1);
+
+            result_state.hl = set_lower_byte(result_state.hl, result.0);
+            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = reset_flag(TargetFlag::NFlag, result_state);
+        },
+
+        _ => panic!("Invalid reg for instruction"),
+
+    }
+
+    result_state.pc += 1;
+    result_state
+}
+
+fn decrement_reg(state: CpuState, reg: TargetReg) -> CpuState {
+
+    let mut result_state = state;
+
+    match reg {
+
+        TargetReg::A => {
+            let result = get_higher_byte(result_state.af).overflowing_sub(1);
+
+            result_state.af = set_higher_byte(result_state.af, result.0);
+            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = set_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::B => {
+            let result = get_higher_byte(result_state.bc).overflowing_sub(1);
+
+            result_state.bc = set_higher_byte(result_state.bc, result.0);
+            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = set_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::C => {
+            let result = get_lower_byte(result_state.bc).overflowing_sub(1);
+
+            result_state.bc = set_lower_byte(result_state.bc, result.0);
+            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = set_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::D => {
+            let result = get_higher_byte(result_state.de).overflowing_sub(1);
+
+            result_state.de = set_higher_byte(result_state.de, result.0);
+            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = set_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::E => {
+            let result = get_lower_byte(result_state.de).overflowing_sub(1);
+
+            result_state.de = set_lower_byte(result_state.de, result.0);
+            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = set_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::H => {
+            let result = get_higher_byte(result_state.hl).overflowing_sub(1);
+
+            result_state.hl = set_higher_byte(result_state.hl, result.0);
+            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = set_flag(TargetFlag::NFlag, result_state);
+        },
+
+        TargetReg::L => {
+            let result = get_lower_byte(result_state.hl).overflowing_sub(1);
+
+            result_state.hl = set_lower_byte(result_state.hl, result.0);
+            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
+            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+
+            result_state = set_flag(TargetFlag::NFlag, result_state);
+        },
+
+        _ => panic!("Invalid reg for instruction"),
+
+    }
+
+    result_state.pc += 1;
+    result_state
+}
+
+fn increment_full_reg(state: CpuState, reg: TargetReg) -> CpuState {
+
+    let mut result_state = state;
+
+    match reg {
+
+        TargetReg::BC => result_state.bc = result_state.bc.overflowing_add(1).0,
+        TargetReg::DE => result_state.de = result_state.de.overflowing_add(1).0,
+        TargetReg::HL => result_state.hl = result_state.hl.overflowing_add(1).0,
+        _ => panic!("Invalid reg for instruction"),
+    }
+
+    result_state.pc += 1;
+    result_state
+}
+
+fn decrement_full_reg(state: CpuState, reg: TargetReg) -> CpuState {
+
+    let mut result_state = state;
+
+    match reg {
+
+        TargetReg::BC => result_state.bc = result_state.bc.overflowing_sub(1).0,
+        TargetReg::DE => result_state.de = result_state.de.overflowing_sub(1).0,
+        TargetReg::HL => result_state.hl = result_state.hl.overflowing_sub(1).0,
+        _ => panic!("Invalid reg for instruction"),
+    }
+
+    result_state.pc += 1;
     result_state
 }
