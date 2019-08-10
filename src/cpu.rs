@@ -420,7 +420,7 @@ fn ld_full_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 fn ld_hi_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 
     let mut result_state = state;
-    let new_value: u16 = memory_read_u8(&(result_state.pc + 1), &result_state) as u16;
+    let new_value = memory_read_u8(&(result_state.pc + 1), &result_state);
 
     match target_reg {
 
@@ -458,7 +458,7 @@ fn ld_low_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 fn ld_hi_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) -> CpuState {
 
     let mut result_state = state;
-    let source: u16;
+    let source: u8;
     let target: u16;
 
     match source_reg {
@@ -497,7 +497,7 @@ fn ld_hi_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) 
 fn ld_a_from_hl_inc(state: CpuState) -> CpuState {
 
     let mut result_state = state;
-    let new_value:u16 = memory_read_u8(&result_state.hl, &result_state) as u16;
+    let new_value = memory_read_u8(&result_state.hl, &result_state);
     result_state.af = set_lb(result_state.af, new_value);
     result_state.hl += 1;
     result_state.pc += 1;
