@@ -86,6 +86,12 @@ fn reset_flag(flag: TargetFlag, state: CpuState) -> CpuState {
     result_state
 }
 
+// assuming 16 bit values is all we ever deal with
+// lb means "left byte", rb means "right byte"
+
+// (left and right is used instead of high and low in order to
+// prevent confusing it when dealing with different endiannesses)
+
 fn get_lb(value: u16) -> u8 {
     (value >> 8) as u8
 }
