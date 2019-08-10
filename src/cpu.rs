@@ -86,33 +86,20 @@ fn reset_flag(flag: TargetFlag, state: CpuState) -> CpuState {
     result_state
 }
 
-fn get_higher_byte(value: u16) -> u16 {
-
-    let byte = (value & 0xFF00) >> 8;
-    byte
+fn get_lb(value: u16) -> u8 {
+    (value >> 8) as u8
 }
 
-fn get_lower_byte(value: u16) -> u8 {
-
-    let byte = (value & 0xFF) as u8;
-    byte
+fn set_lb(value: u16, lb_val: u8) -> u16 {
+    value & 0xFF | (lb_val as u16) << 8
 }
 
-fn set_lower_byte(target_value: u16, new_value: u8) -> u16 {
-
-    let mut result = target_value;
-    result &= 0xFF00;
-    result |= (new_value & 0xFF) as u16;
-    result
+fn get_rb(value: u16) -> u8 {
+    (value & 0xFF) as u8
 }
 
-fn set_higher_byte(target_value: u16, new_value: u16) -> u16 {
-
-    let mut result = target_value;
-    let value = new_value << 8;
-    result &= 0xFF;
-    result |= value & 0xFF00;
-    result
+fn set_rb(value: u16, rb_val: u8) -> u16 {
+    value & !0xFF | rb_val as u16
 }
 
 fn set_bit(value: u16, bit: u8) -> u16 {
@@ -388,13 +375,13 @@ fn conditional_relative_jump(state: CpuState, condition: JumpCondition) -> CpuSt
 
     match condition {
 
-        JumpCondition::CNotSet => jump = (get_lower_byte(result_state.af) & (1 << 4)) == 0,
+        JumpCondition::CNotSet => jump = (get_rb(result_state.af) & (1 << 4)) == 0,
         JumpCondition::ZNotSet => {
-            let value = get_lower_byte(result_state.af);
+            let value = get_rb(result_state.af);
             jump = (value & (1 << 7)) == 0;
         }
-        JumpCondition::CSet => jump = (get_lower_byte(result_state.af) & (1 << 4)) == 1,
-        JumpCondition::ZSet => jump = (get_lower_byte(result_state.af) & (1 << 7))  == 1,
+        JumpCondition::CSet => jump = (get_rb(result_state.af) & (1 << 4)) == 1,
+        JumpCondition::ZSet => jump = (get_rb(result_state.af) & (1 << 7))  == 1,
     }
 
     if jump {
@@ -438,10 +425,10 @@ fn ld_hi_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
     match target_reg {
 
         // Only the high byte of a Register can be the target of this instruction.
-        TargetReg::A => result_state.af = set_higher_byte(result_state.af, new_value),
-        TargetReg::B => result_state.bc = set_higher_byte(result_state.bc, new_value),
-        TargetReg::D => result_state.de = set_higher_byte(result_state.de, new_value),
-        TargetReg::H => result_state.hl = set_higher_byte(result_state.hl, new_value),
+        TargetReg::A => result_state.af = set_lb(result_state.af, new_value),
+        TargetReg::B => result_state.bc = set_lb(result_state.bc, new_value),
+        TargetReg::D => result_state.de = set_lb(result_state.de, new_value),
+        TargetReg::H => result_state.hl = set_lb(result_state.hl, new_value),
 
         _ => panic!("Invalid register selected for this instruction"),
     }
@@ -457,9 +444,9 @@ fn ld_low_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 
     match target_reg {
 
-        TargetReg::C => result_state.bc = set_lower_byte(result_state.bc, new_value),
-        TargetReg::E => result_state.de = set_lower_byte(result_state.de, new_value),
-        TargetReg::L => result_state.hl = set_lower_byte(result_state.hl, new_value),
+        TargetReg::C => result_state.bc = set_rb(result_state.bc, new_value),
+        TargetReg::E => result_state.de = set_rb(result_state.de, new_value),
+        TargetReg::L => result_state.hl = set_rb(result_state.hl, new_value),
 
         _ => panic!("Invalid register selected for this instruction"),
     }
@@ -475,10 +462,10 @@ fn ld_hi_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) 
     let target: u16;
 
     match source_reg {
-        TargetReg::A => source = get_higher_byte(result_state.af),
-        TargetReg::B => source = get_higher_byte(result_state.bc),
-        TargetReg::D => source = get_higher_byte(result_state.de),
-        TargetReg::H => source = get_higher_byte(result_state.hl),
+        TargetReg::A => source = get_lb(result_state.af),
+        TargetReg::B => source = get_lb(result_state.bc),
+        TargetReg::D => source = get_lb(result_state.de),
+        TargetReg::H => source = get_lb(result_state.hl),
         
         _ => panic!("Invalid register in instruction"),
     }
@@ -486,19 +473,19 @@ fn ld_hi_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) 
     match target_reg {
         TargetReg::A => {
             target = result_state.af;
-            result_state.af = set_higher_byte(target, source)
+            result_state.af = set_lb(target, source)
         },
         TargetReg::B => {
             target = result_state.bc;
-            result_state.bc = set_higher_byte(target, source)
+            result_state.bc = set_lb(target, source)
         },
         TargetReg::D => {
             target = result_state.af;
-            result_state.de = set_higher_byte(target, source)
+            result_state.de = set_lb(target, source)
         },
         TargetReg::H => {
             target = result_state.af;
-            result_state.hl = set_higher_byte(target, source)
+            result_state.hl = set_lb(target, source)
         },
         
         _ => panic!("Invalid register in instruction"),
@@ -511,7 +498,7 @@ fn ld_a_from_hl_inc(state: CpuState) -> CpuState {
 
     let mut result_state = state;
     let new_value:u16 = memory_read_u8(&result_state.hl, &result_state) as u16;
-    result_state.af = set_higher_byte(result_state.af, new_value);
+    result_state.af = set_lb(result_state.af, new_value);
     result_state.hl += 1;
     result_state.pc += 1;
     result_state
@@ -534,13 +521,13 @@ fn save_reg_to_full(state: CpuState, target_reg: TargetReg, addr_reg: TargetReg)
 
     match target_reg {
 
-        TargetReg::A => value = get_higher_byte(result_state.af) as u8,
-        TargetReg::B => value = get_higher_byte(result_state.bc) as u8,
-        TargetReg::C => value = get_lower_byte(result_state.bc) as u8,
-        TargetReg::D => value = get_higher_byte(result_state.de) as u8,
-        TargetReg::E => value = get_lower_byte(result_state.de) as u8,
-        TargetReg::H => value = get_higher_byte(result_state.hl) as u8,
-        TargetReg::L => value = get_lower_byte(result_state.hl) as u8,
+        TargetReg::A => value = get_lb(result_state.af),
+        TargetReg::B => value = get_lb(result_state.bc),
+        TargetReg::C => value = get_rb(result_state.bc),
+        TargetReg::D => value = get_lb(result_state.de),
+        TargetReg::E => value = get_rb(result_state.de),
+        TargetReg::H => value = get_lb(result_state.hl),
+        TargetReg::L => value = get_rb(result_state.hl),
 
         _ => panic!("Unvalid reg for instruction"),
     }
@@ -560,9 +547,9 @@ fn increment_reg(state: CpuState, reg: TargetReg) -> CpuState {
     match reg {
 
         TargetReg::A => {
-            let result = get_higher_byte(result_state.af).overflowing_add(1);
+            let result = get_lb(result_state.af).overflowing_add(1);
 
-            result_state.af = set_higher_byte(result_state.af, result.0);
+            result_state.af = set_lb(result_state.af, result.0);
             if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -570,9 +557,9 @@ fn increment_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::B => {
-            let result = get_higher_byte(result_state.bc).overflowing_add(1);
+            let result = get_lb(result_state.bc).overflowing_add(1);
 
-            result_state.bc = set_higher_byte(result_state.bc, result.0);
+            result_state.bc = set_lb(result_state.bc, result.0);
             if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -580,9 +567,9 @@ fn increment_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::C => {
-            let result = get_lower_byte(result_state.bc).overflowing_add(1);
+            let result = get_rb(result_state.bc).overflowing_add(1);
 
-            result_state.bc = set_lower_byte(result_state.bc, result.0);
+            result_state.bc = set_rb(result_state.bc, result.0);
             if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -590,9 +577,9 @@ fn increment_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::D => {
-            let result = get_higher_byte(result_state.de).overflowing_add(1);
+            let result = get_lb(result_state.de).overflowing_add(1);
 
-            result_state.de = set_higher_byte(result_state.de, result.0);
+            result_state.de = set_lb(result_state.de, result.0);
             if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -600,9 +587,9 @@ fn increment_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::E => {
-            let result = get_lower_byte(result_state.de).overflowing_add(1);
+            let result = get_rb(result_state.de).overflowing_add(1);
 
-            result_state.de = set_lower_byte(result_state.de, result.0);
+            result_state.de = set_rb(result_state.de, result.0);
             if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -610,9 +597,9 @@ fn increment_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::H => {
-            let result = get_higher_byte(result_state.hl).overflowing_add(1);
+            let result = get_lb(result_state.hl).overflowing_add(1);
 
-            result_state.hl = set_higher_byte(result_state.hl, result.0);
+            result_state.hl = set_lb(result_state.hl, result.0);
             if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -620,9 +607,9 @@ fn increment_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::L => {
-            let result = get_lower_byte(result_state.hl).overflowing_add(1);
+            let result = get_rb(result_state.hl).overflowing_add(1);
 
-            result_state.hl = set_lower_byte(result_state.hl, result.0);
+            result_state.hl = set_rb(result_state.hl, result.0);
             if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -644,9 +631,9 @@ fn decrement_reg(state: CpuState, reg: TargetReg) -> CpuState {
     match reg {
 
         TargetReg::A => {
-            let result = get_higher_byte(result_state.af).overflowing_sub(1);
+            let result = get_lb(result_state.af).overflowing_sub(1);
 
-            result_state.af = set_higher_byte(result_state.af, result.0);
+            result_state.af = set_lb(result_state.af, result.0);
             if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -654,9 +641,9 @@ fn decrement_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::B => {
-            let result = get_higher_byte(result_state.bc).overflowing_sub(1);
+            let result = get_lb(result_state.bc).overflowing_sub(1);
 
-            result_state.bc = set_higher_byte(result_state.bc, result.0);
+            result_state.bc = set_lb(result_state.bc, result.0);
             if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -664,9 +651,9 @@ fn decrement_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::C => {
-            let result = get_lower_byte(result_state.bc).overflowing_sub(1);
+            let result = get_rb(result_state.bc).overflowing_sub(1);
 
-            result_state.bc = set_lower_byte(result_state.bc, result.0);
+            result_state.bc = set_rb(result_state.bc, result.0);
             if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -674,9 +661,9 @@ fn decrement_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::D => {
-            let result = get_higher_byte(result_state.de).overflowing_sub(1);
+            let result = get_lb(result_state.de).overflowing_sub(1);
 
-            result_state.de = set_higher_byte(result_state.de, result.0);
+            result_state.de = set_lb(result_state.de, result.0);
             if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -684,9 +671,9 @@ fn decrement_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::E => {
-            let result = get_lower_byte(result_state.de).overflowing_sub(1);
+            let result = get_rb(result_state.de).overflowing_sub(1);
 
-            result_state.de = set_lower_byte(result_state.de, result.0);
+            result_state.de = set_rb(result_state.de, result.0);
             if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -694,9 +681,9 @@ fn decrement_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::H => {
-            let result = get_higher_byte(result_state.hl).overflowing_sub(1);
+            let result = get_lb(result_state.hl).overflowing_sub(1);
 
-            result_state.hl = set_higher_byte(result_state.hl, result.0);
+            result_state.hl = set_lb(result_state.hl, result.0);
             if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
@@ -704,9 +691,9 @@ fn decrement_reg(state: CpuState, reg: TargetReg) -> CpuState {
         },
 
         TargetReg::L => {
-            let result = get_lower_byte(result_state.hl).overflowing_sub(1);
+            let result = get_rb(result_state.hl).overflowing_sub(1);
 
-            result_state.hl = set_lower_byte(result_state.hl, result.0);
+            result_state.hl = set_rb(result_state.hl, result.0);
             if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
             else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
 
