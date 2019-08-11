@@ -3,7 +3,6 @@ use std::convert::TryInto;
 use byteorder::{ByteOrder, LittleEndian};
 
 
-
 pub struct CpuState {
     pub af: u16,
     pub bc: u16,
@@ -12,9 +11,15 @@ pub struct CpuState {
     pub pc: u16,
     pub sp: u16,
 
+    pub cycles: u32,
+    
     pub stack: Vec<u8>,
     pub ram: Vec<u8>,
     pub io_regs: Vec<u8>,
+
+    pub gpu_mode: u8,
+    pub gpu_modeclock: u32,
+    pub gpu_line: u8,
 
     pub loaded_rom: Vec<u8>,
 
@@ -54,7 +59,6 @@ enum TargetReg {
     H,
     L,
 }
-
 
 
 fn set_flag(flag: TargetFlag, state: CpuState) -> CpuState {
@@ -115,6 +119,10 @@ fn reset_bit(value: u16, offset: u8) -> u16 {
     value & !(1 << offset)
 }
 
+fn check_bit(value: u8, bit: u8) -> bool {
+    (value & (1 << bit)) != 0
+}
+
 pub fn init_cpu(rom: Vec<u8>) {
 
     let initial_state = CpuState {
@@ -125,9 +133,16 @@ pub fn init_cpu(rom: Vec<u8>) {
         pc: 0x0100,
         sp: 0xFFFE,
 
+        cycles: 0,
+
         stack: Vec::new(),
         ram: vec![0; 8192],
         io_regs: vec![0; 256],
+
+        gpu_mode: 0,
+        gpu_modeclock: 0,
+        gpu_line: 0,
+
         loaded_rom: rom,
 
         should_execute: true,
@@ -306,6 +321,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         0x04 => result_state = increment_reg(result_state, TargetReg::B),
         0x05 => result_state = decrement_reg(result_state, TargetReg::B),
         0x06 => result_state = ld_hi_from_imm(result_state, TargetReg::B),
+        0x0A => result_state = ld_a_from_full(result_state, TargetReg::BC),
         0x0B => result_state = decrement_full_reg(result_state, TargetReg::BC),
         0x0C => result_state = increment_reg(result_state, TargetReg::C),
         0x0D => result_state = decrement_reg(result_state, TargetReg::C),
@@ -318,10 +334,12 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         0x15 => result_state = decrement_reg(result_state, TargetReg::D),
         0x16 => result_state = ld_hi_from_imm(result_state, TargetReg::D),
         0x18 => result_state = relative_jmp(result_state),
+        0x1A => result_state = ld_a_from_full(result_state, TargetReg::DE),
         0x1B => result_state = decrement_full_reg(result_state, TargetReg::DE),
         0x1C => result_state = increment_reg(result_state, TargetReg::E),
         0x1D => result_state = decrement_reg(result_state, TargetReg::E),
         0x1E => result_state = ld_low_from_imm(result_state, TargetReg::E),
+        0x1F => result_state = rra(result_state),
 
         0x20 => result_state = conditional_relative_jump(result_state, JumpCondition::ZNotSet),
         0x21 => result_state = ld_full_from_imm(result_state, TargetReg::HL),
@@ -357,6 +375,24 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         0x7B => result_state = ld_low_into_hi(result_state, TargetReg::E, TargetReg::A),
         0x7C => result_state = ld_hi_into_hi(result_state, TargetReg::H, TargetReg::A),
         0x7D => result_state = ld_low_into_hi(result_state, TargetReg::L, TargetReg::A),
+
+        0x80 => result_state = add_reg_to_a(result_state, TargetReg::B),
+        0x81 => result_state = add_reg_to_a(result_state, TargetReg::C),
+        0x82 => result_state = add_reg_to_a(result_state, TargetReg::D),
+        0x83 => result_state = add_reg_to_a(result_state, TargetReg::E),
+        0x84 => result_state = add_reg_to_a(result_state, TargetReg::H),
+        0x85 => result_state = add_reg_to_a(result_state, TargetReg::L),
+        0x86 => result_state = add_hl_to_a(result_state),
+        0x87 => result_state = add_reg_to_a(result_state, TargetReg::A),
+
+        0x90 => result_state = sub_reg_to_a(result_state, TargetReg::B),
+        0x91 => result_state = sub_reg_to_a(result_state, TargetReg::C),
+        0x92 => result_state = sub_reg_to_a(result_state, TargetReg::D),
+        0x93 => result_state = sub_reg_to_a(result_state, TargetReg::E),
+        0x94 => result_state = sub_reg_to_a(result_state, TargetReg::H),
+        0x95 => result_state = sub_reg_to_a(result_state, TargetReg::L),
+        0x96 => result_state = sub_hl_to_a(result_state),
+        0x97 => result_state = sub_reg_to_a(result_state, TargetReg::A),
 
         0xA0 => result_state = and_reg(result_state, TargetReg::B),
         0xA1 => result_state = and_reg(result_state, TargetReg::C),
@@ -394,6 +430,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         0xC3 => result_state = jmp(result_state),
         0xC4 => result_state = conditional_call(result_state, JumpCondition::ZNotSet),
         0xC5 => result_state = push(result_state, TargetReg::BC),
+        0xC6 => result_state = add_imm_to_a(result_state),
         0xC8 => result_state = conditional_ret(result_state, JumpCondition::ZSet),
         0xC9 => result_state = ret(result_state),
         0xCC => result_state = conditional_call(result_state, JumpCondition::ZSet),
@@ -403,6 +440,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         0xD1 => result_state = pop(result_state, TargetReg::DE),
         0xD4 => result_state = conditional_call(result_state, JumpCondition::CNotSet),
         0xD5 => result_state = push(result_state, TargetReg::DE),
+        0xD6 => result_state = sub_imm_to_a(result_state),
         0xD8 => result_state = conditional_ret(result_state, JumpCondition::CSet),
         0xDC => result_state = conditional_call(result_state, JumpCondition::CSet),
 
@@ -415,6 +453,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         0xF1 => result_state = pop(result_state, TargetReg::AF),
         0xF3 => result_state = di(result_state),
         0xF5 => result_state = push(result_state, TargetReg::AF),
+        0xFA => result_state = ld_a_from_imm_addr(result_state),
         0xFB => result_state = ei(result_state),
         0xFE => result_state = cmp_imm(result_state),
 
@@ -426,6 +465,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         },
     }
 
+    result_state = gpu_tick(result_state);
     result_state
 }
 
@@ -433,6 +473,7 @@ fn nop(state: CpuState) -> CpuState {
 
     let mut result_state = state;
     result_state.pc += 1;
+    result_state.cycles += 4;
     result_state
 }
 
@@ -440,6 +481,7 @@ fn jmp(state: CpuState) -> CpuState {
 
     let mut result_state = state;
     result_state.pc = memory_read_u16(&(result_state.pc + 1), &result_state);
+    result_state.cycles += 16;
     result_state
 }
 
@@ -450,6 +492,7 @@ fn relative_jmp(state: CpuState) -> CpuState {
     let target_addr: u16 = result_state.pc.wrapping_add(signed_byte as u16);
     
     result_state.pc = target_addr + 2;
+    result_state.cycles += 12;
 
     result_state
 }
@@ -461,10 +504,10 @@ fn conditional_relative_jump(state: CpuState, condition: JumpCondition) -> CpuSt
 
     match condition {
 
-        JumpCondition::CNotSet => jump = (get_rb(result_state.af) & (1 << 4)) == 0,
-        JumpCondition::ZNotSet => jump = (get_rb(result_state.af) & (1 << 7)) == 0,
-        JumpCondition::CSet => jump = (get_rb(result_state.af) & (1 << 4)) == 1,
-        JumpCondition::ZSet => jump = (get_rb(result_state.af) & (1 << 7))  == 1,
+        JumpCondition::CNotSet => jump = !check_bit(get_rb(result_state.af), 4),
+        JumpCondition::ZNotSet => jump = !check_bit(get_rb(result_state.af), 7),
+        JumpCondition::CSet => jump = check_bit(get_rb(result_state.af), 4),
+        JumpCondition::ZSet => jump = check_bit(get_rb(result_state.af), 7),
     }
 
     if jump {
@@ -472,6 +515,7 @@ fn conditional_relative_jump(state: CpuState, condition: JumpCondition) -> CpuSt
     }
     else {
         result_state.pc += 2;
+        result_state.cycles += 8;
     }
     
     result_state
@@ -488,6 +532,7 @@ fn call(state: CpuState) -> CpuState {
     result_state.stack.push(get_rb(next_pc));
 
     result_state.pc = target_addr;
+    result_state.cycles += 24;
 
     result_state
 }
@@ -499,10 +544,10 @@ fn conditional_call(state: CpuState, condition: JumpCondition) -> CpuState {
 
     match condition {
 
-        JumpCondition::CNotSet => should_call = (get_rb(result_state.af) & (1 << 4)) == 0,
-        JumpCondition::ZNotSet => should_call = (get_rb(result_state.af) & (1 << 7)) == 0,
-        JumpCondition::CSet => should_call = (get_rb(result_state.af) & (1 << 4)) == 1,
-        JumpCondition::ZSet => should_call = (get_rb(result_state.af) & (1 << 7))  == 1,
+        JumpCondition::CNotSet => should_call = !check_bit(get_rb(result_state.af), 4),
+        JumpCondition::ZNotSet => should_call = !check_bit(get_rb(result_state.af), 7),
+        JumpCondition::CSet => should_call = check_bit(get_rb(result_state.af), 4),
+        JumpCondition::ZSet => should_call = check_bit(get_rb(result_state.af), 7),
     }
 
     if should_call {
@@ -510,6 +555,7 @@ fn conditional_call(state: CpuState, condition: JumpCondition) -> CpuState {
     }
     else {
         result_state.pc += 3;
+        result_state.cycles += 12;
     }
 
     result_state
@@ -524,6 +570,7 @@ fn ret(state: CpuState) -> CpuState {
     ret_addr[1] = result_state.stack.pop().unwrap();
 
     result_state.pc = LittleEndian::read_u16(&ret_addr);
+    result_state.cycles += 16;
 
     result_state
 }
@@ -535,17 +582,19 @@ fn conditional_ret(state: CpuState, condition: JumpCondition) -> CpuState {
 
     match condition {
 
-        JumpCondition::CNotSet => should_ret = (get_rb(result_state.af) & (1 << 4)) == 0,
-        JumpCondition::ZNotSet => should_ret = (get_rb(result_state.af) & (1 << 7)) == 0,
-        JumpCondition::CSet => should_ret = (get_rb(result_state.af) & (1 << 4)) == 1,
-        JumpCondition::ZSet => should_ret = (get_rb(result_state.af) & (1 << 7))  == 1,
+        JumpCondition::CNotSet => should_ret = !check_bit(get_rb(result_state.af), 4),
+        JumpCondition::ZNotSet => should_ret = !check_bit(get_rb(result_state.af), 7),
+        JumpCondition::CSet => should_ret = check_bit(get_rb(result_state.af), 4),
+        JumpCondition::ZSet => should_ret = check_bit(get_rb(result_state.af), 7),
     }
 
     if should_ret {
         result_state = ret(result_state);
+        result_state.cycles += 4;
     }
     else {
         result_state.pc += 1;
+        result_state.cycles += 8;
     }
 
     result_state
@@ -570,6 +619,7 @@ fn ld_full_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
     }
     
     result_state.pc += 3;
+    result_state.cycles += 12;
     result_state
 }
 
@@ -590,6 +640,7 @@ fn ld_hi_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
     }
 
     result_state.pc += 2;
+    result_state.cycles += 8;
     result_state
 }
 
@@ -608,6 +659,7 @@ fn ld_low_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
     }
 
     result_state.pc += 2;
+    result_state.cycles += 8;
     result_state
 }
 
@@ -647,6 +699,7 @@ fn ld_hi_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) 
         _ => panic!("Invalid register in instruction"),
     }
     result_state.pc += 1;
+    result_state.cycles += 4;
     result_state
 }
 
@@ -657,9 +710,9 @@ fn ld_low_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg)
     let target: u16;
 
     match source_reg {
-        TargetReg::C => source = get_rb(result_state.af),
-        TargetReg::E => source = get_rb(result_state.bc),
-        TargetReg::L => source = get_rb(result_state.de),
+        TargetReg::C => source = get_rb(result_state.bc),
+        TargetReg::E => source = get_rb(result_state.de),
+        TargetReg::L => source = get_rb(result_state.hl),
         
         _ => panic!("Invalid register in instruction"),
     }
@@ -685,6 +738,7 @@ fn ld_low_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg)
         _ => panic!("Invalid register in instruction"),
     }
     result_state.pc += 1;
+    result_state.cycles += 4;
     result_state
 }
 
@@ -692,9 +746,35 @@ fn ld_a_from_hl_inc(state: CpuState) -> CpuState {
 
     let mut result_state = state;
     let new_value = memory_read_u8(&result_state.hl, &result_state);
+
     result_state.af = set_lb(result_state.af, new_value);
     result_state.hl += 1;
     result_state.pc += 1;
+    result_state.cycles += 8;
+
+    result_state
+}
+
+fn ld_a_from_full(state: CpuState, source_reg: TargetReg) -> CpuState {
+
+    let mut result_state = state;
+    let addr: u16;
+    let value: u8;
+
+    match source_reg {
+
+        TargetReg::BC => addr = result_state.bc,
+        TargetReg::DE => addr = result_state.de,
+
+        _ => panic!("Invalid reg for instruction"),
+    }
+
+    value = memory_read_u8(&addr, &result_state);
+    result_state.af = set_lb(result_state.af, value);
+
+    result_state.pc += 1;
+    result_state.cycles += 8;
+
     result_state
 }
 
@@ -706,6 +786,20 @@ fn ld_a_from_ff_imm(state: CpuState) -> CpuState {
 
     result_state.af = set_lb(result_state.af, value);
     result_state.pc += 2;
+    result_state.cycles += 12;
+    result_state
+}
+
+fn ld_a_from_imm_addr(state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+    let target_addr = memory_read_u16(&(result_state.pc + 1), &result_state);
+    let value = memory_read_u8(&target_addr, &result_state);
+
+    result_state.af = set_lb(result_state.af, value);
+    result_state.pc += 3;
+    result_state.cycles += 16;
+
     result_state
 }
 
@@ -739,6 +833,7 @@ fn save_reg_to_full(state: CpuState, target_reg: TargetReg, addr_reg: TargetReg)
 
     result_state = memory_write(addr, value, result_state);
     result_state.pc += 1;
+    result_state.cycles += 8;
 
     result_state
 }
@@ -756,7 +851,10 @@ fn save_reg_to_addr(state: CpuState, target_reg: TargetReg) -> CpuState {
     }
 
     result_state = memory_write(target_addr, value, result_state);
+
     result_state.pc += 3;
+    result_state.cycles += 16;
+    
     result_state
 }
 
@@ -764,8 +862,11 @@ fn save_a_to_ff_imm(state: CpuState) -> CpuState {
 
     let mut result_state = state;
     let addr: u16 = 0xFF00 + (memory_read_u8(&(result_state.pc + 1), &result_state) as u16);
+
     result_state = memory_write(addr, get_lb(result_state.af), result_state);
     result_state.pc += 2;
+    result_state.cycles += 12;
+    
     result_state
 }
 
@@ -850,6 +951,7 @@ fn increment_reg(state: CpuState, reg: TargetReg) -> CpuState {
     }
 
     result_state.pc += 1;
+    result_state.cycles += 4;
     result_state
 }
 
@@ -934,6 +1036,7 @@ fn decrement_reg(state: CpuState, reg: TargetReg) -> CpuState {
     }
 
     result_state.pc += 1;
+    result_state.cycles += 4;
     result_state
 }
 
@@ -950,6 +1053,7 @@ fn increment_full_reg(state: CpuState, reg: TargetReg) -> CpuState {
     }
 
     result_state.pc += 1;
+    result_state.cycles += 8;
     result_state
 }
 
@@ -966,6 +1070,7 @@ fn decrement_full_reg(state: CpuState, reg: TargetReg) -> CpuState {
     }
 
     result_state.pc += 1;
+    result_state.cycles += 8;
     result_state
 }
 
@@ -973,6 +1078,7 @@ fn di(state: CpuState) -> CpuState {
 
     let mut result_state = state;
     result_state.pc += 1;
+    result_state.cycles += 4;
     result_state = memory_write(0xFFFF, 0, result_state);
     result_state
 }
@@ -981,6 +1087,7 @@ fn ei(state: CpuState) -> CpuState {
 
     let mut result_state = state;
     result_state.pc += 1;
+    result_state.cycles += 4;
     result_state = memory_write(0xFFFF, 1, result_state);
     result_state
 }
@@ -1004,6 +1111,7 @@ fn pop(state: CpuState, target_reg: TargetReg) -> CpuState {
     }
 
     result_state.pc += 1;
+    result_state.cycles += 12;
     result_state
 }
 
@@ -1026,6 +1134,7 @@ fn push(state: CpuState, target_reg: TargetReg) -> CpuState {
     result_state.stack.push(get_rb(value));   
 
     result_state.pc += 1;
+    result_state.cycles += 16;
     result_state
 }
 
@@ -1081,6 +1190,7 @@ fn and_reg(state: CpuState, target_reg: TargetReg) -> CpuState {
     result_state = reset_flag(TargetFlag::CFlag, result_state);
 
     result_state.pc += 1;
+    result_state.cycles += 4;
     result_state
 }
 
@@ -1136,6 +1246,7 @@ fn or_reg(state: CpuState, target_reg: TargetReg) -> CpuState {
     result_state = reset_flag(TargetFlag::CFlag, result_state);
 
     result_state.pc += 1;
+    result_state.cycles += 8;
     result_state
 }
 
@@ -1191,6 +1302,7 @@ fn xor_reg(state: CpuState, target_reg: TargetReg) -> CpuState {
     result_state = reset_flag(TargetFlag::CFlag, result_state);
 
     result_state.pc += 1;
+    result_state.cycles += 4;
     result_state
 }
 
@@ -1221,6 +1333,7 @@ fn cmp(state: CpuState, target_reg: TargetReg) -> CpuState {
     else { result_state = reset_flag(TargetFlag::CFlag, result_state); }
 
     result_state.pc += 1;
+    result_state.cycles += 4;
 
     result_state
 }
@@ -1245,6 +1358,7 @@ fn cmp_imm(state: CpuState) -> CpuState {
     else { result_state = reset_flag(TargetFlag::CFlag, result_state); }
 
     result_state.pc += 2;
+    result_state.cycles += 8;
 
     result_state
 }
@@ -1263,6 +1377,254 @@ fn cmp_hl(state: CpuState) -> CpuState {
     else { result_state = reset_flag(TargetFlag::CFlag, result_state); }
 
     result_state.pc += 1;
+    result_state.cycles += 8;
+
+    result_state
+}
+
+fn add_reg_to_a(state: CpuState, source_reg: TargetReg) -> CpuState {
+
+    let mut result_state = state;
+    let value: u8;
+
+    match source_reg {
+
+        TargetReg::A => value = get_lb(result_state.af),
+        TargetReg::B => value = get_lb(result_state.bc),
+        TargetReg::C => value = get_rb(result_state.bc),
+        TargetReg::D => value = get_lb(result_state.de),
+        TargetReg::E => value = get_rb(result_state.de),
+        TargetReg::H => value = get_lb(result_state.hl),
+        TargetReg::L => value = get_rb(result_state.hl),
+
+        _ => panic!("Invalid reg for instruction"),
+    }
+
+    let result = get_lb(result_state.af).overflowing_add(value);
+
+    result_state.af = set_lb(result_state.af, result.0);
+    result_state.pc += 1;
+    result_state.cycles += 4;
+
+    if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
+    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+
+    result_state = reset_flag(TargetFlag::NFlag, result_state);
+
+    result_state
+}
+
+fn add_imm_to_a(state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+    let value = memory_read_u8(&(result_state.pc + 1), &result_state);
+
+    let result = get_lb(result_state.af).overflowing_add(value);
+    
+    result_state.af = set_lb(result_state.af, result.0);
+    result_state.pc += 2;
+    result_state.cycles += 8;
+
+    if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
+    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+
+    result_state = reset_flag(TargetFlag::NFlag, result_state);
+    
+    result_state
+}
+
+fn add_hl_to_a(state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+    let value = memory_read_u8(&result_state.hl, &result_state);
+
+    let result = get_lb(result_state.af).overflowing_add(value);
+
+    result_state.af = set_lb(result_state.af, result.0);
+    result_state.pc += 1;
+    result_state.cycles += 8;
+
+    if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
+    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+
+    result_state = reset_flag(TargetFlag::NFlag, result_state);
+    
+    result_state
+}
+
+fn sub_reg_to_a(state: CpuState, source_reg: TargetReg) -> CpuState {
+    
+    let mut result_state = state;
+    let value: u8;
+
+    match source_reg {
+
+        TargetReg::A => value = get_lb(result_state.af),
+        TargetReg::B => value = get_lb(result_state.bc),
+        TargetReg::C => value = get_rb(result_state.bc),
+        TargetReg::D => value = get_lb(result_state.de),
+        TargetReg::E => value = get_rb(result_state.de),
+        TargetReg::H => value = get_lb(result_state.hl),
+        TargetReg::L => value = get_rb(result_state.hl),
+
+        _ => panic!("Invalid reg for instruction"),
+    }
+
+    let result = get_lb(result_state.af).overflowing_sub(value);
+
+    result_state.af = set_lb(result_state.af, result.0);
+    result_state.pc += 1;
+    result_state.cycles += 4;
+
+    if value == 0x0 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
+    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+
+    result_state = set_flag(TargetFlag::NFlag, result_state);
+
+    if result.1 { result_state = reset_flag(TargetFlag::CFlag, result_state)}
+    else { result_state = set_flag(TargetFlag::CFlag, result_state) }
+
+    result_state
+}
+
+fn sub_imm_to_a(state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+    let value = memory_read_u8(&(result_state.pc + 1), &result_state);
+
+    let result = get_lb(result_state.af).overflowing_sub(value);
+
+    result_state.af = set_lb(result_state.af, result.0);
+    result_state.pc += 2;
+    result_state.cycles += 8;
+
+    if value == 0x0 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
+    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+
+    result_state = set_flag(TargetFlag::NFlag, result_state);
+
+    if result.1 { result_state = reset_flag(TargetFlag::CFlag, result_state)}
+    else { result_state = set_flag(TargetFlag::CFlag, result_state) }
+    
+    result_state
+}
+
+fn sub_hl_to_a(state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+    let value = memory_read_u8(&result_state.hl, &result_state);
+
+    let result = get_lb(result_state.af).overflowing_sub(value);
+
+    result_state.af = set_lb(result_state.af, result.0);
+    result_state.pc += 1;
+    result_state.cycles += 8;
+
+    if value == 0x0 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
+    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+
+    result_state = set_flag(TargetFlag::NFlag, result_state);
+
+    if result.1 { result_state = reset_flag(TargetFlag::CFlag, result_state)}
+    else { result_state = set_flag(TargetFlag::CFlag, result_state) }
+    
+    result_state
+}
+
+fn rra(state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+    let mut carry_flag = 0;
+    let will_carry = check_bit(get_lb(result_state.af), 0);
+    let mut result = get_lb(result_state.af) >> 1;
+
+    if check_bit(get_lb(result_state.af), 7) { carry_flag = 1; }
+
+    result |= carry_flag << 7;
+    result_state.af = set_lb(result_state.af, result);
+
+    if result == 0x0 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
+    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+
+    if will_carry { result_state = set_flag(TargetFlag::CFlag, result_state); }
+    else { result_state = reset_flag(TargetFlag::CFlag, result_state); }
+
+    result_state = reset_flag(TargetFlag::NFlag, result_state);
+    result_state = reset_flag(TargetFlag::HFlag, result_state);
+
+    result_state.pc += 1;
+    result_state.cycles += 4;
+
+    result_state
+}
+
+
+
+// Early GPU emulation, should probably spend more time on this.
+// Seems to be working fine so far, but it's not fully confirmed.
+fn gpu_tick(state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+    result_state.gpu_modeclock += result_state.cycles;
+
+    match result_state.gpu_mode {
+
+        // HBlank mode
+        0 => {
+            if result_state.gpu_modeclock >= 204 {
+                
+                result_state.gpu_modeclock = 0;
+                result_state.gpu_line += 1;
+                result_state = memory_write(0xFF44, result_state.gpu_line, result_state);
+
+                if result_state.gpu_line == 143 {
+                    // Go into VBlank mode.
+                    result_state.gpu_mode = 1;
+                    // Send data to screen.
+                }
+            }
+        }
+        
+        // VBlank mode
+        1 => {
+            if result_state.gpu_modeclock >= 456 {
+
+                result_state.gpu_modeclock = 0;
+                result_state.gpu_line += 1;
+                result_state = memory_write(0xFF44, result_state.gpu_line, result_state);
+
+                if result_state.gpu_line > 153 {
+
+                    // End of the screen, restart.
+                    result_state.gpu_mode = 2;
+                    result_state.gpu_line = 0;
+                    result_state = memory_write(0xFF44, result_state.gpu_line, result_state);
+                }
+            }
+        }
+
+        // OAM Read mode
+        2 => {
+            if result_state.gpu_modeclock >= 80 {
+
+                result_state.gpu_modeclock = 0;
+                result_state.gpu_mode = 3;
+            }
+        }
+
+        // VRAM Read mode
+        3 => {
+            if result_state.gpu_modeclock >= 172 {
+
+                result_state.gpu_modeclock = 0;
+                result_state.gpu_mode = 0;
+
+                // Draw a line
+            }
+        }
+
+        _ => panic!("Invalid GPU Mode"),
+    }
 
     result_state
 }
