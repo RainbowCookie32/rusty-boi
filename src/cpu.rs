@@ -1,7 +1,5 @@
 use std::convert::TryInto;
-
 use byteorder::{ByteOrder, LittleEndian};
-
 
 pub struct CpuState {
     pub af: u16,
@@ -21,13 +19,15 @@ pub struct CpuState {
     pub gpu_modeclock: u32,
     pub gpu_line: u8,
 
+    pub vram: Vec<u8>,
+
     pub loaded_rom: Vec<u8>,
 
     pub should_execute: bool,
     pub nops: u8,
 }
 
-enum JumpCondition {
+pub enum JumpCondition {
 
     ZSet,
     ZNotSet,
@@ -35,7 +35,7 @@ enum JumpCondition {
     CNotSet,
 }
 
-enum TargetFlag {
+pub enum TargetFlag {
 
     ZFlag,
     NFlag,
@@ -43,7 +43,7 @@ enum TargetFlag {
     CFlag,
 }
 
-enum TargetReg {
+pub enum TargetReg {
     
     AF,
     BC,
@@ -60,8 +60,7 @@ enum TargetReg {
     L,
 }
 
-
-fn set_flag(flag: TargetFlag, state: CpuState) -> CpuState {
+pub fn set_flag(flag: TargetFlag, state: CpuState) -> CpuState {
 
     let mut result_state = state;
 
@@ -75,7 +74,7 @@ fn set_flag(flag: TargetFlag, state: CpuState) -> CpuState {
     result_state
 }
 
-fn reset_flag(flag: TargetFlag, state: CpuState) -> CpuState {
+pub fn reset_flag(flag: TargetFlag, state: CpuState) -> CpuState {
 
     let mut result_state = state;
 
@@ -95,42 +94,43 @@ fn reset_flag(flag: TargetFlag, state: CpuState) -> CpuState {
 // (left and right is used instead of high and low in order to
 // prevent confusion when dealing with different endiannesses)
 
-fn get_lb(value: u16) -> u8 {
+pub fn get_lb(value: u16) -> u8 {
     (value >> 8) as u8
 }
 
-fn set_lb(value: u16, lb_val: u8) -> u16 {
+pub fn set_lb(value: u16, lb_val: u8) -> u16 {
     value & 0xFF | (lb_val as u16) << 8
 }
 
-fn get_rb(value: u16) -> u8 {
+pub fn get_rb(value: u16) -> u8 {
     (value & 0xFF) as u8
 }
 
-fn set_rb(value: u16, rb_val: u8) -> u16 {
+pub fn set_rb(value: u16, rb_val: u8) -> u16 {
     value & !0xFF | rb_val as u16
 }
 
-fn set_bit(value: u16, offset: u8) -> u16 {
+pub fn set_bit(value: u16, offset: u8) -> u16 {
     value | 1 << offset
 }
 
-fn reset_bit(value: u16, offset: u8) -> u16 {
+pub fn reset_bit(value: u16, offset: u8) -> u16 {
     value & !(1 << offset)
 }
 
-fn check_bit(value: u8, bit: u8) -> bool {
+pub fn check_bit(value: u8, bit: u8) -> bool {
     (value & (1 << bit)) != 0
 }
+
 
 pub fn init_cpu(rom: Vec<u8>) {
 
     let initial_state = CpuState {
-        af: 0x1180,
-        bc: 0x0000,
-        de: 0xFF56,
-        hl: 0x000D,
-        pc: 0x0100,
+        af: 0x01B0,
+        bc: 0x0013,
+        de: 0x00D8,
+        hl: 0x014D,
+        pc: 0x0000, // 0x0100 is the start value for ROMS, 0x0000 is for the bootrom
         sp: 0xFFFE,
 
         cycles: 0,
@@ -142,6 +142,7 @@ pub fn init_cpu(rom: Vec<u8>) {
         gpu_mode: 0,
         gpu_modeclock: 0,
         gpu_line: 0,
+        vram: vec![0; 8192],
 
         loaded_rom: rom,
 
@@ -159,7 +160,15 @@ fn exec_loop(state: CpuState) {
     let mut current_state = state;
     
     while current_state.should_execute {
-        current_state = run_instruction(memory_read_u8(&current_state.pc, &current_state), current_state);
+        let mut opcode = memory_read_u8(&current_state.pc, &current_state);
+        
+        if opcode == 0xCB {
+            opcode = memory_read_u8(&(current_state.pc + 1), &current_state);
+            current_state = run_prefixed_instruction(opcode, current_state);
+        }
+        else {
+            current_state = run_instruction(opcode, current_state);
+        }
     }
 
     println!("should_execute is false, stopping CPU execution");
@@ -169,7 +178,7 @@ fn exec_loop(state: CpuState) {
 fn memory_read_u8(addr: &u16, state: &CpuState) -> u8 {
 
     let address: u16 = *addr;
-    if address > 0x0000 && address <= 0x3FFF
+    if address <= 0x3FFF
     {
         let memory_addr: usize = address.try_into().unwrap();
         state.loaded_rom[memory_addr]
@@ -178,6 +187,11 @@ fn memory_read_u8(addr: &u16, state: &CpuState) -> u8 {
     {
         let memory_addr: usize = address.try_into().unwrap();
         state.loaded_rom[memory_addr]
+    }
+    else if address >= 0x8000 && address <= 0x9FFF
+    {
+        let memory_addr: usize = (addr - 0x8000).try_into().unwrap();
+        state.vram[memory_addr]
     }
     else if address >= 0xC000 && address <= 0xCFFF
     {
@@ -206,7 +220,7 @@ fn memory_read_u16(addr: &u16, state: &CpuState) -> u16 {
     let mut target: Vec<u8> = vec![0; 2];
     let target_addr: u16;
 
-    if address > 0x0000 && address <= 0x3FFF
+    if address <= 0x3FFF
     {
         let memory_addr: usize = address.try_into().unwrap();
         target[0] = state.loaded_rom[memory_addr];
@@ -219,6 +233,14 @@ fn memory_read_u16(addr: &u16, state: &CpuState) -> u16 {
         let memory_addr: usize = address.try_into().unwrap();
         target[0] = state.loaded_rom[memory_addr];
         target[1] = state.loaded_rom[memory_addr + 1];
+        target_addr = LittleEndian::read_u16(&target);
+        target_addr
+    }
+    else if address >= 0x8000 && address <= 0x9FFF
+    {
+        let memory_addr: usize = (address - 0x8000).try_into().unwrap();
+        target[0] = state.vram[memory_addr];
+        target[1] = state.vram[memory_addr + 1];
         target_addr = LittleEndian::read_u16(&target);
         target_addr
     }
@@ -256,13 +278,19 @@ fn memory_write(address: u16, value: u8, state: CpuState) -> CpuState {
 
     let mut result_state = state;
 
-    if address > 0x0000 && address <= 0x3FFF
+    if address <= 0x3FFF
     {
         panic!("Tried to write to cart, illegal write");
     }
     else if address >= 0x4000 && address <= 0x7FFF
     {
         panic!("Tried to write to cart, illegal write");
+    }
+    else if address >= 0x8000 && address <= 0x9FFF
+    {
+        let memory_addr: usize = (address - 0x8000).try_into().unwrap();        
+        result_state.vram[memory_addr] = value;
+        result_state
     }
     else if address >= 0xC000 && address <= 0xCFFF
     {
@@ -288,6 +316,85 @@ fn memory_write(address: u16, value: u8, state: CpuState) -> CpuState {
     }
 }
 
+fn run_prefixed_instruction(opcode: u8, state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+
+    println!("Running prefixed opcode {} at PC: {}", format!("{:#X}", opcode), format!("{:#X}", result_state.pc));
+
+    match opcode {
+
+        0x40 => result_state = bit(result_state, TargetReg::B, 0),
+        0x41 => result_state = bit(result_state, TargetReg::C, 0),
+        0x42 => result_state = bit(result_state, TargetReg::D, 0),
+        0x43 => result_state = bit(result_state, TargetReg::E, 0),
+        0x44 => result_state = bit(result_state, TargetReg::H, 0),
+        0x45 => result_state = bit(result_state, TargetReg::L, 0),
+        0x47 => result_state = bit(result_state, TargetReg::A, 0),
+        0x48 => result_state = bit(result_state, TargetReg::B, 1),
+        0x49 => result_state = bit(result_state, TargetReg::C, 1),
+        0x4A => result_state = bit(result_state, TargetReg::D, 1),
+        0x4B => result_state = bit(result_state, TargetReg::E, 1),
+        0x4C => result_state = bit(result_state, TargetReg::H, 1),
+        0x4D => result_state = bit(result_state, TargetReg::L, 1),
+        0x4F => result_state = bit(result_state, TargetReg::A, 1),
+
+        0x50 => result_state = bit(result_state, TargetReg::B, 2),
+        0x51 => result_state = bit(result_state, TargetReg::C, 2),
+        0x52 => result_state = bit(result_state, TargetReg::D, 2),
+        0x53 => result_state = bit(result_state, TargetReg::E, 2),
+        0x54 => result_state = bit(result_state, TargetReg::H, 2),
+        0x55 => result_state = bit(result_state, TargetReg::L, 2),
+        0x57 => result_state = bit(result_state, TargetReg::A, 2),
+        0x58 => result_state = bit(result_state, TargetReg::B, 3),
+        0x59 => result_state = bit(result_state, TargetReg::C, 3),
+        0x5A => result_state = bit(result_state, TargetReg::D, 3),
+        0x5B => result_state = bit(result_state, TargetReg::E, 3),
+        0x5C => result_state = bit(result_state, TargetReg::H, 3),
+        0x5D => result_state = bit(result_state, TargetReg::L, 3),
+        0x5F => result_state = bit(result_state, TargetReg::A, 3),
+
+        0x60 => result_state = bit(result_state, TargetReg::B, 4),
+        0x61 => result_state = bit(result_state, TargetReg::C, 4),
+        0x62 => result_state = bit(result_state, TargetReg::D, 4),
+        0x63 => result_state = bit(result_state, TargetReg::E, 4),
+        0x64 => result_state = bit(result_state, TargetReg::H, 4),
+        0x65 => result_state = bit(result_state, TargetReg::L, 4),
+        0x67 => result_state = bit(result_state, TargetReg::A, 4),
+        0x68 => result_state = bit(result_state, TargetReg::B, 5),
+        0x69 => result_state = bit(result_state, TargetReg::C, 5),
+        0x6A => result_state = bit(result_state, TargetReg::D, 5),
+        0x6B => result_state = bit(result_state, TargetReg::E, 5),
+        0x6C => result_state = bit(result_state, TargetReg::H, 5),
+        0x6D => result_state = bit(result_state, TargetReg::L, 5),
+        0x6F => result_state = bit(result_state, TargetReg::A, 5),
+
+        0x70 => result_state = bit(result_state, TargetReg::B, 6),
+        0x71 => result_state = bit(result_state, TargetReg::C, 6),
+        0x72 => result_state = bit(result_state, TargetReg::D, 6),
+        0x73 => result_state = bit(result_state, TargetReg::E, 6),
+        0x74 => result_state = bit(result_state, TargetReg::H, 6),
+        0x75 => result_state = bit(result_state, TargetReg::L, 6),
+        0x77 => result_state = bit(result_state, TargetReg::A, 6),
+        0x78 => result_state = bit(result_state, TargetReg::B, 7),
+        0x79 => result_state = bit(result_state, TargetReg::C, 7),
+        0x7A => result_state = bit(result_state, TargetReg::D, 7),
+        0x7B => result_state = bit(result_state, TargetReg::E, 7),
+        0x7C => result_state = bit(result_state, TargetReg::H, 7),
+        0x7D => result_state = bit(result_state, TargetReg::L, 7),
+        0x7F => result_state = bit(result_state, TargetReg::A, 7),
+
+
+        _    => 
+        {
+            result_state.should_execute = false;
+            println!("Unrecognized prefixed opcode: {} at PC {}", format!("{:#X}", opcode), format!("{:#X}", result_state.pc));
+        },
+    }
+
+    result_state
+}
+
 fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
 
     // Setting up the default result state using the values the CPU had when starting this opcode
@@ -306,10 +413,6 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         {
             result_state.nops += 1;
         }
-    }
-
-    if result_state.pc == 0xC7EE {
-        println!("the sweet spot");
     }
 
     match opcode {
@@ -343,6 +446,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
 
         0x20 => result_state = conditional_relative_jump(result_state, JumpCondition::ZNotSet),
         0x21 => result_state = ld_full_from_imm(result_state, TargetReg::HL),
+        0x22 => result_state = save_a_to_hl_inc(result_state),
         0x23 => result_state = increment_full_reg(result_state, TargetReg::HL),
         0x24 => result_state = increment_reg(result_state, TargetReg::H),
         0x25 => result_state = decrement_reg(result_state, TargetReg::H),
@@ -356,6 +460,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
 
         0x30 => result_state = conditional_relative_jump(result_state, JumpCondition::CNotSet),
         0x31 => result_state = ld_full_from_imm(result_state, TargetReg::SP),
+        0x32 => result_state = save_a_to_hl_dec(result_state),
         0x38 => result_state = conditional_relative_jump(result_state, JumpCondition::CSet),
         0x3C => result_state = increment_reg(result_state, TargetReg::A),
         0x3D => result_state = decrement_reg(result_state, TargetReg::A),
@@ -369,6 +474,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         0x73 => result_state = save_reg_to_full(result_state, TargetReg::E, TargetReg::HL),
         0x74 => result_state = save_reg_to_full(result_state, TargetReg::H, TargetReg::HL),
         0x75 => result_state = save_reg_to_full(result_state, TargetReg::L, TargetReg::HL),
+        0x77 => result_state = save_a_to_hl(result_state),
         0x78 => result_state = ld_hi_into_hi(result_state, TargetReg::B, TargetReg::A),
         0x79 => result_state = ld_low_into_hi(result_state, TargetReg::C, TargetReg::A),
         0x7A => result_state = ld_hi_into_hi(result_state, TargetReg::D, TargetReg::A),
@@ -446,6 +552,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
 
         0xE0 => result_state = save_a_to_ff_imm(result_state),
         0xE1 => result_state = pop(result_state, TargetReg::HL),
+        0xE2 => result_state = save_a_to_ff_c(result_state),
         0xE5 => result_state = push(result_state, TargetReg::HL),
         0xEA => result_state = save_reg_to_addr(result_state, TargetReg::A),
 
@@ -468,6 +575,10 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
     result_state = gpu_tick(result_state);
     result_state
 }
+
+
+// Normal Opcodes
+
 
 fn nop(state: CpuState) -> CpuState {
 
@@ -803,6 +914,46 @@ fn ld_a_from_imm_addr(state: CpuState) -> CpuState {
     result_state
 }
 
+fn save_a_to_hl(state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+
+    result_state = memory_write(result_state.hl, get_lb(result_state.af), result_state);
+
+    result_state.pc += 1;
+    result_state.cycles += 8;
+
+    result_state
+}
+
+fn save_a_to_hl_inc(state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+
+    result_state = memory_write(result_state.hl, get_lb(result_state.af), result_state);
+
+    result_state.hl += 1;
+
+    result_state.pc += 1;
+    result_state.cycles += 8;
+
+    result_state
+}
+
+fn save_a_to_hl_dec(state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+
+    result_state = memory_write(result_state.hl, get_lb(result_state.af), result_state);
+
+    result_state.hl -= 1;
+
+    result_state.pc += 1;
+    result_state.cycles += 8;
+
+    result_state
+}
+
 fn save_reg_to_full(state: CpuState, target_reg: TargetReg, addr_reg: TargetReg) -> CpuState {
 
     let mut result_state = state;
@@ -866,7 +1017,19 @@ fn save_a_to_ff_imm(state: CpuState) -> CpuState {
     result_state = memory_write(addr, get_lb(result_state.af), result_state);
     result_state.pc += 2;
     result_state.cycles += 12;
-    
+
+    result_state
+}
+
+fn save_a_to_ff_c(state: CpuState) -> CpuState {
+
+    let mut result_state = state;
+    let addr: u16 = 0xFF00 + (get_rb(result_state.bc) as u16);
+
+    result_state = memory_write(addr, get_lb(result_state.af), result_state);
+    result_state.pc += 2;
+    result_state.cycles += 8;
+
     result_state
 }
 
@@ -1110,6 +1273,7 @@ fn pop(state: CpuState, target_reg: TargetReg) -> CpuState {
         _ => panic!("Invalid reg for instruction"),
     }
 
+    result_state.sp += 2;
     result_state.pc += 1;
     result_state.cycles += 12;
     result_state
@@ -1133,6 +1297,7 @@ fn push(state: CpuState, target_reg: TargetReg) -> CpuState {
     result_state.stack.push(get_lb(value));
     result_state.stack.push(get_rb(value));   
 
+    result_state.sp -= 2;
     result_state.pc += 1;
     result_state.cycles += 16;
     result_state
@@ -1554,6 +1719,40 @@ fn rra(state: CpuState) -> CpuState {
 
     result_state.pc += 1;
     result_state.cycles += 4;
+
+    result_state
+}
+
+
+
+// Prefixed Opcodes
+
+fn bit(state: CpuState, target_reg: TargetReg, bit: u8) -> CpuState {
+
+    let mut result_state = state;
+    let is_set: bool;
+
+    match target_reg {
+
+        TargetReg::A => is_set = check_bit(get_lb(result_state.af), bit),
+        TargetReg::B => is_set = check_bit(get_lb(result_state.bc), bit),
+        TargetReg::C => is_set = check_bit(get_rb(result_state.bc), bit),
+        TargetReg::D => is_set = check_bit(get_lb(result_state.de), bit),
+        TargetReg::E => is_set = check_bit(get_rb(result_state.de), bit),
+        TargetReg::H => is_set = check_bit(get_lb(result_state.hl), bit),
+        TargetReg::L => is_set = check_bit(get_rb(result_state.hl), bit),
+
+        _ => panic!("Invalid reg for instruction"),
+    }
+
+    if is_set { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+    else  { result_state = set_flag(TargetFlag::ZFlag, result_state); }
+
+    result_state = reset_flag(TargetFlag::NFlag, result_state);
+    result_state = set_flag(TargetFlag::HFlag, result_state);
+
+    result_state.pc += 2;
+    result_state.cycles += 8;
 
     result_state
 }
