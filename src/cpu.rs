@@ -1,6 +1,8 @@
 use std::convert::TryInto;
 use byteorder::{ByteOrder, LittleEndian};
 
+use super::utils;
+
 pub struct CpuState {
     pub af: u16,
     pub bc: u16,
@@ -21,6 +23,7 @@ pub struct CpuState {
 
     pub vram: Vec<u8>,
 
+    pub loaded_bootrom: Vec<u8>,
     pub loaded_rom: Vec<u8>,
 
     pub should_execute: bool,
@@ -60,70 +63,7 @@ pub enum TargetReg {
     L,
 }
 
-pub fn set_flag(flag: TargetFlag, state: CpuState) -> CpuState {
-
-    let mut result_state = state;
-
-    match flag {
-        TargetFlag::ZFlag => result_state.af = set_bit(result_state.af, 7),
-        TargetFlag::NFlag => result_state.af = set_bit(result_state.af, 6),
-        TargetFlag::HFlag => result_state.af = set_bit(result_state.af, 5),
-        TargetFlag::CFlag => result_state.af = set_bit(result_state.af, 4),
-    }
-
-    result_state
-}
-
-pub fn reset_flag(flag: TargetFlag, state: CpuState) -> CpuState {
-
-    let mut result_state = state;
-
-    match flag {
-        TargetFlag::ZFlag => result_state.af = reset_bit(result_state.af, 7),
-        TargetFlag::NFlag => result_state.af = reset_bit(result_state.af, 6),
-        TargetFlag::HFlag => result_state.af = reset_bit(result_state.af, 5),
-        TargetFlag::CFlag => result_state.af = reset_bit(result_state.af, 4),
-    }
-
-    result_state
-}
-
-// assuming 16 bit values is all we ever deal with
-// lb means "left byte", rb means "right byte"
-
-// (left and right is used instead of high and low in order to
-// prevent confusion when dealing with different endiannesses)
-
-pub fn get_lb(value: u16) -> u8 {
-    (value >> 8) as u8
-}
-
-pub fn set_lb(value: u16, lb_val: u8) -> u16 {
-    value & 0xFF | (lb_val as u16) << 8
-}
-
-pub fn get_rb(value: u16) -> u8 {
-    (value & 0xFF) as u8
-}
-
-pub fn set_rb(value: u16, rb_val: u8) -> u16 {
-    value & !0xFF | rb_val as u16
-}
-
-pub fn set_bit(value: u16, offset: u8) -> u16 {
-    value | 1 << offset
-}
-
-pub fn reset_bit(value: u16, offset: u8) -> u16 {
-    value & !(1 << offset)
-}
-
-pub fn check_bit(value: u8, bit: u8) -> bool {
-    (value & (1 << bit)) != 0
-}
-
-
-pub fn init_cpu(rom: Vec<u8>) {
+pub fn init_cpu(bootrom: Vec<u8>, rom: Vec<u8>) {
 
     let initial_state = CpuState {
         af: 0x01B0,
@@ -144,6 +84,7 @@ pub fn init_cpu(rom: Vec<u8>) {
         gpu_line: 0,
         vram: vec![0; 8192],
 
+        loaded_bootrom: bootrom,
         loaded_rom: rom,
 
         should_execute: true,
@@ -178,7 +119,13 @@ fn exec_loop(state: CpuState) {
 fn memory_read_u8(addr: &u16, state: &CpuState) -> u8 {
 
     let address: u16 = *addr;
-    if address <= 0x3FFF
+
+    if address < 0x0100 
+    {
+        let memory_addr: usize = address.try_into().unwrap();
+        state.loaded_bootrom[memory_addr]
+    }
+    else if address >= 0x0100 && address <= 0x3FFF
     {
         let memory_addr: usize = address.try_into().unwrap();
         state.loaded_rom[memory_addr]
@@ -191,6 +138,7 @@ fn memory_read_u8(addr: &u16, state: &CpuState) -> u8 {
     else if address >= 0x8000 && address <= 0x9FFF
     {
         let memory_addr: usize = (addr - 0x8000).try_into().unwrap();
+        println!("VRAM READ, VRAM READ!");
         state.vram[memory_addr]
     }
     else if address >= 0xC000 && address <= 0xCFFF
@@ -220,7 +168,15 @@ fn memory_read_u16(addr: &u16, state: &CpuState) -> u16 {
     let mut target: Vec<u8> = vec![0; 2];
     let target_addr: u16;
 
-    if address <= 0x3FFF
+    if address < 0x0100
+    {
+        let memory_addr: usize = address.try_into().unwrap();
+        target[0] = state.loaded_bootrom[memory_addr];
+        target[1] = state.loaded_bootrom[memory_addr + 1];
+        target_addr = LittleEndian::read_u16(&target);
+        target_addr
+    }
+    else if address >= 0x0100 && address <= 0x3FFF
     {
         let memory_addr: usize = address.try_into().unwrap();
         target[0] = state.loaded_rom[memory_addr];
@@ -242,6 +198,7 @@ fn memory_read_u16(addr: &u16, state: &CpuState) -> u16 {
         target[0] = state.vram[memory_addr];
         target[1] = state.vram[memory_addr + 1];
         target_addr = LittleEndian::read_u16(&target);
+        println!("VRAM READ, VRAM READ!");
         target_addr
     }
     else if address >= 0xC000 && address <= 0xCFFF
@@ -288,8 +245,9 @@ fn memory_write(address: u16, value: u8, state: CpuState) -> CpuState {
     }
     else if address >= 0x8000 && address <= 0x9FFF
     {
-        let memory_addr: usize = (address - 0x8000).try_into().unwrap();        
+        let memory_addr: usize = (address - 0x8000).try_into().unwrap();
         result_state.vram[memory_addr] = value;
+        println!("VRAM WRITE, VRAM WRITE!");
         result_state
     }
     else if address >= 0xC000 && address <= 0xCFFF
@@ -323,6 +281,13 @@ fn run_prefixed_instruction(opcode: u8, state: CpuState) -> CpuState {
     println!("Running prefixed opcode {} at PC: {}", format!("{:#X}", opcode), format!("{:#X}", result_state.pc));
 
     match opcode {
+
+        0x10 => result_state = rl(result_state, TargetReg::B),
+        0x11 => result_state = rl(result_state, TargetReg::C),
+        0x12 => result_state = rl(result_state, TargetReg::D),
+        0x13 => result_state = rl(result_state, TargetReg::E),
+        0x14 => result_state = rl(result_state, TargetReg::H),
+        0x15 => result_state = rl(result_state, TargetReg::L),
 
         0x40 => result_state = bit(result_state, TargetReg::B, 0),
         0x41 => result_state = bit(result_state, TargetReg::C, 0),
@@ -436,6 +401,7 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         0x14 => result_state = increment_reg(result_state, TargetReg::D),
         0x15 => result_state = decrement_reg(result_state, TargetReg::D),
         0x16 => result_state = ld_hi_from_imm(result_state, TargetReg::D),
+        0x17 => result_state = rl(result_state, TargetReg::A),
         0x18 => result_state = relative_jmp(result_state),
         0x1A => result_state = ld_a_from_full(result_state, TargetReg::DE),
         0x1B => result_state = decrement_full_reg(result_state, TargetReg::DE),
@@ -466,7 +432,50 @@ fn run_instruction(opcode: u8, state: CpuState) -> CpuState {
         0x3D => result_state = decrement_reg(result_state, TargetReg::A),
         0x3E => result_state = ld_hi_from_imm(result_state, TargetReg::A),
 
+        0x40 => result_state = ld_hi_into_hi(result_state, TargetReg::B, TargetReg::B),
+        0x41 => result_state = ld_low_into_hi(result_state, TargetReg::C, TargetReg::B),
+        0x42 => result_state = ld_hi_into_hi(result_state, TargetReg::D, TargetReg::B),
+        0x43 => result_state = ld_low_into_hi(result_state, TargetReg::E, TargetReg::B),
+        0x44 => result_state = ld_hi_into_hi(result_state, TargetReg::H, TargetReg::B),
+        0x45 => result_state = ld_low_into_hi(result_state, TargetReg::L, TargetReg::B),
         0x47 => result_state = ld_hi_into_hi(result_state, TargetReg::A, TargetReg::B),
+        0x48 => result_state = ld_hi_into_low(result_state, TargetReg::B, TargetReg::C),
+        0x49 => result_state = ld_low_into_low(result_state, TargetReg::C, TargetReg::C),
+        0x4A => result_state = ld_hi_into_low(result_state, TargetReg::D, TargetReg::C),
+        0x4B => result_state = ld_low_into_low(result_state, TargetReg::E, TargetReg::C),
+        0x4C => result_state = ld_hi_into_low(result_state, TargetReg::H, TargetReg::C),
+        0x4D => result_state = ld_low_into_low(result_state, TargetReg::L, TargetReg::C),
+        0x4F => result_state = ld_hi_into_low(result_state, TargetReg::A, TargetReg::C),
+
+        0x50 => result_state = ld_hi_into_hi(result_state, TargetReg::B, TargetReg::D),
+        0x51 => result_state = ld_low_into_hi(result_state, TargetReg::C, TargetReg::D),
+        0x52 => result_state = ld_hi_into_hi(result_state, TargetReg::D, TargetReg::D),
+        0x53 => result_state = ld_low_into_hi(result_state, TargetReg::E, TargetReg::D),
+        0x54 => result_state = ld_hi_into_hi(result_state, TargetReg::H, TargetReg::D),
+        0x55 => result_state = ld_low_into_hi(result_state, TargetReg::L, TargetReg::D),
+        0x57 => result_state = ld_hi_into_hi(result_state, TargetReg::A, TargetReg::D),
+        0x58 => result_state = ld_hi_into_low(result_state, TargetReg::B, TargetReg::E),
+        0x59 => result_state = ld_low_into_low(result_state, TargetReg::C, TargetReg::E),
+        0x5A => result_state = ld_hi_into_low(result_state, TargetReg::D, TargetReg::E),
+        0x5B => result_state = ld_low_into_low(result_state, TargetReg::E, TargetReg::E),
+        0x5C => result_state = ld_hi_into_low(result_state, TargetReg::H, TargetReg::E),
+        0x5D => result_state = ld_low_into_low(result_state, TargetReg::L, TargetReg::E),
+        0x5F => result_state = ld_hi_into_low(result_state, TargetReg::A, TargetReg::E),
+
+        0x60 => result_state = ld_hi_into_hi(result_state, TargetReg::B, TargetReg::H),
+        0x61 => result_state = ld_low_into_hi(result_state, TargetReg::C, TargetReg::H),
+        0x62 => result_state = ld_hi_into_hi(result_state, TargetReg::D, TargetReg::H),
+        0x63 => result_state = ld_low_into_hi(result_state, TargetReg::E, TargetReg::H),
+        0x64 => result_state = ld_hi_into_hi(result_state, TargetReg::H, TargetReg::H),
+        0x65 => result_state = ld_low_into_hi(result_state, TargetReg::L, TargetReg::H),
+        0x67 => result_state = ld_hi_into_hi(result_state, TargetReg::A, TargetReg::H),
+        0x68 => result_state = ld_hi_into_low(result_state, TargetReg::B, TargetReg::L),
+        0x69 => result_state = ld_low_into_low(result_state, TargetReg::C, TargetReg::L),
+        0x6A => result_state = ld_hi_into_low(result_state, TargetReg::D, TargetReg::L),
+        0x6B => result_state = ld_low_into_low(result_state, TargetReg::E, TargetReg::L),
+        0x6C => result_state = ld_hi_into_low(result_state, TargetReg::H, TargetReg::L),
+        0x6D => result_state = ld_low_into_low(result_state, TargetReg::L, TargetReg::L),
+        0x6F => result_state = ld_hi_into_low(result_state, TargetReg::A, TargetReg::L),
 
         0x70 => result_state = save_reg_to_full(result_state, TargetReg::B, TargetReg::HL),
         0x71 => result_state = save_reg_to_full(result_state, TargetReg::C, TargetReg::HL),
@@ -615,10 +624,10 @@ fn conditional_relative_jump(state: CpuState, condition: JumpCondition) -> CpuSt
 
     match condition {
 
-        JumpCondition::CNotSet => jump = !check_bit(get_rb(result_state.af), 4),
-        JumpCondition::ZNotSet => jump = !check_bit(get_rb(result_state.af), 7),
-        JumpCondition::CSet => jump = check_bit(get_rb(result_state.af), 4),
-        JumpCondition::ZSet => jump = check_bit(get_rb(result_state.af), 7),
+        JumpCondition::CNotSet => jump = !utils::check_bit(utils::get_rb(result_state.af), 4),
+        JumpCondition::ZNotSet => jump = !utils::check_bit(utils::get_rb(result_state.af), 7),
+        JumpCondition::CSet => jump = utils::check_bit(utils::get_rb(result_state.af), 4),
+        JumpCondition::ZSet => jump = utils::check_bit(utils::get_rb(result_state.af), 7),
     }
 
     if jump {
@@ -639,8 +648,8 @@ fn call(state: CpuState) -> CpuState {
     let next_pc = result_state.pc + 3;
     let target_addr = memory_read_u16(&(result_state.pc + 1), &result_state);
 
-    result_state.stack.push(get_lb(next_pc));
-    result_state.stack.push(get_rb(next_pc));
+    result_state.stack.push(utils::get_lb(next_pc));
+    result_state.stack.push(utils::get_rb(next_pc));
 
     result_state.pc = target_addr;
     result_state.cycles += 24;
@@ -655,10 +664,10 @@ fn conditional_call(state: CpuState, condition: JumpCondition) -> CpuState {
 
     match condition {
 
-        JumpCondition::CNotSet => should_call = !check_bit(get_rb(result_state.af), 4),
-        JumpCondition::ZNotSet => should_call = !check_bit(get_rb(result_state.af), 7),
-        JumpCondition::CSet => should_call = check_bit(get_rb(result_state.af), 4),
-        JumpCondition::ZSet => should_call = check_bit(get_rb(result_state.af), 7),
+        JumpCondition::CNotSet => should_call = !utils::check_bit(utils::get_rb(result_state.af), 4),
+        JumpCondition::ZNotSet => should_call = !utils::check_bit(utils::get_rb(result_state.af), 7),
+        JumpCondition::CSet => should_call = utils::check_bit(utils::get_rb(result_state.af), 4),
+        JumpCondition::ZSet => should_call = utils::check_bit(utils::get_rb(result_state.af), 7),
     }
 
     if should_call {
@@ -693,10 +702,10 @@ fn conditional_ret(state: CpuState, condition: JumpCondition) -> CpuState {
 
     match condition {
 
-        JumpCondition::CNotSet => should_ret = !check_bit(get_rb(result_state.af), 4),
-        JumpCondition::ZNotSet => should_ret = !check_bit(get_rb(result_state.af), 7),
-        JumpCondition::CSet => should_ret = check_bit(get_rb(result_state.af), 4),
-        JumpCondition::ZSet => should_ret = check_bit(get_rb(result_state.af), 7),
+        JumpCondition::CNotSet => should_ret = !utils::check_bit(utils::get_rb(result_state.af), 4),
+        JumpCondition::ZNotSet => should_ret = !utils::check_bit(utils::get_rb(result_state.af), 7),
+        JumpCondition::CSet => should_ret = utils::check_bit(utils::get_rb(result_state.af), 4),
+        JumpCondition::ZSet => should_ret = utils::check_bit(utils::get_rb(result_state.af), 7),
     }
 
     if should_ret {
@@ -742,10 +751,10 @@ fn ld_hi_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
     match target_reg {
 
         // Only the high byte of a Register can be the target of this instruction.
-        TargetReg::A => result_state.af = set_lb(result_state.af, new_value),
-        TargetReg::B => result_state.bc = set_lb(result_state.bc, new_value),
-        TargetReg::D => result_state.de = set_lb(result_state.de, new_value),
-        TargetReg::H => result_state.hl = set_lb(result_state.hl, new_value),
+        TargetReg::A => result_state.af = utils::set_lb(result_state.af, new_value),
+        TargetReg::B => result_state.bc = utils::set_lb(result_state.bc, new_value),
+        TargetReg::D => result_state.de = utils::set_lb(result_state.de, new_value),
+        TargetReg::H => result_state.hl = utils::set_lb(result_state.hl, new_value),
 
         _ => panic!("Invalid register selected for this instruction"),
     }
@@ -762,9 +771,9 @@ fn ld_low_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 
     match target_reg {
 
-        TargetReg::C => result_state.bc = set_rb(result_state.bc, new_value),
-        TargetReg::E => result_state.de = set_rb(result_state.de, new_value),
-        TargetReg::L => result_state.hl = set_rb(result_state.hl, new_value),
+        TargetReg::C => result_state.bc = utils::set_rb(result_state.bc, new_value),
+        TargetReg::E => result_state.de = utils::set_rb(result_state.de, new_value),
+        TargetReg::L => result_state.hl = utils::set_rb(result_state.hl, new_value),
 
         _ => panic!("Invalid register selected for this instruction"),
     }
@@ -781,10 +790,10 @@ fn ld_hi_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) 
     let target: u16;
 
     match source_reg {
-        TargetReg::A => source = get_lb(result_state.af),
-        TargetReg::B => source = get_lb(result_state.bc),
-        TargetReg::D => source = get_lb(result_state.de),
-        TargetReg::H => source = get_lb(result_state.hl),
+        TargetReg::A => source = utils::get_lb(result_state.af),
+        TargetReg::B => source = utils::get_lb(result_state.bc),
+        TargetReg::D => source = utils::get_lb(result_state.de),
+        TargetReg::H => source = utils::get_lb(result_state.hl),
         
         _ => panic!("Invalid register in instruction"),
     }
@@ -792,19 +801,55 @@ fn ld_hi_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) 
     match target_reg {
         TargetReg::A => {
             target = result_state.af;
-            result_state.af = set_lb(target, source)
+            result_state.af = utils::set_lb(target, source)
         },
         TargetReg::B => {
             target = result_state.bc;
-            result_state.bc = set_lb(target, source)
+            result_state.bc = utils::set_lb(target, source)
         },
         TargetReg::D => {
             target = result_state.af;
-            result_state.de = set_lb(target, source)
+            result_state.de = utils::set_lb(target, source)
         },
         TargetReg::H => {
             target = result_state.af;
-            result_state.hl = set_lb(target, source)
+            result_state.hl = utils::set_lb(target, source)
+        },
+        
+        _ => panic!("Invalid register in instruction"),
+    }
+    result_state.pc += 1;
+    result_state.cycles += 4;
+    result_state
+}
+
+fn ld_hi_into_low(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) -> CpuState {
+
+    let mut result_state = state;
+    let source: u8;
+    let target: u16;
+
+    match source_reg {
+        TargetReg::A => source = utils::get_lb(result_state.af),
+        TargetReg::B => source = utils::get_lb(result_state.bc),
+        TargetReg::D => source = utils::get_lb(result_state.de),
+        TargetReg::H => source = utils::get_lb(result_state.hl),
+        
+        _ => panic!("Invalid register in instruction"),
+    }
+
+    match target_reg {
+        TargetReg::C => {
+            target = result_state.af;
+            result_state.bc = utils::set_rb(target, source)
+        },
+        TargetReg::E => {
+            target = result_state.bc;
+            result_state.de = utils::set_rb(target, source)
+        },
+        TargetReg::L => {
+            target = result_state.af;
+            result_state.hl = utils::set_rb(target, source)
         },
         
         _ => panic!("Invalid register in instruction"),
@@ -821,9 +866,9 @@ fn ld_low_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg)
     let target: u16;
 
     match source_reg {
-        TargetReg::C => source = get_rb(result_state.bc),
-        TargetReg::E => source = get_rb(result_state.de),
-        TargetReg::L => source = get_rb(result_state.hl),
+        TargetReg::C => source = utils::get_rb(result_state.bc),
+        TargetReg::E => source = utils::get_rb(result_state.de),
+        TargetReg::L => source = utils::get_rb(result_state.hl),
         
         _ => panic!("Invalid register in instruction"),
     }
@@ -831,19 +876,54 @@ fn ld_low_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg)
     match target_reg {
         TargetReg::A => {
             target = result_state.af;
-            result_state.af = set_lb(target, source)
+            result_state.af = utils::set_lb(target, source)
         },
         TargetReg::B => {
             target = result_state.bc;
-            result_state.bc = set_lb(target, source)
+            result_state.bc = utils::set_lb(target, source)
         },
         TargetReg::D => {
-            target = result_state.af;
-            result_state.de = set_lb(target, source)
+            target = result_state.de;
+            result_state.de = utils::set_lb(target, source)
         },
         TargetReg::H => {
-            target = result_state.af;
-            result_state.hl = set_lb(target, source)
+            target = result_state.hl;
+            result_state.hl = utils::set_lb(target, source)
+        },
+        
+        _ => panic!("Invalid register in instruction"),
+    }
+    result_state.pc += 1;
+    result_state.cycles += 4;
+    result_state
+}
+
+fn ld_low_into_low(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) -> CpuState {
+
+    let mut result_state = state;
+    let source: u8;
+    let target: u16;
+
+    match source_reg {
+        TargetReg::C => source = utils::get_rb(result_state.bc),
+        TargetReg::E => source = utils::get_rb(result_state.de),
+        TargetReg::L => source = utils::get_rb(result_state.hl),
+        
+        _ => panic!("Invalid register in instruction"),
+    }
+
+    match target_reg {
+        TargetReg::C => {
+            target = result_state.bc;
+            result_state.bc = utils::set_rb(target, source)
+        },
+        TargetReg::E => {
+            target = result_state.de;
+            result_state.de = utils::set_rb(target, source)
+        },
+        TargetReg::L => {
+            target = result_state.hl;
+            result_state.hl = utils::set_rb(target, source)
         },
         
         _ => panic!("Invalid register in instruction"),
@@ -858,7 +938,7 @@ fn ld_a_from_hl_inc(state: CpuState) -> CpuState {
     let mut result_state = state;
     let new_value = memory_read_u8(&result_state.hl, &result_state);
 
-    result_state.af = set_lb(result_state.af, new_value);
+    result_state.af = utils::set_lb(result_state.af, new_value);
     result_state.hl += 1;
     result_state.pc += 1;
     result_state.cycles += 8;
@@ -881,7 +961,7 @@ fn ld_a_from_full(state: CpuState, source_reg: TargetReg) -> CpuState {
     }
 
     value = memory_read_u8(&addr, &result_state);
-    result_state.af = set_lb(result_state.af, value);
+    result_state.af = utils::set_lb(result_state.af, value);
 
     result_state.pc += 1;
     result_state.cycles += 8;
@@ -895,7 +975,7 @@ fn ld_a_from_ff_imm(state: CpuState) -> CpuState {
     let value_addr: u16 = 0xFF00 + (memory_read_u8(&(result_state.pc + 1), &result_state) as u16);
     let value = memory_read_u8(&value_addr, &result_state);
 
-    result_state.af = set_lb(result_state.af, value);
+    result_state.af = utils::set_lb(result_state.af, value);
     result_state.pc += 2;
     result_state.cycles += 12;
     result_state
@@ -907,7 +987,7 @@ fn ld_a_from_imm_addr(state: CpuState) -> CpuState {
     let target_addr = memory_read_u16(&(result_state.pc + 1), &result_state);
     let value = memory_read_u8(&target_addr, &result_state);
 
-    result_state.af = set_lb(result_state.af, value);
+    result_state.af = utils::set_lb(result_state.af, value);
     result_state.pc += 3;
     result_state.cycles += 16;
 
@@ -918,7 +998,7 @@ fn save_a_to_hl(state: CpuState) -> CpuState {
 
     let mut result_state = state;
 
-    result_state = memory_write(result_state.hl, get_lb(result_state.af), result_state);
+    result_state = memory_write(result_state.hl, utils::get_lb(result_state.af), result_state);
 
     result_state.pc += 1;
     result_state.cycles += 8;
@@ -930,7 +1010,7 @@ fn save_a_to_hl_inc(state: CpuState) -> CpuState {
 
     let mut result_state = state;
 
-    result_state = memory_write(result_state.hl, get_lb(result_state.af), result_state);
+    result_state = memory_write(result_state.hl, utils::get_lb(result_state.af), result_state);
 
     result_state.hl += 1;
 
@@ -944,7 +1024,7 @@ fn save_a_to_hl_dec(state: CpuState) -> CpuState {
 
     let mut result_state = state;
 
-    result_state = memory_write(result_state.hl, get_lb(result_state.af), result_state);
+    result_state = memory_write(result_state.hl, utils::get_lb(result_state.af), result_state);
 
     result_state.hl -= 1;
 
@@ -971,13 +1051,13 @@ fn save_reg_to_full(state: CpuState, target_reg: TargetReg, addr_reg: TargetReg)
 
     match target_reg {
 
-        TargetReg::A => value = get_lb(result_state.af),
-        TargetReg::B => value = get_lb(result_state.bc),
-        TargetReg::C => value = get_rb(result_state.bc),
-        TargetReg::D => value = get_lb(result_state.de),
-        TargetReg::E => value = get_rb(result_state.de),
-        TargetReg::H => value = get_lb(result_state.hl),
-        TargetReg::L => value = get_rb(result_state.hl),
+        TargetReg::A => value = utils::get_lb(result_state.af),
+        TargetReg::B => value = utils::get_lb(result_state.bc),
+        TargetReg::C => value = utils::get_rb(result_state.bc),
+        TargetReg::D => value = utils::get_lb(result_state.de),
+        TargetReg::E => value = utils::get_rb(result_state.de),
+        TargetReg::H => value = utils::get_lb(result_state.hl),
+        TargetReg::L => value = utils::get_rb(result_state.hl),
 
         _ => panic!("Unvalid reg for instruction"),
     }
@@ -996,7 +1076,7 @@ fn save_reg_to_addr(state: CpuState, target_reg: TargetReg) -> CpuState {
     let value: u8;
 
     match target_reg {
-        TargetReg::A => value = get_lb(result_state.af),
+        TargetReg::A => value = utils::get_lb(result_state.af),
 
         _ => panic!("Unimplemented reg for instruction"),
     }
@@ -1014,7 +1094,7 @@ fn save_a_to_ff_imm(state: CpuState) -> CpuState {
     let mut result_state = state;
     let addr: u16 = 0xFF00 + (memory_read_u8(&(result_state.pc + 1), &result_state) as u16);
 
-    result_state = memory_write(addr, get_lb(result_state.af), result_state);
+    result_state = memory_write(addr, utils::get_lb(result_state.af), result_state);
     result_state.pc += 2;
     result_state.cycles += 12;
 
@@ -1024,9 +1104,9 @@ fn save_a_to_ff_imm(state: CpuState) -> CpuState {
 fn save_a_to_ff_c(state: CpuState) -> CpuState {
 
     let mut result_state = state;
-    let addr: u16 = 0xFF00 + (get_rb(result_state.bc) as u16);
+    let addr: u16 = 0xFF00 + (utils::get_rb(result_state.bc) as u16);
 
-    result_state = memory_write(addr, get_lb(result_state.af), result_state);
+    result_state = memory_write(addr, utils::get_lb(result_state.af), result_state);
     result_state.pc += 2;
     result_state.cycles += 8;
 
@@ -1040,73 +1120,73 @@ fn increment_reg(state: CpuState, reg: TargetReg) -> CpuState {
     match reg {
 
         TargetReg::A => {
-            let result = get_lb(result_state.af).overflowing_add(1);
+            let result = utils::get_lb(result_state.af).overflowing_add(1);
 
-            result_state.af = set_lb(result_state.af, result.0);
-            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.af = utils::set_lb(result_state.af, result.0);
+            if result.1 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = reset_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::B => {
-            let result = get_lb(result_state.bc).overflowing_add(1);
+            let result = utils::get_lb(result_state.bc).overflowing_add(1);
 
-            result_state.bc = set_lb(result_state.bc, result.0);
-            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.bc = utils::set_lb(result_state.bc, result.0);
+            if result.1 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = reset_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::C => {
-            let result = get_rb(result_state.bc).overflowing_add(1);
+            let result = utils::get_rb(result_state.bc).overflowing_add(1);
 
-            result_state.bc = set_rb(result_state.bc, result.0);
-            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.bc = utils::set_rb(result_state.bc, result.0);
+            if result.1 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = reset_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::D => {
-            let result = get_lb(result_state.de).overflowing_add(1);
+            let result = utils::get_lb(result_state.de).overflowing_add(1);
 
-            result_state.de = set_lb(result_state.de, result.0);
-            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.de = utils::set_lb(result_state.de, result.0);
+            if result.1 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = reset_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::E => {
-            let result = get_rb(result_state.de).overflowing_add(1);
+            let result = utils::get_rb(result_state.de).overflowing_add(1);
 
-            result_state.de = set_rb(result_state.de, result.0);
-            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.de = utils::set_rb(result_state.de, result.0);
+            if result.1 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = reset_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::H => {
-            let result = get_lb(result_state.hl).overflowing_add(1);
+            let result = utils::get_lb(result_state.hl).overflowing_add(1);
 
-            result_state.hl = set_lb(result_state.hl, result.0);
-            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.hl = utils::set_lb(result_state.hl, result.0);
+            if result.1 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = reset_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::L => {
-            let result = get_rb(result_state.hl).overflowing_add(1);
+            let result = utils::get_rb(result_state.hl).overflowing_add(1);
 
-            result_state.hl = set_rb(result_state.hl, result.0);
-            if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.hl = utils::set_rb(result_state.hl, result.0);
+            if result.1 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = reset_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
         },
 
         _ => panic!("Invalid reg for instruction"),
@@ -1125,73 +1205,73 @@ fn decrement_reg(state: CpuState, reg: TargetReg) -> CpuState {
     match reg {
 
         TargetReg::A => {
-            let result = get_lb(result_state.af).overflowing_sub(1);
+            let result = utils::get_lb(result_state.af).overflowing_sub(1);
 
-            result_state.af = set_lb(result_state.af, result.0);
-            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.af = utils::set_lb(result_state.af, result.0);
+            if result.0 == 0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = set_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::B => {
-            let result = get_lb(result_state.bc).overflowing_sub(1);
+            let result = utils::get_lb(result_state.bc).overflowing_sub(1);
 
-            result_state.bc = set_lb(result_state.bc, result.0);
-            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.bc = utils::set_lb(result_state.bc, result.0);
+            if result.0 == 0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = set_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::C => {
-            let result = get_rb(result_state.bc).overflowing_sub(1);
+            let result = utils::get_rb(result_state.bc).overflowing_sub(1);
 
-            result_state.bc = set_rb(result_state.bc, result.0);
-            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.bc = utils::set_rb(result_state.bc, result.0);
+            if result.0 == 0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = set_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::D => {
-            let result = get_lb(result_state.de).overflowing_sub(1);
+            let result = utils::get_lb(result_state.de).overflowing_sub(1);
 
-            result_state.de = set_lb(result_state.de, result.0);
-            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.de = utils::set_lb(result_state.de, result.0);
+            if result.0 == 0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = set_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::E => {
-            let result = get_rb(result_state.de).overflowing_sub(1);
+            let result = utils::get_rb(result_state.de).overflowing_sub(1);
 
-            result_state.de = set_rb(result_state.de, result.0);
-            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.de = utils::set_rb(result_state.de, result.0);
+            if result.0 == 0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = set_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::H => {
-            let result = get_lb(result_state.hl).overflowing_sub(1);
+            let result = utils::get_lb(result_state.hl).overflowing_sub(1);
 
-            result_state.hl = set_lb(result_state.hl, result.0);
-            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.hl = utils::set_lb(result_state.hl, result.0);
+            if result.0 == 0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = set_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
         },
 
         TargetReg::L => {
-            let result = get_rb(result_state.hl).overflowing_sub(1);
+            let result = utils::get_rb(result_state.hl).overflowing_sub(1);
 
-            result_state.hl = set_rb(result_state.hl, result.0);
-            if result.0 == 0 { result_state = set_flag(TargetFlag::ZFlag, result_state) }
-            else { result_state = reset_flag(TargetFlag::ZFlag, result_state) }
+            result_state.hl = utils::set_rb(result_state.hl, result.0);
+            if result.0 == 0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af) }
+            else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af) }
 
-            result_state = set_flag(TargetFlag::NFlag, result_state);
+            result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
         },
 
         _ => panic!("Invalid reg for instruction"),
@@ -1273,7 +1353,7 @@ fn pop(state: CpuState, target_reg: TargetReg) -> CpuState {
         _ => panic!("Invalid reg for instruction"),
     }
 
-    result_state.sp += 2;
+    //result_state.sp += 2;
     result_state.pc += 1;
     result_state.cycles += 12;
     result_state
@@ -1294,10 +1374,10 @@ fn push(state: CpuState, target_reg: TargetReg) -> CpuState {
         _ => panic!("Invalid reg for instruction"),
     }
 
-    result_state.stack.push(get_lb(value));
-    result_state.stack.push(get_rb(value));   
+    result_state.stack.push(utils::get_lb(value));
+    result_state.stack.push(utils::get_rb(value));   
 
-    result_state.sp -= 2;
+    //result_state.sp -= 2;
     result_state.pc += 1;
     result_state.cycles += 16;
     result_state
@@ -1311,48 +1391,48 @@ fn and_reg(state: CpuState, target_reg: TargetReg) -> CpuState {
     match target_reg {
 
         TargetReg::A => {
-            result = get_lb(result_state.af) & get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.af) & utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::B => {
-            result = get_lb(result_state.bc) & get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.bc) & utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::C => {
-            result = get_rb(result_state.bc) & get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_rb(result_state.bc) & utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::D => {
-            result = get_lb(result_state.de) & get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.de) & utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::E => {
-            result = get_rb(result_state.de) & get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_rb(result_state.de) & utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::H => {
-            result = get_lb(result_state.hl) & get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.hl) & utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::L => {
-            result = get_rb(result_state.hl) & get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_rb(result_state.hl) & utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         _ => panic!("Invalid reg for instruction"),
     }
 
-    if result == 0x0 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
-    result_state = reset_flag(TargetFlag::NFlag, result_state);
-    result_state = reset_flag(TargetFlag::HFlag, result_state);
-    result_state = reset_flag(TargetFlag::CFlag, result_state);
+    if result == 0x0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
+    result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
+    result_state.af = utils::reset_flag(TargetFlag::HFlag, result_state.af);
+    result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af);
 
     result_state.pc += 1;
     result_state.cycles += 4;
@@ -1367,48 +1447,48 @@ fn or_reg(state: CpuState, target_reg: TargetReg) -> CpuState {
     match target_reg {
 
         TargetReg::A => {
-            result = get_lb(result_state.af) | get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.af) | utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::B => {
-            result = get_lb(result_state.bc) | get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.bc) | utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::C => {
-            result = get_rb(result_state.bc) | get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_rb(result_state.bc) | utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::D => {
-            result = get_lb(result_state.de) | get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.de) | utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::E => {
-            result = get_rb(result_state.de) | get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_rb(result_state.de) | utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::H => {
-            result = get_lb(result_state.hl) | get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.hl) | utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::L => {
-            result = get_rb(result_state.hl) | get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_rb(result_state.hl) | utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         _ => panic!("Invalid reg for instruction"),
     }
 
-    if result == 0x0 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
-    result_state = reset_flag(TargetFlag::NFlag, result_state);
-    result_state = reset_flag(TargetFlag::HFlag, result_state);
-    result_state = reset_flag(TargetFlag::CFlag, result_state);
+    if result == 0x0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
+    result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
+    result_state.af = utils::reset_flag(TargetFlag::HFlag, result_state.af);
+    result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af);
 
     result_state.pc += 1;
     result_state.cycles += 8;
@@ -1423,48 +1503,48 @@ fn xor_reg(state: CpuState, target_reg: TargetReg) -> CpuState {
     match target_reg {
 
         TargetReg::A => {
-            result = get_lb(result_state.af) ^ get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.af) ^ utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::B => {
-            result = get_lb(result_state.bc) ^ get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.bc) ^ utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::C => {
-            result = get_rb(result_state.bc) ^ get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_rb(result_state.bc) ^ utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::D => {
-            result = get_lb(result_state.de) ^ get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.de) ^ utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::E => {
-            result = get_rb(result_state.de) ^ get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_rb(result_state.de) ^ utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::H => {
-            result = get_lb(result_state.hl) ^ get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_lb(result_state.hl) ^ utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         TargetReg::L => {
-            result = get_rb(result_state.hl) ^ get_lb(result_state.af);
-            result_state.af = set_lb(result_state.af, result);
+            result = utils::get_rb(result_state.hl) ^ utils::get_lb(result_state.af);
+            result_state.af = utils::set_lb(result_state.af, result);
         },
 
         _ => panic!("Invalid reg for instruction"),
     }
 
-    if result == 0x0 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
-    result_state = reset_flag(TargetFlag::NFlag, result_state);
-    result_state = reset_flag(TargetFlag::HFlag, result_state);
-    result_state = reset_flag(TargetFlag::CFlag, result_state);
+    if result == 0x0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
+    result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
+    result_state.af = utils::reset_flag(TargetFlag::HFlag, result_state.af);
+    result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af);
 
     result_state.pc += 1;
     result_state.cycles += 4;
@@ -1478,24 +1558,24 @@ fn cmp(state: CpuState, target_reg: TargetReg) -> CpuState {
 
     match target_reg {
 
-        TargetReg::A => value = get_lb(result_state.af),
-        TargetReg::B => value = get_lb(result_state.bc),
-        TargetReg::C => value = get_rb(result_state.bc),
-        TargetReg::D => value = get_lb(result_state.de),
-        TargetReg::E => value = get_rb(result_state.de),
-        TargetReg::H => value = get_lb(result_state.hl),
-        TargetReg::L => value = get_rb(result_state.hl),
+        TargetReg::A => value = utils::get_lb(result_state.af),
+        TargetReg::B => value = utils::get_lb(result_state.bc),
+        TargetReg::C => value = utils::get_rb(result_state.bc),
+        TargetReg::D => value = utils::get_lb(result_state.de),
+        TargetReg::E => value = utils::get_rb(result_state.de),
+        TargetReg::H => value = utils::get_lb(result_state.hl),
+        TargetReg::L => value = utils::get_rb(result_state.hl),
 
         _ => panic!("Invalid reg for instruction"),
     }
 
-    if value == get_lb(result_state.af) { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+    if value == utils::get_lb(result_state.af) { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
 
-    result_state = set_flag(TargetFlag::NFlag, result_state);
+    result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
 
-    if value < get_lb(result_state.af) { result_state = set_flag(TargetFlag::CFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::CFlag, result_state); }
+    if value < utils::get_lb(result_state.af) { result_state.af = utils::set_flag(TargetFlag::CFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af); }
 
     result_state.pc += 1;
     result_state.cycles += 4;
@@ -1508,19 +1588,15 @@ fn cmp_imm(state: CpuState) -> CpuState {
     let mut result_state = state;
     let value = memory_read_u8(&(result_state.pc + 1), &result_state);
 
-    if get_lb(result_state.af) == 0x0 {
-        println!("A is zero, frick");
-    }
+    println!("Comparing {} to {}", format!("{:#X}", value), format!("{:#X}", utils::get_lb(result_state.af)));
 
-    println!("Comparing {} to {}", format!("{:#X}", value), format!("{:#X}", get_lb(result_state.af)));
+    if value == utils::get_lb(result_state.af) { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
 
-    if value == get_lb(result_state.af) { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+    result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
 
-    result_state = set_flag(TargetFlag::NFlag, result_state);
-
-    if value < get_lb(result_state.af) { result_state = set_flag(TargetFlag::CFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::CFlag, result_state); }
+    if value < utils::get_lb(result_state.af) { result_state.af = utils::set_flag(TargetFlag::CFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af); }
 
     result_state.pc += 2;
     result_state.cycles += 8;
@@ -1533,13 +1609,13 @@ fn cmp_hl(state: CpuState) -> CpuState {
     let mut result_state = state;
     let value = memory_read_u8(&(result_state.hl), &result_state);
 
-    if value == get_lb(result_state.af) { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+    if value == utils::get_lb(result_state.af) { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
 
-    result_state = set_flag(TargetFlag::NFlag, result_state);
+    result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
 
-    if value < get_lb(result_state.af) { result_state = set_flag(TargetFlag::CFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::CFlag, result_state); }
+    if value < utils::get_lb(result_state.af) { result_state.af = utils::set_flag(TargetFlag::CFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af); }
 
     result_state.pc += 1;
     result_state.cycles += 8;
@@ -1554,27 +1630,27 @@ fn add_reg_to_a(state: CpuState, source_reg: TargetReg) -> CpuState {
 
     match source_reg {
 
-        TargetReg::A => value = get_lb(result_state.af),
-        TargetReg::B => value = get_lb(result_state.bc),
-        TargetReg::C => value = get_rb(result_state.bc),
-        TargetReg::D => value = get_lb(result_state.de),
-        TargetReg::E => value = get_rb(result_state.de),
-        TargetReg::H => value = get_lb(result_state.hl),
-        TargetReg::L => value = get_rb(result_state.hl),
+        TargetReg::A => value = utils::get_lb(result_state.af),
+        TargetReg::B => value = utils::get_lb(result_state.bc),
+        TargetReg::C => value = utils::get_rb(result_state.bc),
+        TargetReg::D => value = utils::get_lb(result_state.de),
+        TargetReg::E => value = utils::get_rb(result_state.de),
+        TargetReg::H => value = utils::get_lb(result_state.hl),
+        TargetReg::L => value = utils::get_rb(result_state.hl),
 
         _ => panic!("Invalid reg for instruction"),
     }
 
-    let result = get_lb(result_state.af).overflowing_add(value);
+    let result = utils::get_lb(result_state.af).overflowing_add(value);
 
-    result_state.af = set_lb(result_state.af, result.0);
+    result_state.af = utils::set_lb(result_state.af, result.0);
     result_state.pc += 1;
     result_state.cycles += 4;
 
-    if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+    if result.1 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
 
-    result_state = reset_flag(TargetFlag::NFlag, result_state);
+    result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
 
     result_state
 }
@@ -1584,16 +1660,16 @@ fn add_imm_to_a(state: CpuState) -> CpuState {
     let mut result_state = state;
     let value = memory_read_u8(&(result_state.pc + 1), &result_state);
 
-    let result = get_lb(result_state.af).overflowing_add(value);
+    let result = utils::get_lb(result_state.af).overflowing_add(value);
     
-    result_state.af = set_lb(result_state.af, result.0);
+    result_state.af = utils::set_lb(result_state.af, result.0);
     result_state.pc += 2;
     result_state.cycles += 8;
 
-    if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+    if result.1 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
 
-    result_state = reset_flag(TargetFlag::NFlag, result_state);
+    result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
     
     result_state
 }
@@ -1603,16 +1679,16 @@ fn add_hl_to_a(state: CpuState) -> CpuState {
     let mut result_state = state;
     let value = memory_read_u8(&result_state.hl, &result_state);
 
-    let result = get_lb(result_state.af).overflowing_add(value);
+    let result = utils::get_lb(result_state.af).overflowing_add(value);
 
-    result_state.af = set_lb(result_state.af, result.0);
+    result_state.af = utils::set_lb(result_state.af, result.0);
     result_state.pc += 1;
     result_state.cycles += 8;
 
-    if result.1 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+    if result.1 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
 
-    result_state = reset_flag(TargetFlag::NFlag, result_state);
+    result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
     
     result_state
 }
@@ -1624,30 +1700,30 @@ fn sub_reg_to_a(state: CpuState, source_reg: TargetReg) -> CpuState {
 
     match source_reg {
 
-        TargetReg::A => value = get_lb(result_state.af),
-        TargetReg::B => value = get_lb(result_state.bc),
-        TargetReg::C => value = get_rb(result_state.bc),
-        TargetReg::D => value = get_lb(result_state.de),
-        TargetReg::E => value = get_rb(result_state.de),
-        TargetReg::H => value = get_lb(result_state.hl),
-        TargetReg::L => value = get_rb(result_state.hl),
+        TargetReg::A => value = utils::get_lb(result_state.af),
+        TargetReg::B => value = utils::get_lb(result_state.bc),
+        TargetReg::C => value = utils::get_rb(result_state.bc),
+        TargetReg::D => value = utils::get_lb(result_state.de),
+        TargetReg::E => value = utils::get_rb(result_state.de),
+        TargetReg::H => value = utils::get_lb(result_state.hl),
+        TargetReg::L => value = utils::get_rb(result_state.hl),
 
         _ => panic!("Invalid reg for instruction"),
     }
 
-    let result = get_lb(result_state.af).overflowing_sub(value);
+    let result = utils::get_lb(result_state.af).overflowing_sub(value);
 
-    result_state.af = set_lb(result_state.af, result.0);
+    result_state.af = utils::set_lb(result_state.af, result.0);
     result_state.pc += 1;
     result_state.cycles += 4;
 
-    if value == 0x0 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+    if value == 0x0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
 
-    result_state = set_flag(TargetFlag::NFlag, result_state);
+    result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
 
-    if result.1 { result_state = reset_flag(TargetFlag::CFlag, result_state)}
-    else { result_state = set_flag(TargetFlag::CFlag, result_state) }
+    if result.1 { result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af)}
+    else { result_state.af = utils::set_flag(TargetFlag::CFlag, result_state.af) }
 
     result_state
 }
@@ -1657,19 +1733,19 @@ fn sub_imm_to_a(state: CpuState) -> CpuState {
     let mut result_state = state;
     let value = memory_read_u8(&(result_state.pc + 1), &result_state);
 
-    let result = get_lb(result_state.af).overflowing_sub(value);
+    let result = utils::get_lb(result_state.af).overflowing_sub(value);
 
-    result_state.af = set_lb(result_state.af, result.0);
+    result_state.af = utils::set_lb(result_state.af, result.0);
     result_state.pc += 2;
     result_state.cycles += 8;
 
-    if value == 0x0 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+    if value == 0x0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
 
-    result_state = set_flag(TargetFlag::NFlag, result_state);
+    result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
 
-    if result.1 { result_state = reset_flag(TargetFlag::CFlag, result_state)}
-    else { result_state = set_flag(TargetFlag::CFlag, result_state) }
+    if result.1 { result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af)}
+    else { result_state.af = utils::set_flag(TargetFlag::CFlag, result_state.af) }
     
     result_state
 }
@@ -1679,43 +1755,45 @@ fn sub_hl_to_a(state: CpuState) -> CpuState {
     let mut result_state = state;
     let value = memory_read_u8(&result_state.hl, &result_state);
 
-    let result = get_lb(result_state.af).overflowing_sub(value);
+    let result = utils::get_lb(result_state.af).overflowing_sub(value);
 
-    result_state.af = set_lb(result_state.af, result.0);
+    result_state.af = utils::set_lb(result_state.af, result.0);
     result_state.pc += 1;
     result_state.cycles += 8;
 
-    if value == 0x0 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+    if value == 0x0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
 
-    result_state = set_flag(TargetFlag::NFlag, result_state);
+    result_state.af = utils::set_flag(TargetFlag::NFlag, result_state.af);
 
-    if result.1 { result_state = reset_flag(TargetFlag::CFlag, result_state)}
-    else { result_state = set_flag(TargetFlag::CFlag, result_state) }
+    if result.1 { result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af)}
+    else { result_state.af = utils::set_flag(TargetFlag::CFlag, result_state.af) }
     
     result_state
 }
+
+// This one and rl (especially rl) are a bit of a mess, should probably think about cleaning it up
 
 fn rra(state: CpuState) -> CpuState {
 
     let mut result_state = state;
     let mut carry_flag = 0;
-    let will_carry = check_bit(get_lb(result_state.af), 0);
-    let mut result = get_lb(result_state.af) >> 1;
+    let will_carry = utils::check_bit(utils::get_lb(result_state.af), 0);
+    let mut result = utils::get_lb(result_state.af) >> 1;
 
-    if check_bit(get_lb(result_state.af), 7) { carry_flag = 1; }
+    if utils::check_bit(utils::get_lb(result_state.af), 7) { carry_flag = 1; }
 
     result |= carry_flag << 7;
-    result_state.af = set_lb(result_state.af, result);
+    result_state.af = utils::set_lb(result_state.af, result);
 
-    if result == 0x0 { result_state = set_flag(TargetFlag::ZFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
+    if result == 0x0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
 
-    if will_carry { result_state = set_flag(TargetFlag::CFlag, result_state); }
-    else { result_state = reset_flag(TargetFlag::CFlag, result_state); }
+    if will_carry { result_state.af = utils::set_flag(TargetFlag::CFlag, result_state.af); }
+    else { result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af); }
 
-    result_state = reset_flag(TargetFlag::NFlag, result_state);
-    result_state = reset_flag(TargetFlag::HFlag, result_state);
+    result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
+    result_state.af = utils::reset_flag(TargetFlag::HFlag, result_state.af);
 
     result_state.pc += 1;
     result_state.cycles += 4;
@@ -1734,22 +1812,22 @@ fn bit(state: CpuState, target_reg: TargetReg, bit: u8) -> CpuState {
 
     match target_reg {
 
-        TargetReg::A => is_set = check_bit(get_lb(result_state.af), bit),
-        TargetReg::B => is_set = check_bit(get_lb(result_state.bc), bit),
-        TargetReg::C => is_set = check_bit(get_rb(result_state.bc), bit),
-        TargetReg::D => is_set = check_bit(get_lb(result_state.de), bit),
-        TargetReg::E => is_set = check_bit(get_rb(result_state.de), bit),
-        TargetReg::H => is_set = check_bit(get_lb(result_state.hl), bit),
-        TargetReg::L => is_set = check_bit(get_rb(result_state.hl), bit),
+        TargetReg::A => is_set = utils::check_bit(utils::get_lb(result_state.af), bit),
+        TargetReg::B => is_set = utils::check_bit(utils::get_lb(result_state.bc), bit),
+        TargetReg::C => is_set = utils::check_bit(utils::get_rb(result_state.bc), bit),
+        TargetReg::D => is_set = utils::check_bit(utils::get_lb(result_state.de), bit),
+        TargetReg::E => is_set = utils::check_bit(utils::get_rb(result_state.de), bit),
+        TargetReg::H => is_set = utils::check_bit(utils::get_lb(result_state.hl), bit),
+        TargetReg::L => is_set = utils::check_bit(utils::get_rb(result_state.hl), bit),
 
         _ => panic!("Invalid reg for instruction"),
     }
 
-    if is_set { result_state = reset_flag(TargetFlag::ZFlag, result_state); }
-    else  { result_state = set_flag(TargetFlag::ZFlag, result_state); }
+    if is_set { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
+    else  { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
 
-    result_state = reset_flag(TargetFlag::NFlag, result_state);
-    result_state = set_flag(TargetFlag::HFlag, result_state);
+    result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
+    result_state.af = utils::set_flag(TargetFlag::HFlag, result_state.af);
 
     result_state.pc += 2;
     result_state.cycles += 8;
@@ -1757,7 +1835,76 @@ fn bit(state: CpuState, target_reg: TargetReg, bit: u8) -> CpuState {
     result_state
 }
 
+fn rl(state: CpuState, target_reg: TargetReg) -> CpuState {
 
+    let mut result_state = state;
+    let mut carry_flag = 0;
+    let register: u8;
+    let mut af = false;
+
+    match target_reg {
+
+        TargetReg::A => { register = utils::get_lb(result_state.af); af = true },
+        TargetReg::B => register = utils::get_lb(result_state.bc),
+        TargetReg::C => register = utils::get_rb(result_state.bc),
+        TargetReg::D => register = utils::get_lb(result_state.de),
+        TargetReg::E => register = utils::get_rb(result_state.de),
+        TargetReg::H => register = utils::get_lb(result_state.hl),
+        TargetReg::L => register = utils::get_rb(result_state.hl),
+
+        _ => panic!("Invalid reg for instruction"),
+    }
+
+
+    let will_carry = utils::check_bit(register, 7);
+    let mut result = register << 1;
+
+    if utils::check_bit(register, 7) { carry_flag = 1; }
+
+    result |= carry_flag;
+
+    match target_reg {
+
+        TargetReg::A => result_state.af = utils::set_lb(result_state.af, result),
+        TargetReg::B => result_state.bc = utils::set_lb(result_state.bc, result),
+        TargetReg::C => result_state.bc = utils::set_rb(result_state.bc, result),
+        TargetReg::D => result_state.de = utils::set_lb(result_state.de, result),
+        TargetReg::E => result_state.de = utils::set_rb(result_state.de, result),
+        TargetReg::H => result_state.hl = utils::set_lb(result_state.hl, result),
+        TargetReg::L => result_state.hl = utils::set_rb(result_state.hl, result),
+
+        _ => panic!("Invalid reg for instruction"),
+    }
+
+    if !af {
+
+        if result == 0x0 { result_state.af = utils::set_flag(TargetFlag::ZFlag, result_state.af); }
+        else { result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af); }
+
+        if will_carry { result_state.af = utils::set_flag(TargetFlag::CFlag, result_state.af); }
+        else { result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af); }
+
+        result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
+        result_state.af = utils::reset_flag(TargetFlag::HFlag, result_state.af);
+
+        result_state.pc += 2;
+        result_state.cycles += 8;
+    }
+    else {
+
+        result_state.af = utils::reset_flag(TargetFlag::ZFlag, result_state.af);
+        result_state.af = utils::reset_flag(TargetFlag::NFlag, result_state.af);
+        result_state.af = utils::reset_flag(TargetFlag::HFlag, result_state.af);
+
+        if will_carry { result_state.af = utils::set_flag(TargetFlag::CFlag, result_state.af); }
+        else { result_state.af = utils::reset_flag(TargetFlag::CFlag, result_state.af); }
+
+        result_state.pc += 1;
+        result_state.cycles += 4;
+    }
+
+    result_state
+}
 
 // Early GPU emulation, should probably spend more time on this.
 // Seems to be working fine so far, but it's not fully confirmed.
