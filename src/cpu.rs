@@ -1943,7 +1943,7 @@ fn gpu_tick(state: CpuState) -> CpuState {
 
                     // End of the screen, restart.
                     result_state.gpu_mode = 2;
-                    result_state.gpu_line = 0;
+                    result_state.gpu_line = 1;
                     result_state = memory_write(0xFF44, result_state.gpu_line, result_state);
                 }
             }
