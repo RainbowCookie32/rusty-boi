@@ -4,6 +4,8 @@ use std::fs::File;
 
 mod cpu;
 mod utils;
+mod opcodes;
+mod register;
 
 fn main() {
     

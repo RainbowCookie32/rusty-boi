@@ -2,15 +2,17 @@ use std::convert::TryInto;
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::utils;
+use super::register;
+use super::register::Register;
 
 pub struct CpuState {
-    pub af: u16,
-    pub bc: u16,
-    pub de: u16,
-    pub hl: u16,
+    pub af: register::CpuReg,
+    pub bc: register::CpuReg,
+    pub de: register::CpuReg,
+    pub hl: register::CpuReg,
+    pub sp: register::CpuReg,
+    
     pub pc: u16,
-    pub sp: u16,
-
     pub cycles: u32,
     
     pub stack: Vec<u8>,
@@ -46,32 +48,15 @@ pub enum TargetFlag {
     CFlag,
 }
 
-pub enum TargetReg {
-    
-    AF,
-    BC,
-    DE,
-    HL,
-    SP,
-
-    A,
-    B,
-    C,
-    D,
-    E,
-    H,
-    L,
-}
-
 pub fn init_cpu(bootrom: Vec<u8>, rom: Vec<u8>) {
 
     let initial_state = CpuState {
-        af: 0x01B0,
-        bc: 0x0013,
-        de: 0x00D8,
-        hl: 0x014D,
+        af: register::CpuReg{value: 0x01B0},
+        bc: register::CpuReg{value: 0x0013},
+        de: register::CpuReg{value: 0x00D8},
+        hl: register::CpuReg{value: 0x014D},
         pc: 0x0000, // 0x0100 is the start value for ROMS, 0x0000 is for the bootrom
-        sp: 0xFFFE,
+        sp: register::CpuReg{value: 0xFFFE},
 
         cycles: 0,
 
@@ -729,7 +714,7 @@ fn ld_full_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 
         // Only the full registers are valid for this instructions.
         TargetReg::AF => result_state.af = new_value,
-        TargetReg::BC => result_state.bc = new_value,
+        TargetReg::BC => result_state.bc.set_register(new_value),
         TargetReg::DE => result_state.de = new_value,
         TargetReg::HL => result_state.hl = new_value,
         TargetReg::SP => result_state.sp = new_value,
@@ -752,7 +737,7 @@ fn ld_hi_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 
         // Only the high byte of a Register can be the target of this instruction.
         TargetReg::A => result_state.af = utils::set_lb(result_state.af, new_value),
-        TargetReg::B => result_state.bc = utils::set_lb(result_state.bc, new_value),
+        TargetReg::B => result_state.bc.set_register_lb(new_value),
         TargetReg::D => result_state.de = utils::set_lb(result_state.de, new_value),
         TargetReg::H => result_state.hl = utils::set_lb(result_state.hl, new_value),
 
@@ -771,7 +756,7 @@ fn ld_low_from_imm(state: CpuState, target_reg: TargetReg) -> CpuState {
 
     match target_reg {
 
-        TargetReg::C => result_state.bc = utils::set_rb(result_state.bc, new_value),
+        TargetReg::C => result_state.bc.set_register_lb(new_value),
         TargetReg::E => result_state.de = utils::set_rb(result_state.de, new_value),
         TargetReg::L => result_state.hl = utils::set_rb(result_state.hl, new_value),
 
@@ -791,7 +776,7 @@ fn ld_hi_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) 
 
     match source_reg {
         TargetReg::A => source = utils::get_lb(result_state.af),
-        TargetReg::B => source = utils::get_lb(result_state.bc),
+        TargetReg::B => source = result_state.bc.get_register_lb(),
         TargetReg::D => source = utils::get_lb(result_state.de),
         TargetReg::H => source = utils::get_lb(result_state.hl),
         
@@ -804,8 +789,7 @@ fn ld_hi_into_hi(state: CpuState, source_reg: TargetReg, target_reg: TargetReg) 
             result_state.af = utils::set_lb(target, source)
         },
         TargetReg::B => {
-            target = result_state.bc;
-            result_state.bc = utils::set_lb(target, source)
+            result_state.bc.set_register_lb(source)
         },
         TargetReg::D => {
             target = result_state.af;
@@ -831,7 +815,7 @@ fn ld_hi_into_low(state: CpuState, source_reg: TargetReg, target_reg: TargetReg)
 
     match source_reg {
         TargetReg::A => source = utils::get_lb(result_state.af),
-        TargetReg::B => source = utils::get_lb(result_state.bc),
+        TargetReg::B => source = result_state.bc.get_register_lb(),
         TargetReg::D => source = utils::get_lb(result_state.de),
         TargetReg::H => source = utils::get_lb(result_state.hl),
         
@@ -844,7 +828,7 @@ fn ld_hi_into_low(state: CpuState, source_reg: TargetReg, target_reg: TargetReg)
             result_state.bc = utils::set_rb(target, source)
         },
         TargetReg::E => {
-            target = result_state.bc;
+            target = result_state.bc.get_register();
             result_state.de = utils::set_rb(target, source)
         },
         TargetReg::L => {
