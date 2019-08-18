@@ -3,9 +3,6 @@ use std::time;
 use std::thread;
 use byteorder::{ByteOrder, LittleEndian};
 
-use super::gpu;
-use super::gpu::GpuState;
-
 use super::opcodes;
 use super::opcodes_prefixed;
 
@@ -78,9 +75,8 @@ pub fn init_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> Memory {
     initial_memory
 }
 
-pub fn exec_loop(state: &mut CpuState, gpu: &mut GpuState, memory: &mut Memory) {
+pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) {
 
-    let mut current_gpu = gpu;
     let mut current_state = state;
     let mut current_memory = memory;
     let slow_mode = true;

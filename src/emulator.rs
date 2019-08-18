@@ -46,7 +46,7 @@ fn execution_loop(state: ConsoleState) {
 
     while current_state.current_cpu.should_execute {
 
-        cpu::exec_loop(&mut current_state.current_cpu, &mut current_state.current_gpu, &mut current_state.current_memory);
+        cpu::exec_loop(&mut current_state.current_cpu, &mut current_state.current_memory);
         gpu::gpu_tick(&mut current_state.current_gpu, &mut current_state.current_memory, &mut current_state.current_cpu.cycles.value);
     }
 
