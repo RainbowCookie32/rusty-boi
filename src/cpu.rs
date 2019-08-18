@@ -95,8 +95,7 @@ pub fn exec_loop(state: &mut CpuState, gpu: &mut GpuState, memory: &mut Memory) 
         opcodes::run_instruction(&mut current_state, &mut current_memory, opcode);
     }
 
-    gpu::gpu_tick(&mut current_gpu, &mut current_memory, &current_state.cycles.value);
-    if slow_mode {thread::sleep(time::Duration::from_millis(250))};
+    if slow_mode {thread::sleep(time::Duration::from_millis(150))};
 }
 
 pub fn memory_read_u8(addr: &u16, memory: &Memory) -> u8 {
