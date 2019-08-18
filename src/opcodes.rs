@@ -212,7 +212,9 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
 
         0xF0 => instruction_finished(ld_a_from_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
         0xF1 => instruction_finished(pop(&mut current_state.af, &mut current_state.stack), current_state),
+        0xF3 => instruction_finished(di(memory), current_state),
         0xF5 => instruction_finished(push(&mut current_state.af, &mut current_state.stack), current_state),
+        0xFB => instruction_finished(ei(memory), current_state),
         0xFE => instruction_finished(cp_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
 
         _ => { 
@@ -717,7 +719,7 @@ fn cp_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u1
     let value = cpu::memory_read_u8(&hl.get_register(), memory);
     utils::set_zf(af.get_register_lb() == value, af); utils::set_nf(true, af);
     utils::set_cf(af.get_register_lb() < value, af);
-    (1, 4)
+    (1, 8)
 }
 
 fn cp_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
@@ -725,7 +727,7 @@ fn cp_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
     let value = cpu::memory_read_u8(&(pc + 1), memory);
     utils::set_zf(af.get_register_lb() == value, af); utils::set_nf(true, af);
     utils::set_cf(af.get_register_lb() < value, af);
-    (1, 4)
+    (2, 8)
 }
 
 fn cp_a_with_a(af: &mut CpuReg) -> (u16, u32) {
@@ -764,5 +766,17 @@ fn rla(af: &mut CpuReg) -> (u16, u32) {
     utils::set_hf(false, af);
     utils::set_nf(false, af);
     utils::set_zf(false, af);
+    (1, 4)
+}
+
+fn ei(memory: &mut Memory) -> (u16, u32) {
+
+    cpu::memory_write(0xFFFF, 0, memory);
+    (1, 4)
+}
+
+fn di(memory: &mut Memory) -> (u16, u32) {
+
+    cpu::memory_write(0xFFFF, 0, memory);
     (1, 4)
 }

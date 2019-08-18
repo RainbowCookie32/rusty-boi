@@ -4,41 +4,45 @@ use super::register::Register;
 
 pub fn set_zf(value: bool, af: &mut CpuReg) {
 
+    let reg_value = af.get_register();
     if value {
-        set_bit(af.get_register_rb() as u16, 7);
+        af.set_register(set_bit(reg_value, 7));
     }
     else {
-        reset_bit(af.get_register_rb() as u16, 7);
+        af.set_register(reset_bit(reg_value, 7));
     }
 }
 
 pub fn set_nf(value: bool, af: &mut CpuReg) {
 
+    let reg_value = af.get_register();
     if value {
-        set_bit(af.get_register_rb() as u16, 6);
+        af.set_register(set_bit(reg_value, 6));
     }
     else {
-        reset_bit(af.get_register_rb() as u16, 6);
+        af.set_register(reset_bit(reg_value, 6));
     }
 }
 
 pub fn set_hf(value: bool, af: &mut CpuReg) {
 
+    let reg_value = af.get_register();
     if value {
-        set_bit(af.get_register_rb() as u16, 5);
+        af.set_register(set_bit(reg_value, 5));
     }
     else {
-        reset_bit(af.get_register_rb() as u16, 5);
+        af.set_register(reset_bit(reg_value, 5));
     }
 }
 
 pub fn set_cf(value: bool, af: &mut CpuReg) {
 
+    let reg_value = af.get_register();
     if value {
-        set_bit(af.get_register_rb() as u16, 4);
+        af.set_register(set_bit(reg_value, 4));
     }
     else {
-        reset_bit(af.get_register_rb() as u16, 4);
+        af.set_register(reset_bit(reg_value, 4));
     }
 }
 

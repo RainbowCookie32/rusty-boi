@@ -79,7 +79,7 @@ pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) {
 
     let mut current_state = state;
     let mut current_memory = memory;
-    let slow_mode = true;
+    let slow_mode = false;
     
     let mut opcode = memory_read_u8(&current_state.pc.get(), &current_memory);
         
@@ -91,7 +91,7 @@ pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) {
         opcodes::run_instruction(&mut current_state, &mut current_memory, opcode);
     }
 
-    if slow_mode {thread::sleep(time::Duration::from_millis(150))};
+    if slow_mode {thread::sleep(time::Duration::from_millis(25))};
 }
 
 pub fn memory_read_u8(addr: &u16, memory: &Memory) -> u8 {

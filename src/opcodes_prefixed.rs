@@ -253,7 +253,7 @@ fn rl_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 fn bit_lb(reg: &mut CpuReg, bit: u8, af: &mut CpuReg) -> (u16, u32) {
 
     let result = utils::check_bit(reg.get_register_lb(), bit);
-    utils::set_zf(result, af); utils::set_nf(false, af);
+    utils::set_zf(!result, af); utils::set_nf(false, af);
     utils::set_hf(true, af);
     (2, 8)
 }
@@ -261,7 +261,7 @@ fn bit_lb(reg: &mut CpuReg, bit: u8, af: &mut CpuReg) -> (u16, u32) {
 fn bit_rb(reg: &mut CpuReg, bit: u8, af: &mut CpuReg) -> (u16, u32) {
 
     let result = utils::check_bit(reg.get_register_rb(), bit);
-    utils::set_zf(result, af); utils::set_nf(false, af);
+    utils::set_zf(!result, af); utils::set_nf(false, af);
     utils::set_hf(true, af);
     (2, 8)
 }
@@ -269,7 +269,7 @@ fn bit_rb(reg: &mut CpuReg, bit: u8, af: &mut CpuReg) -> (u16, u32) {
 fn bit_hl(bit: u8, af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
 
     let result = utils::check_bit(cpu::memory_read_u8(&hl.get_register(), memory), bit);
-    utils::set_zf(result, af); utils::set_nf(false, af);
+    utils::set_zf(!result, af); utils::set_nf(false, af);
     utils::set_hf(true, af);
     (2, 16)
 }
