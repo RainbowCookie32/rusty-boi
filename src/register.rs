@@ -1,7 +1,15 @@
 use super::utils;
 
 pub struct CpuReg {
-    value: u16,
+    pub value: u16,
+}
+
+pub struct Pc {
+    pub value: u16,
+}
+
+pub struct Cycles {
+    pub value: u32,
 }
 
 pub trait Register {
@@ -25,9 +33,21 @@ pub trait Register {
     fn add_to_lb(&mut self, value: u8) -> bool;
     fn add_to_rb(&mut self, value: u8) -> bool;
 
-    fn sub_to_reg(&mut self, value: u16) -> bool;
-    fn sub_to_lb(&mut self, value: u8) -> bool;
-    fn sub_to_rb(&mut self, value: u8) -> bool;
+    fn sub_from_reg(&mut self, value: u16) -> bool;
+    fn sub_from_lb(&mut self, value: u8) -> bool;
+    fn sub_from_rb(&mut self, value: u8) -> bool;
+}
+
+pub trait PcTrait {
+
+    fn add(&mut self, value: u16);
+    fn set(&mut self, value: u16);
+    fn get(&mut self) -> u16;
+}
+
+pub trait CycleCounter {
+
+    fn add(&mut self, value: u32);
 }
 
 impl Register for CpuReg {
@@ -100,19 +120,41 @@ impl Register for CpuReg {
         result.1
     }
 
-    fn sub_to_reg(&mut self, value: u16) -> bool {
+    fn sub_from_reg(&mut self, value: u16) -> bool {
         let result = self.value.overflowing_sub(value);
         self.value = result.0;
         result.1
     }
-    fn sub_to_lb(&mut self, value: u8) -> bool {
+    fn sub_from_lb(&mut self, value: u8) -> bool {
         let result = utils::get_lb(self.value).overflowing_sub(value);
         self.value = utils::set_lb(self.value, result.0);
         result.1
     }
-    fn sub_to_rb(&mut self, value: u8) -> bool {
+    fn sub_from_rb(&mut self, value: u8) -> bool {
         let result = utils::get_rb(self.value).overflowing_sub(value);
         self.value = utils::set_rb(self.value, result.0);
         result.1
+    }
+}
+
+impl PcTrait for Pc {
+
+    fn add(&mut self, value: u16) {
+        self.value += value;
+    }
+
+    fn set(&mut self, value: u16) {
+        self.value = value;
+    }
+
+    fn get(&mut self) -> u16 {
+        self.value
+    }
+}
+
+impl CycleCounter for Cycles {
+
+    fn add(&mut self, value: u32) {
+        self.value += value;
     }
 }

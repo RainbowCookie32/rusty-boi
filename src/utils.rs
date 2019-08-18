@@ -1,32 +1,47 @@
-use super::cpu::TargetFlag;
+use super::register::CpuReg;
+use super::register::Register;
 
-pub fn set_flag(flag: TargetFlag, register: u16) -> u16 {
 
-    let mut result_reg = register;
+pub fn set_zf(value: bool, af: &mut CpuReg) {
 
-    match flag {
-        TargetFlag::ZFlag => result_reg = set_bit(result_reg, 7),
-        TargetFlag::NFlag => result_reg = set_bit(result_reg, 6),
-        TargetFlag::HFlag => result_reg = set_bit(result_reg, 5),
-        TargetFlag::CFlag => result_reg = set_bit(result_reg, 4),
+    if value {
+        set_bit(af.get_register_rb() as u16, 7);
     }
-
-    result_reg
+    else {
+        reset_bit(af.get_register_rb() as u16, 7);
+    }
 }
 
-pub fn reset_flag(flag: TargetFlag, register: u16) -> u16 {
+pub fn set_nf(value: bool, af: &mut CpuReg) {
 
-    let mut result_reg = register;
-
-    match flag {
-        TargetFlag::ZFlag => result_reg = reset_bit(result_reg, 7),
-        TargetFlag::NFlag => result_reg = reset_bit(result_reg, 6),
-        TargetFlag::HFlag => result_reg = reset_bit(result_reg, 5),
-        TargetFlag::CFlag => result_reg = reset_bit(result_reg, 4),
+    if value {
+        set_bit(af.get_register_rb() as u16, 6);
     }
-
-    result_reg
+    else {
+        reset_bit(af.get_register_rb() as u16, 6);
+    }
 }
+
+pub fn set_hf(value: bool, af: &mut CpuReg) {
+
+    if value {
+        set_bit(af.get_register_rb() as u16, 5);
+    }
+    else {
+        reset_bit(af.get_register_rb() as u16, 5);
+    }
+}
+
+pub fn set_cf(value: bool, af: &mut CpuReg) {
+
+    if value {
+        set_bit(af.get_register_rb() as u16, 4);
+    }
+    else {
+        reset_bit(af.get_register_rb() as u16, 4);
+    }
+}
+
 
 // assuming 16 bit values is all we ever deal with
 // lb means "left byte", rb means "right byte"
@@ -55,6 +70,14 @@ pub fn set_bit(value: u16, offset: u8) -> u16 {
 }
 
 pub fn reset_bit(value: u16, offset: u8) -> u16 {
+    value & !(1 << offset)
+}
+
+pub fn set_bit_u8(value: u8, offset: u8) -> u8 {
+    value | 1 << offset
+}
+
+pub fn reset_bit_u8(value: u8, offset: u8) -> u8 {
     value & !(1 << offset)
 }
 
