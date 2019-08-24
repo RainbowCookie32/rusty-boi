@@ -3,14 +3,18 @@ use super::utils;
 use super::cpu;
 use super::cpu::Memory;
 use super::cpu::CpuState;
+use super::cpu::CycleResult;
 
 use super::register::CpuReg;
 use super::register::Register;
 use super::register::PcTrait;
 use super::register::CycleCounter;
 
-pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode: u8) {
+pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode: u8) -> CycleResult {
 
+    let mut result = CycleResult::Success;
+
+    println!("Running prefixed opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
     match opcode {
 
         0x10 => instruction_finished(rl_lb(&mut current_state.bc, &mut current_state.af), current_state),
@@ -210,9 +214,11 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         
         _ => { 
             println!("Tried to run unimplemented prefixed opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
-            current_state.should_execute = false;
+            result = CycleResult::UnimplementedOp;
         }
     }
+
+    result
 }
 
 fn instruction_finished(values: (u16, u32), state: &mut CpuState) {

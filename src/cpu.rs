@@ -19,7 +19,6 @@ pub struct CpuState {
     
     pub stack: Vec<u8>, 
 
-    pub should_execute: bool,
     pub nops: u8,
 }
 
@@ -36,6 +35,17 @@ pub struct Memory {
     pub oam_mem: Vec<u8>,
 }
 
+#[derive(PartialEq, Debug)]
+pub enum CycleResult {
+
+    UnimplementedOp,
+    NopFlood,
+    InvalidOp,
+    Stop,
+    Halt,
+    Success,
+}
+
 pub fn init_cpu() -> CpuState {
 
     let initial_state = CpuState {
@@ -50,7 +60,6 @@ pub fn init_cpu() -> CpuState {
 
         stack: Vec::new(),
 
-        should_execute: true,
         nops: 0,
     };
 
@@ -79,26 +88,25 @@ pub fn init_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> Memory {
     initial_memory
 }
 
-pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) {
+pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) -> CycleResult {
 
     let mut current_state = state;
     let mut current_memory = memory;
-
-    if current_state.pc.get() >= 0x100 {
-        //println!("Cart area");
-    }
+    let mut result: CycleResult;
     
     let mut opcode = memory_read_u8(&current_state.pc.get(), &current_memory);
         
     if opcode == 0xCB {
         opcode = memory_read_u8(&(current_state.pc.get() + 1), &current_memory);
-        opcodes_prefixed::run_prefixed_instruction(&mut current_state, &mut current_memory, opcode);
+        result = opcodes_prefixed::run_prefixed_instruction(&mut current_state, &mut current_memory, opcode);
     }
     else {
-        opcodes::run_instruction(&mut current_state, &mut current_memory, opcode);
+        result = opcodes::run_instruction(&mut current_state, &mut current_memory, opcode);
         if opcode == 0x00 {current_state.nops += 1;}
-        current_state.should_execute = current_state.nops < 5;
+        if current_state.nops >= 5 { result = CycleResult::NopFlood }
     }
+
+    result
 }
 
 pub fn memory_read_u8(addr: &u16, memory: &Memory) -> u8 {

@@ -4,9 +4,6 @@ use std::fs::File;
 
 use sdl2::pixels::Color;
 
-use std::time;
-use std::thread;
-
 use super::cpu;
 use super::gpu;
 
@@ -49,6 +46,8 @@ fn execution_loop(state: ConsoleState) {
 
     let mut current_state = state;
 
+    let mut cpu_result = cpu::CycleResult::Success;
+
     let sdl_context = sdl2::init().unwrap();
     let sdl_video = sdl_context.video().unwrap();
     let sdl_window = sdl_video.window("Rusty Boi", 160, 144).position_centered().build().unwrap();
@@ -58,14 +57,13 @@ fn execution_loop(state: ConsoleState) {
     sdl_canvas.clear();
     sdl_canvas.present();
 
-    while current_state.current_cpu.should_execute {
+    while cpu_result == cpu::CycleResult::Success {
 
-        cpu::exec_loop(&mut current_state.current_cpu, &mut current_state.current_memory);
+        cpu_result = cpu::exec_loop(&mut current_state.current_cpu, &mut current_state.current_memory);
         gpu::gpu_tick(&mut sdl_canvas, &mut current_state.current_gpu, &mut current_state.current_memory, &mut current_state.current_cpu.cycles.value);
-        //thread::sleep(time::Duration::from_millis(20));
     }
 
-    println!("CPU error, stopping emulator");
+    println!("Stopped CPU execution with state {:?}, stopping emulator", cpu_result);
 }
 
 

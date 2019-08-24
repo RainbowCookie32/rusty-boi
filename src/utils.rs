@@ -47,6 +47,15 @@ pub fn set_cf(value: bool, af: &mut CpuReg) {
 }
 
 
+pub fn get_carry(af: &mut CpuReg) -> u8 {
+
+    let value: u8;
+    if check_bit(af.get_register_rb(), 7) { value = 1; }
+    else { value = 0; }
+    value
+}
+
+
 // assuming 16 bit values is all we ever deal with
 // lb means "left byte", rb means "right byte"
 
