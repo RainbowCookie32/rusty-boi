@@ -225,6 +225,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xC3 => jump(memory, current_state),
         0xC4 => conditional_call(memory, current_state, JumpCondition::ZNotSet),
         0xC5 => instruction_finished(push(&mut current_state.bc, &mut current_state.stack), current_state),
+        0xC6 => instruction_finished(add_imm_to_a(&mut current_state.af, &current_state.pc.get(), memory), current_state),
         0xC8 => conditional_ret(current_state, JumpCondition::ZSet),
         0xC9 => ret(current_state),
         0xCA => conditional_jump(JumpCondition::ZSet, memory, current_state),
@@ -253,16 +254,20 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xE3 => result = CycleResult::InvalidOp,
         0xE4 => result = CycleResult::InvalidOp,
         0xE5 => instruction_finished(push(&mut current_state.hl, &mut current_state.stack), current_state),
+        0xE6 => instruction_finished(and_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xE9 => jump_to_hl(current_state),
         0xEA => instruction_finished(save_a_to_nn(&mut current_state.af, &current_state.pc.get(), memory), current_state),
         0xEB => result = CycleResult::InvalidOp,
         0xEC => result = CycleResult::InvalidOp,
         0xED => result = CycleResult::InvalidOp,
+        0xEE => instruction_finished(xor_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
 
         0xF0 => instruction_finished(ld_a_from_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
         0xF1 => instruction_finished(pop(&mut current_state.af, &mut current_state.stack), current_state),
         0xF3 => instruction_finished(di(memory), current_state),
         0xF4 => result = CycleResult::InvalidOp,
         0xF5 => instruction_finished(push(&mut current_state.af, &mut current_state.stack), current_state),
+        0xF6 => instruction_finished(or_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
         0xFA => instruction_finished(ld_a_from_imm_addr(&mut current_state.af, &current_state.pc.get(), memory), current_state),
         0xFB => instruction_finished(ei(memory), current_state),
         0xFC => result = CycleResult::InvalidOp,
@@ -295,6 +300,13 @@ fn jump(memory: &mut Memory, state: &mut CpuState) {
     let current_pc = state.pc.get();
     state.pc.set(cpu::memory_read_u16(&(current_pc + 1), memory));
     state.cycles.add(16);
+}
+
+fn jump_to_hl(state: &mut CpuState) {
+
+    let target = state.hl.get_register() + 1;
+    state.pc.set(target);
+    state.cycles.add(4);
 }
 
 fn relative_jump(memory: &mut Memory, state: &mut CpuState) {
@@ -670,6 +682,14 @@ fn add_a_to_a(af: &mut CpuReg) -> (u16, u32) {
     (1, 4)
 }
 
+fn add_imm_to_a(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
+
+    let overflow = af.add_to_lb(cpu::memory_read_u8(&(pc + 1), memory));
+    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
+    utils::set_cf(overflow, af);
+    (2, 8)
+}
+
 fn adc_hi_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
     let carry = utils::get_carry(af);
@@ -841,6 +861,16 @@ fn and_a_with_a(af: &mut CpuReg) -> (u16, u32) {
     (1, 4)
 }
 
+fn and_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&(pc + 1), memory);
+    let result = af.get_register_lb() & value;
+    af.set_register_lb(result);
+    utils::set_zf(result == 0, af); utils::set_nf(false, af);
+    utils::set_hf(true, af); utils::set_cf(false, af);
+    (2, 8)
+}
+
 fn or_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
     let result = af.get_register_lb() | source.get_register_lb();
@@ -877,6 +907,16 @@ fn or_a_with_a(af: &mut CpuReg) -> (u16, u32) {
     (1, 4)
 }
 
+fn or_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&(pc + 1), memory);
+    let result = af.get_register_lb() | value;
+    af.set_register_lb(result);
+    utils::set_zf(result == 0, af); utils::set_nf(false, af);
+    utils::set_hf(false, af); utils::set_cf(false, af);
+    (2, 8)
+}
+
 fn xor_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
     let result = af.get_register_lb() ^ source.get_register_lb();
@@ -911,6 +951,16 @@ fn xor_a_with_a(af: &mut CpuReg) -> (u16, u32) {
     utils::set_zf(result == 0, af); utils::set_nf(false, af);
     utils::set_hf(false, af); utils::set_cf(false, af);
     (1, 4)
+}
+
+fn xor_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&(pc + 1), memory);
+    let result = af.get_register_lb() ^ value;
+    af.set_register_lb(result);
+    utils::set_zf(result == 0, af); utils::set_nf(false, af);
+    utils::set_hf(false, af); utils::set_cf(false, af);
+    (2, 8)
 }
 
 fn cp_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {

@@ -23,6 +23,38 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0x13 => instruction_finished(rl_rb(&mut current_state.de, &mut current_state.af), current_state),
         0x14 => instruction_finished(rl_lb(&mut current_state.hl, &mut current_state.af), current_state),
         0x15 => instruction_finished(rl_rb(&mut current_state.hl, &mut current_state.af), current_state),
+        0x18 => instruction_finished(rr_lb(&mut current_state.bc, &mut current_state.af), current_state),
+        0x19 => instruction_finished(rr_rb(&mut current_state.bc, &mut current_state.af), current_state),
+        0x1A => instruction_finished(rr_lb(&mut current_state.de, &mut current_state.af), current_state),
+        0x1B => instruction_finished(rr_rb(&mut current_state.de, &mut current_state.af), current_state),
+        0x1C => instruction_finished(rr_lb(&mut current_state.hl, &mut current_state.af), current_state),
+        0x1D => instruction_finished(rr_rb(&mut current_state.hl, &mut current_state.af), current_state),
+
+        0x20 => instruction_finished(sla_lb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x21 => instruction_finished(sla_rb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x22 => instruction_finished(sla_lb(&mut current_state.af, &mut current_state.de), current_state),
+        0x23 => instruction_finished(sla_rb(&mut current_state.af, &mut current_state.de), current_state),
+        0x24 => instruction_finished(sla_lb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x25 => instruction_finished(sla_rb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x26 => instruction_finished(sla_val(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x27 => instruction_finished(sla_a(&mut current_state.af), current_state),
+        0x28 => instruction_finished(sra_lb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x29 => instruction_finished(sra_rb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x2A => instruction_finished(sra_lb(&mut current_state.af, &mut current_state.de), current_state),
+        0x2B => instruction_finished(sra_rb(&mut current_state.af, &mut current_state.de), current_state),
+        0x2C => instruction_finished(sra_lb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x2D => instruction_finished(sra_rb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x2E => instruction_finished(sra_a(&mut current_state.af), current_state),
+        0x2F => instruction_finished(sra_val(&mut current_state.af, &mut current_state.hl, memory), current_state),
+
+        0x38 => instruction_finished(srl_lb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x39 => instruction_finished(srl_rb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x3A => instruction_finished(srl_lb(&mut current_state.af, &mut current_state.de), current_state),
+        0x3B => instruction_finished(srl_rb(&mut current_state.af, &mut current_state.de), current_state),
+        0x3C => instruction_finished(srl_lb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x3D => instruction_finished(srl_rb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x3E => instruction_finished(srl_val(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x3F => instruction_finished(srl_a(&mut current_state.af), current_state),
         
         0x40 => instruction_finished(bit_lb(&mut current_state.bc, 0, &mut current_state.af), current_state),
         0x41 => instruction_finished(bit_rb(&mut current_state.bc, 0, &mut current_state.af), current_state),
@@ -226,6 +258,34 @@ fn instruction_finished(values: (u16, u32), state: &mut CpuState) {
     state.pc.add(values.0); state.cycles.add(values.1);
 }
 
+fn rr_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
+
+    let mut value = reg.get_register_lb();
+    let carry = utils::get_carry(af);
+
+    utils::set_cf(utils::check_bit(value, 0), af);
+    value = value >> 1;
+    reg.set_register_lb(value | carry << 7);
+    utils::set_hf(false, af);
+    utils::set_nf(false, af);
+    utils::set_zf(value == 0, af);
+    (2, 4)
+}
+
+fn rr_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
+
+    let mut value = reg.get_register_rb();
+    let carry = utils::get_carry(af);
+    
+    utils::set_cf(utils::check_bit(value, 0), af);
+    value = value >> 1;
+    reg.set_register_rb(value | carry << 7);
+    utils::set_hf(false, af);
+    utils::set_nf(false, af);
+    utils::set_zf(value == 0, af);
+    (2, 4)
+}
+
 fn rl_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 
     let mut value = reg.get_register_lb();
@@ -237,7 +297,7 @@ fn rl_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
     reg.set_register_lb(value | carry);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
-    utils::set_zf(false, af);
+    utils::set_zf(value == 0, af);
     (2, 4)
 }
 
@@ -252,7 +312,7 @@ fn rl_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
     reg.set_register_rb(value | carry);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
-    utils::set_zf(false, af);
+    utils::set_zf(value == 0, af);
     (2, 4)
 }
 
@@ -319,5 +379,252 @@ fn set_hl(bit: u8, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
 
     let result = utils::set_bit_u8(cpu::memory_read_u8(&hl.get_register(), memory), bit);
     cpu::memory_write(hl.get_register(), result, memory);
+    (2, 16)
+}
+
+fn sla_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let shifted_bit = utils::check_bit(reg.get_register_lb(), 7);
+    let result = reg.get_register_lb() << 1;
+
+    reg.set_register_lb(result);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    (2, 8)
+}
+
+fn sla_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let shifted_bit = utils::check_bit(reg.get_register_rb(), 7);
+    let result = reg.get_register_rb() << 1;
+
+    reg.set_register_rb(result);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    (2, 8)
+}
+
+fn sla_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let shifted_bit = utils::check_bit(af.get_register_lb(), 7);
+    let result = af.get_register_lb() << 1;
+
+    af.set_register_lb(result);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    (2, 8)
+}
+
+fn sla_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let shifted_bit = utils::check_bit(value, 7);
+    let result = value << 1;
+
+    cpu::memory_write(hl.get_register(), result, memory);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    (2, 16)
+}
+
+fn sra_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let shifted_bit = utils::check_bit(reg.get_register_lb(), 0);
+    let result = reg.get_register_lb() >> 1;
+    let msb = utils::check_bit(reg.get_register_lb(), 7);
+
+    if msb { utils::set_bit_u8(result, 7); }
+    else { utils::reset_bit_u8(result, 7); }
+
+    reg.set_register_lb(result);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    (2, 8)
+}
+
+fn sra_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let shifted_bit = utils::check_bit(reg.get_register_rb(), 0);
+    let result = reg.get_register_rb() >> 1;
+    let msb = utils::check_bit(reg.get_register_rb(), 7);
+
+    if msb { utils::set_bit_u8(result, 7); }
+    else { utils::reset_bit_u8(result, 7); }
+
+    reg.set_register_rb(result);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    (2, 8)
+}
+
+fn sra_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let shifted_bit = utils::check_bit(af.get_register_lb(), 0);
+    let result = af.get_register_lb() >> 1;
+    let msb = utils::check_bit(af.get_register_lb(), 7);
+
+    if msb { utils::set_bit_u8(result, 7); }
+    else { utils::reset_bit_u8(result, 7); }
+
+    af.set_register_lb(result);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    (2, 8)
+}
+
+fn sra_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let shifted_bit = utils::check_bit(value, 0);
+    let result = value >> 1;
+    let msb = utils::check_bit(value, 7);
+
+    if msb { utils::set_bit_u8(result, 7); }
+    else { utils::reset_bit_u8(result, 7); }
+
+    cpu::memory_write(hl.get_register(), result, memory);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    (2, 16)
+}
+
+fn srl_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let shifted_bit = utils::check_bit(reg.get_register_lb(), 0);
+    let result = reg.get_register_lb() >> 1;
+
+    reg.set_register_lb(result);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    (2, 8)
+}
+
+fn srl_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let shifted_bit = utils::check_bit(reg.get_register_rb(), 0);
+    let result = reg.get_register_rb() >> 1;
+
+    reg.set_register_rb(result);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    (2, 8)
+}
+
+fn srl_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let shifted_bit = utils::check_bit(af.get_register_lb(), 0);
+    let result = af.get_register_lb() >> 1;
+
+    af.set_register_lb(result);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    (2, 8)
+}
+
+fn srl_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let shifted_bit = utils::check_bit(value, 0);
+    let result = value >> 1;
+
+    cpu::memory_write(hl.get_register(), result, memory);
+
+    if result == 0 { utils::set_zf(true, af); }
+    else { utils::set_zf(false, af); }
+    
+    if shifted_bit { utils::set_cf(true, af); }
+    else { utils::set_cf(false, af); }
+
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
     (2, 16)
 }
