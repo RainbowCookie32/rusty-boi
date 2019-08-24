@@ -1,33 +1,34 @@
 use super::cpu;
 use super::cpu::Memory;
 
+use super::utils;
+
+use sdl2::rect::Point;
+use sdl2::pixels::Color;
+use sdl2::video::Window;
+use sdl2::render::Canvas;
+
 pub struct GpuState
 {
-    pub char_ram: Vec<u8>,
-    pub bg_map: Vec<u8>,
-    pub oam_mem: Vec<u8>,
-
     pub mode: u8,
     pub modeclock: u32,
     pub line: u8,
+    pub last_bg: u16,
 }
 
 pub fn init_gpu() -> GpuState {
 
     let initial_state = GpuState{
-        char_ram: vec![0; 6144],
-        bg_map: vec![0; 2048],
-        oam_mem: vec![0; 160],
-
         mode: 0,
         modeclock: 0,
         line: 0,
+        last_bg: 0x9800,
     };
 
     initial_state
 }
 
-pub fn gpu_tick(state: &mut GpuState, memory: &mut Memory, cycles: &u32) {
+pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut Memory, cycles: &u32) {
 
     state.modeclock += cycles;
 
@@ -48,9 +49,6 @@ pub fn gpu_tick(state: &mut GpuState, memory: &mut Memory, cycles: &u32) {
 
                 state.modeclock = 0;
                 state.mode = 0;
-
-                // Draw a line
-                
             }
         }
 
@@ -66,6 +64,7 @@ pub fn gpu_tick(state: &mut GpuState, memory: &mut Memory, cycles: &u32) {
                     // Go into VBlank mode.
                     state.mode = 1;
                     // Send data to screen.
+                    canvas.present();
                 }
             }
         }
@@ -89,5 +88,30 @@ pub fn gpu_tick(state: &mut GpuState, memory: &mut Memory, cycles: &u32) {
         }
 
         _ => panic!("Invalid GPU Mode"),
+    }
+}
+
+fn get_color(bytes: &Vec<u8>, bit: u8) -> Color {
+
+    let color_off = Color::RGB(255, 255, 255);
+    let color_33 = Color::RGB(192, 192, 192);
+    let color_66 = Color::RGB(96, 96, 96);
+    let color_on = Color::RGB(0, 0, 0);
+
+    if utils::check_bit(bytes[0], bit) && utils::check_bit(bytes[1], bit) {
+        color_on
+    }
+    else if !utils::check_bit(bytes[0], bit) && utils::check_bit(bytes[1], bit) {
+        color_66
+    }
+    else if utils::check_bit(bytes[0], bit) && !utils::check_bit(bytes[1], bit) {
+        color_33
+    }
+    else if !utils::check_bit(bytes[0], bit) && !utils::check_bit(bytes[1], bit) {
+        color_off
+    }
+    else {
+        println!("Something's broken on the color byte, defaulting to color_off");
+        color_off
     }
 }

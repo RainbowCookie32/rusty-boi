@@ -1,6 +1,4 @@
 use std::convert::TryInto;
-use std::time;
-use std::thread;
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::opcodes;
@@ -31,8 +29,11 @@ pub struct Memory {
     pub loaded_rom: Vec<u8>,
 
     pub ram: Vec<u8>,
-    pub vram: Vec<u8>,
     pub io_regs: Vec<u8>,
+
+    pub char_ram: Vec<u8>,
+    pub bg_map: Vec<u8>,
+    pub oam_mem: Vec<u8>,
 }
 
 pub fn init_cpu() -> CpuState {
@@ -66,8 +67,11 @@ pub fn init_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> Memory {
         loaded_rom: rom,
 
         ram: vec![0; 8192],
-        vram: vec![0; 8192],
         io_regs: vec![0; 256],
+
+        char_ram: vec![0; 6144],
+        bg_map: vec![0; 2048],
+        oam_mem: vec![0; 160],
     };
 
     println!("Memory initialized");
@@ -79,7 +83,10 @@ pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) {
 
     let mut current_state = state;
     let mut current_memory = memory;
-    let slow_mode = false;
+
+    if current_state.pc.get() >= 0x100 {
+        //println!("Cart area");
+    }
     
     let mut opcode = memory_read_u8(&current_state.pc.get(), &current_memory);
         
@@ -89,9 +96,9 @@ pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) {
     }
     else {
         opcodes::run_instruction(&mut current_state, &mut current_memory, opcode);
+        if opcode == 0x00 {current_state.nops += 1;}
+        current_state.should_execute = current_state.nops < 5;
     }
-
-    if slow_mode {thread::sleep(time::Duration::from_millis(25))};
 }
 
 pub fn memory_read_u8(addr: &u16, memory: &Memory) -> u8 {
@@ -113,10 +120,15 @@ pub fn memory_read_u8(addr: &u16, memory: &Memory) -> u8 {
         let memory_addr: usize = address.try_into().unwrap();
         memory.loaded_rom[memory_addr]
     }
-    else if address >= 0x8000 && address <= 0x9FFF
+    else if address >= 0x8000 && address <= 0x97FF
     {
         let memory_addr: usize = (addr - 0x8000).try_into().unwrap();
-        memory.vram[memory_addr]
+        memory.char_ram[memory_addr]
+    }
+    else if address >= 0x9800 && address <= 0x9FFF
+    {
+        let memory_addr: usize = (addr - 0x9800).try_into().unwrap();
+        memory.bg_map[memory_addr]
     }
     else if address >= 0xC000 && address <= 0xCFFF
     {
@@ -127,6 +139,11 @@ pub fn memory_read_u8(addr: &u16, memory: &Memory) -> u8 {
     {
         let memory_addr: usize = (address - 0xD000).try_into().unwrap();
         memory.ram[memory_addr]
+    }
+    else if address >= 0xFE00 && address <= 0xFE9F 
+    {
+        let memory_addr: usize = (address - 0xFE00).try_into().unwrap();
+        memory.oam_mem[memory_addr]
     }
     else if address >= 0xFF00
     {
@@ -169,11 +186,19 @@ pub fn memory_read_u16(addr: &u16, memory: &Memory) -> u16 {
         target_addr = LittleEndian::read_u16(&target);
         target_addr
     }
-    else if address >= 0x8000 && address <= 0x9FFF
+    else if address >= 0x8000 && address <= 0x97FF
     {
-        let memory_addr: usize = (address - 0x8000).try_into().unwrap();
-        target[0] = memory.vram[memory_addr];
-        target[1] = memory.vram[memory_addr + 1];
+        let memory_addr: usize = address.try_into().unwrap();
+        target[0] = memory.char_ram[memory_addr];
+        target[1] = memory.char_ram[memory_addr + 1];
+        target_addr = LittleEndian::read_u16(&target);
+        target_addr
+    }
+    else if address >= 0x9800 && address <= 0x9FFF
+    {
+        let memory_addr: usize = address.try_into().unwrap();
+        target[0] = memory.bg_map[memory_addr];
+        target[1] = memory.bg_map[memory_addr + 1];
         target_addr = LittleEndian::read_u16(&target);
         target_addr
     }
@@ -190,6 +215,14 @@ pub fn memory_read_u16(addr: &u16, memory: &Memory) -> u16 {
         let memory_addr: usize = (address - 0xD000).try_into().unwrap();
         target[0] = memory.ram[memory_addr];
         target[1] = memory.ram[memory_addr + 1];
+        target_addr = LittleEndian::read_u16(&target);
+        target_addr
+    }
+    else if address >= 0xFE00 && address <= 0xFE9F 
+    {
+        let memory_addr: usize = (address - 0xFE00).try_into().unwrap();
+        target[0] = memory.oam_mem[memory_addr];
+        target[1] = memory.oam_mem[memory_addr + 1];
         target_addr = LittleEndian::read_u16(&target);
         target_addr
     }
@@ -217,20 +250,30 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     {
         panic!("Tried to write to cart, illegal write");
     }
-    else if address >= 0x8000 && address <= 0x9FFF
+    else if address >= 0x8000 && address <= 0x97FF
     {
         let memory_addr: usize = (address - 0x8000).try_into().unwrap();
-        memory.vram[memory_addr] = value;
+        memory.char_ram[memory_addr] = value;
+    }
+    else if address >= 0x9800 && address <= 0x9FFF
+    {
+        let memory_addr: usize = (address - 0x9800).try_into().unwrap();
+        memory.bg_map[memory_addr] = value;
     }
     else if address >= 0xC000 && address <= 0xCFFF
     {
-        let memory_addr: usize = (address - 0xC000).try_into().unwrap();        
+        let memory_addr: usize = (address - 0xC000).try_into().unwrap();
         memory.ram[memory_addr] = value;
     }
     else if address >= 0xD000 && address <= 0xDFFF
     {
         let memory_addr: usize = (address - 0xD000).try_into().unwrap();
         memory.ram[memory_addr] = value;
+    }
+    else if address >= 0xFE00 && address <= 0xFE9F 
+    {
+        let memory_addr: usize = (address - 0xFE00).try_into().unwrap();
+        memory.oam_mem[memory_addr] = value;
     }
     else if address >= 0xFF00
     {

@@ -2,6 +2,11 @@ use std::io;
 use std::io::prelude::*;
 use std::fs::File;
 
+use sdl2::pixels::Color;
+
+use std::time;
+use std::thread;
+
 use super::cpu;
 use super::gpu;
 
@@ -44,10 +49,20 @@ fn execution_loop(state: ConsoleState) {
 
     let mut current_state = state;
 
+    let sdl_context = sdl2::init().unwrap();
+    let sdl_video = sdl_context.video().unwrap();
+    let sdl_window = sdl_video.window("Rusty Boi", 160, 144).position_centered().build().unwrap();
+    let mut sdl_canvas = sdl_window.into_canvas().build().unwrap();
+
+    sdl_canvas.set_draw_color(Color::RGB(255, 255, 255));
+    sdl_canvas.clear();
+    sdl_canvas.present();
+
     while current_state.current_cpu.should_execute {
 
         cpu::exec_loop(&mut current_state.current_cpu, &mut current_state.current_memory);
-        gpu::gpu_tick(&mut current_state.current_gpu, &mut current_state.current_memory, &mut current_state.current_cpu.cycles.value);
+        gpu::gpu_tick(&mut sdl_canvas, &mut current_state.current_gpu, &mut current_state.current_memory, &mut current_state.current_cpu.cycles.value);
+        //thread::sleep(time::Duration::from_millis(20));
     }
 
     println!("CPU error, stopping emulator");

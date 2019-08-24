@@ -1,3 +1,5 @@
+extern crate sdl2;
+
 mod cpu;
 mod gpu;
 mod register;

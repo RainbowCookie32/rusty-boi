@@ -52,6 +52,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0x1C => instruction_finished(increment_rb(&mut current_state.de, &mut current_state.af), current_state),
         0x1D => instruction_finished(decrement_rb(&mut current_state.de, &mut current_state.af), current_state),
         0x1E => instruction_finished(ld_imm_into_low(&mut current_state.de, memory, &current_state.pc.get()), current_state),
+        0x1F => instruction_finished(rr_a(&mut current_state.af), current_state),
 
         0x20 => conditional_relative_jump(JumpCondition::ZNotSet, memory, current_state),
         0x21 => instruction_finished(ld_imm_into_full(&mut current_state.hl, memory, &current_state.pc.get()), current_state),
@@ -74,6 +75,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0x33 => instruction_finished(increment_full(&mut current_state.sp), current_state),
         0x34 => instruction_finished(increment_value(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x35 => instruction_finished(decrement_value(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x36 => instruction_finished(save_imm_to_hl(&mut current_state.hl, memory, &current_state.pc.get()), current_state),
         0x38 => conditional_relative_jump(JumpCondition::CSet, memory, current_state),
         0x39 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.sp, &mut current_state.af), current_state),
         0x3A => instruction_finished(ld_a_from_hl_dec(&mut current_state.af, &mut current_state.hl, memory), current_state),
@@ -196,13 +198,18 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xBF => instruction_finished(cp_a_with_a(&mut current_state.af), current_state),
 
         0xC1 => instruction_finished(pop(&mut current_state.bc, &mut current_state.stack), current_state),
+        0xC2 => conditional_jump(JumpCondition::ZNotSet, memory, current_state),
         0xC3 => jump(memory, current_state),
         0xC5 => instruction_finished(push(&mut current_state.bc, &mut current_state.stack), current_state),
         0xC9 => ret(current_state),
+        0xCA => conditional_jump(JumpCondition::ZSet, memory, current_state),
         0xCD => call(memory, current_state),
 
         0xD1 => instruction_finished(pop(&mut current_state.de, &mut current_state.stack), current_state),
+        0xD2 => conditional_jump(JumpCondition::CNotSet, memory, current_state),
         0xD5 => instruction_finished(push(&mut current_state.de, &mut current_state.stack), current_state),
+        0xD6 => instruction_finished(sub_imm_from_a(&mut current_state.af, memory, &current_state.pc.get()), current_state),
+        0xDA => conditional_jump(JumpCondition::CSet, memory, current_state),
 
         0xE0 => instruction_finished(save_a_to_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
         0xE1 => instruction_finished(pop(&mut current_state.hl, &mut current_state.stack), current_state),
@@ -214,6 +221,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xF1 => instruction_finished(pop(&mut current_state.af, &mut current_state.stack), current_state),
         0xF3 => instruction_finished(di(memory), current_state),
         0xF5 => instruction_finished(push(&mut current_state.af, &mut current_state.stack), current_state),
+        0xFA => instruction_finished(ld_a_from_imm_addr(&mut current_state.af, &current_state.pc.get(), memory), current_state),
         0xFB => instruction_finished(ei(memory), current_state),
         0xFE => instruction_finished(cp_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
 
@@ -249,6 +257,21 @@ fn relative_jump(memory: &mut Memory, state: &mut CpuState) {
     let target = cpu::memory_read_u8(&(current_pc + 1), memory) as i8;
     state.pc.set(current_pc.wrapping_add(target as u16) + 2);
     state.cycles.add(12);
+}
+
+fn conditional_jump(condition: JumpCondition, memory: &mut Memory, state: &mut CpuState) {
+
+    let should_jump: bool;
+    match condition {
+
+        JumpCondition::ZNotSet => should_jump = !utils::check_bit(state.af.get_register_rb(), 7),
+        JumpCondition::CNotSet => should_jump = !utils::check_bit(state.af.get_register_rb(), 4),
+        JumpCondition::ZSet => should_jump = utils::check_bit(state.af.get_register_rb(), 7),
+        JumpCondition::CSet => should_jump = utils::check_bit(state.af.get_register_rb(), 4),
+    }
+
+    if should_jump { jump(memory, state) ;}
+    else { state.pc.add(3); state.cycles.add(12) }
 }
 
 fn conditional_relative_jump(condition: JumpCondition, memory: &mut Memory, state: &mut CpuState) {
@@ -331,6 +354,13 @@ fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u
     (1, 8)
 }
 
+fn ld_a_from_imm_addr(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
+
+    let target_addr = cpu::memory_read_u16(&(pc + 1), memory);
+    af.set_register_lb(cpu::memory_read_u8(&target_addr, memory));
+    (3, 16)
+}
+
 fn ld_a_from_ff_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
 
     let target_addr = 0xFF00 + cpu::memory_read_u8(&(pc + 1), memory) as u16;
@@ -401,6 +431,13 @@ fn save_l_to_hl(hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
 
     cpu::memory_write(hl.get_register(), hl.get_register_rb(), memory);
     (1, 8)
+}
+
+fn save_imm_to_hl(hl: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(pc, memory);
+    cpu::memory_write(hl.get_register(), value, memory);
+    (2, 12)
 }
 
 fn increment_full(reg: &mut CpuReg) -> (u16, u32) {
@@ -590,6 +627,15 @@ fn sub_a_from_a(af: &mut CpuReg) -> (u16, u32) {
     (1, 4)
 }
 
+fn sub_imm_from_a(af: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&(pc + 1), memory);
+    let overflow = af.sub_from_lb(value);
+    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
+    utils::set_cf(overflow, af);
+    (2, 8)
+}
+
 fn and_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
     let result = af.get_register_lb() & source.get_register_lb();
@@ -762,6 +808,21 @@ fn rla(af: &mut CpuReg) -> (u16, u32) {
     else {carry = 0}
     utils::set_cf(utils::check_bit(value, 7), af);
     value = value << 1;
+    af.set_register_lb(value | carry);
+    utils::set_hf(false, af);
+    utils::set_nf(false, af);
+    utils::set_zf(false, af);
+    (1, 4)
+}
+
+fn rr_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let mut value = af.get_register_lb();
+    let carry: u8;
+    if utils::check_bit(af.get_register_rb(), 7) {carry = 1}
+    else {carry = 0}
+    utils::set_cf(utils::check_bit(value, 7), af);
+    value = value >> 1;
     af.set_register_lb(value | carry);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
