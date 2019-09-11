@@ -1,5 +1,8 @@
 use byteorder::{ByteOrder, LittleEndian};
 
+use log::trace;
+use log::error;
+
 use super::utils;
 
 use super::cpu;
@@ -24,7 +27,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
 
     let mut result = CycleResult::Success;
 
-    println!("Running opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
+    trace!("Running opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
     match opcode {
 
         0x00 => nop(current_state),
@@ -275,7 +278,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xFE => instruction_finished(cp_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
 
         _ => { 
-            println!("Tried to run unimplemented opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
+            error!("Tried to run unimplemented opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
             result = CycleResult::UnimplementedOp;
         }
     }
