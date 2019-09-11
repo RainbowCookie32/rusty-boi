@@ -1,3 +1,6 @@
+use log::trace;
+use log::error;
+
 use super::utils;
 
 use super::cpu;
@@ -14,7 +17,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
 
     let mut result = CycleResult::Success;
 
-    println!("Running prefixed opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
+    trace!("Running prefixed opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
     match opcode {
 
         0x10 => instruction_finished(rl_lb(&mut current_state.bc, &mut current_state.af), current_state),
@@ -47,6 +50,13 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0x2E => instruction_finished(sra_a(&mut current_state.af), current_state),
         0x2F => instruction_finished(sra_val(&mut current_state.af, &mut current_state.hl, memory), current_state),
 
+        0x30 => instruction_finished(swap_lb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x31 => instruction_finished(swap_rb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x32 => instruction_finished(swap_lb(&mut current_state.af, &mut current_state.de), current_state),
+        0x33 => instruction_finished(swap_rb(&mut current_state.af, &mut current_state.de), current_state),
+        0x34 => instruction_finished(swap_lb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x35 => instruction_finished(swap_rb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x37 => instruction_finished(swap_a(&mut current_state.af), current_state),
         0x38 => instruction_finished(srl_lb(&mut current_state.af, &mut current_state.bc), current_state),
         0x39 => instruction_finished(srl_rb(&mut current_state.af, &mut current_state.bc), current_state),
         0x3A => instruction_finished(srl_lb(&mut current_state.af, &mut current_state.de), current_state),
@@ -245,7 +255,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0xFE => instruction_finished(set_hl(7, &mut current_state.hl, memory), current_state),
         
         _ => { 
-            println!("Tried to run unimplemented prefixed opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
+            error!("Tried to run unimplemented prefixed opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
             result = CycleResult::UnimplementedOp;
         }
     }
@@ -627,4 +637,37 @@ fn srl_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) 
     utils::set_hf(false, af);
 
     (2, 16)
+}
+
+fn swap_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let result = utils::swap_nibbles(reg.get_register_lb());
+    reg.set_register_lb(result);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(false, af);
+    (2, 8)
+}
+
+fn swap_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let result = utils::swap_nibbles(reg.get_register_lb());
+    reg.set_register_lb(result);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(false, af);
+    (2, 8)
+}
+
+fn swap_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let result = utils::swap_nibbles(af.get_register_lb());
+    af.set_register_lb(result);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(false, af);
+    (2, 8)
 }
