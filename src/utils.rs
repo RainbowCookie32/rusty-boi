@@ -97,3 +97,7 @@ pub fn reset_bit_u8(value: u8, offset: u8) -> u8 {
 pub fn check_bit(value: u8, bit: u8) -> bool {
     (value & (1 << bit)) != 0
 }
+
+pub fn swap_nibbles(value: u8) -> u8 {
+    (value & 0x0F) << 4 | (value & 0xF0) >> 4
+}
