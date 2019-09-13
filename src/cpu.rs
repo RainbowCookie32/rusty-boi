@@ -1,6 +1,10 @@
 use std::convert::TryInto;
 use byteorder::{ByteOrder, LittleEndian};
 
+use log::trace;
+use log::info;
+use log::error;
+
 use super::opcodes;
 use super::opcodes_prefixed;
 
@@ -33,6 +37,9 @@ pub struct Memory {
     pub char_ram: Vec<u8>,
     pub bg_map: Vec<u8>,
     pub oam_mem: Vec<u8>,
+
+    pub tiles_dirty: bool,
+    pub background_dirty: bool,
 }
 
 #[derive(PartialEq, Debug)]
@@ -55,7 +62,7 @@ pub fn init_cpu() -> CpuState {
         hl: register::CpuReg{value: 0x014D},
         sp: register::CpuReg{value: 0xFFFE},
 
-        pc: register::Pc{value: 0x0000}, // 0x0100 is the start value for ROMS, 0x0000 is for the bootrom
+        pc: register::Pc{value: 0x0}, // 0x0100 is the start PC for ROMs, 0x00 is for the bootrom
         cycles: register::Cycles{value: 0},
 
         stack: Vec::new(),
@@ -63,7 +70,7 @@ pub fn init_cpu() -> CpuState {
         nops: 0,
     };
 
-    println!("CPU initialized");
+    info!("CPU initialized");
 
     initial_state
 }
@@ -81,9 +88,12 @@ pub fn init_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> Memory {
         char_ram: vec![0; 6144],
         bg_map: vec![0; 2048],
         oam_mem: vec![0; 160],
+
+        tiles_dirty: false,
+        background_dirty: false,
     };
 
-    println!("Memory initialized");
+    info!("Memory initialized");
 
     initial_memory
 }
@@ -93,8 +103,11 @@ pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) -> CycleResult {
     let mut current_state = state;
     let mut current_memory = memory;
     let mut result: CycleResult;
-    
     let mut opcode = memory_read_u8(&current_state.pc.get(), &current_memory);
+
+    if current_state.pc.get() == 0x0100 {
+        trace!("ROM Area");
+    }
         
     if opcode == 0xCB {
         opcode = memory_read_u8(&(current_state.pc.get() + 1), &current_memory);
@@ -103,6 +116,7 @@ pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) -> CycleResult {
     else {
         result = opcodes::run_instruction(&mut current_state, &mut current_memory, opcode);
         if opcode == 0x00 {current_state.nops += 1;}
+        else {current_state.nops = 0;}
         if current_state.nops >= 5 { result = CycleResult::NopFlood }
     }
 
@@ -252,20 +266,26 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
 
     if address <= 0x3FFF
     {
-        panic!("Tried to write to cart, illegal write");
+        error!("Tried to write to cart, illegal write");
     }
     else if address >= 0x4000 && address <= 0x7FFF
     {
-        panic!("Tried to write to cart, illegal write");
+        error!("Tried to write to cart, illegal write");
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
         let memory_addr: usize = (address - 0x8000).try_into().unwrap();
+        // A simple check that avoids marking tiles as dirty if the old value is the same as the new one.
+        // The best example here is the bootrom's first loop that zeroes VRAM. Both the initial value and the new one are 0.
+        // Regenerating caches there is useless.
+        memory.tiles_dirty = check_write(&memory.char_ram[memory_addr], &value);
         memory.char_ram[memory_addr] = value;
     }
     else if address >= 0x9800 && address <= 0x9FFF
     {
         let memory_addr: usize = (address - 0x9800).try_into().unwrap();
+        // A simple check that avoids marking the background as dirty if the old value is the same as the new one.
+        memory.background_dirty = check_write(&memory.bg_map[memory_addr], &value);
         memory.bg_map[memory_addr] = value;
     }
     else if address >= 0xC000 && address <= 0xCFFF
@@ -291,5 +311,16 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     else
     {
         panic!("Invalid or unimplemented read at {}", format!("{:#X}", address));
+    }
+}
+
+fn check_write(old_value: &u8, new_value: &u8) -> bool {
+
+    if old_value == new_value {
+        trace!("Old value in memory ({}) is the same as ({}), not marking as dirty", old_value, new_value);
+        false
+    }
+    else {
+        true
     }
 }
