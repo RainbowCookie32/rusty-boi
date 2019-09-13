@@ -70,7 +70,7 @@ pub fn init_cpu() -> CpuState {
         nops: 0,
     };
 
-    info!("CPU initialized");
+    info!("CPU: CPU initialized");
 
     initial_state
 }
@@ -93,7 +93,7 @@ pub fn init_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> Memory {
         background_dirty: false,
     };
 
-    info!("Memory initialized");
+    info!("CPU: Memory initialized");
 
     initial_memory
 }
@@ -106,7 +106,7 @@ pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) -> CycleResult {
     let mut opcode = memory_read_u8(&current_state.pc.get(), &current_memory);
 
     if current_state.pc.get() == 0x0100 {
-        trace!("ROM Area");
+        info!("CPU: Bootrom execution finished, starting loaded ROM.");
     }
         
     if opcode == 0xCB {
@@ -166,6 +166,11 @@ pub fn memory_read_u8(addr: &u16, memory: &Memory) -> u8 {
     {
         let memory_addr: usize = (address - 0xFE00).try_into().unwrap();
         memory.oam_mem[memory_addr]
+    }
+    else if address >= 0xFEA0 && address <= 0xFEFF
+    {
+        error!("CPU: Read to unusable memory at address {}. Returning 0", format!("{:#X}", address));
+        0
     }
     else if address >= 0xFF00
     {
@@ -248,6 +253,11 @@ pub fn memory_read_u16(addr: &u16, memory: &Memory) -> u16 {
         target_addr = LittleEndian::read_u16(&target);
         target_addr
     }
+    else if address >= 0xFEA0 && address <= 0xFEFF
+    {
+        error!("CPU: Read to unusable memory at address {}. Returning 0", format!("{:#X}", addr));
+        0
+    }
     else if address >= 0xFF00
     {
         let memory_addr: usize = (address - 0xFF00).try_into().unwrap();
@@ -266,11 +276,11 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
 
     if address <= 0x3FFF
     {
-        error!("Tried to write to cart, illegal write");
+        error!("CPU: Tried to write to cart, illegal write");
     }
     else if address >= 0x4000 && address <= 0x7FFF
     {
-        error!("Tried to write to cart, illegal write");
+        error!("CPU: Tried to write to cart, illegal write");
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
@@ -303,6 +313,10 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
         let memory_addr: usize = (address - 0xFE00).try_into().unwrap();
         memory.oam_mem[memory_addr] = value;
     }
+    else if address >= 0xFEA0 && address <= 0xFEFF
+    {
+        error!("CPU: Write to unusable memory at address {}. Ignoring...", format!("{:#X}", address));
+    }
     else if address >= 0xFF00
     {
         let memory_addr: usize = (address - 0xFF00).try_into().unwrap();
@@ -310,14 +324,14 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     }
     else
     {
-        panic!("Invalid or unimplemented read at {}", format!("{:#X}", address));
+        panic!("Invalid or unimplemented write at {}", format!("{:#X}", address));
     }
 }
 
 fn check_write(old_value: &u8, new_value: &u8) -> bool {
 
     if old_value == new_value {
-        trace!("Old value in memory ({}) is the same as ({}), not marking as dirty", old_value, new_value);
+        trace!("CPU: Old value in memory ({}) is the same as ({}), not marking as dirty", format!("{:#X}", old_value), format!("{:#X}", new_value));
         false
     }
     else {

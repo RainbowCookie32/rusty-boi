@@ -75,14 +75,14 @@ pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut 
 
                     // Cache all the tiles if something new was written to that VRAM area.
                     if memory.tiles_dirty {
-                        info!("Regenerating tile cache");
+                        info!("GPU: Regenerating tile cache");
                         make_tiles(memory, state);
                         memory.tiles_dirty = false;
                     }
 
                     // Cache the background if something new was written to that VRAM area and the tiles are already cached.
                     if memory.background_dirty && state.all_tiles.len() == 384 {
-                        info!("Regenerating background cache");
+                        info!("GPU: Regenerating background cache");
                         make_background(memory, state);
                         memory.background_dirty = false;
                     }
@@ -103,7 +103,7 @@ pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut 
                     }
 
                     if state.line == 144 {
-                        trace!("Presenting framebuffer to SDL canvas");
+                        trace!("GPU: Presenting framebuffer to SDL canvas");
                         // Go into VBlank mode.
                         state.mode = 1;
                         // Send data to screen.

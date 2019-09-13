@@ -24,15 +24,15 @@ pub fn init_emu() {
     let bootrom: Vec<u8>;
     let rom: Vec<u8>;
     
-    info!("Point me to a GameBoy Bootrom");
+    info!("Emu: Point me to a GameBoy Bootrom");
 
-    io::stdin().read_line(&mut bootrom_path).expect("Error while reading path to ROM");
+    io::stdin().read_line(&mut bootrom_path).expect("Loader: Error while reading path to ROM");
     bootrom_path = bootrom_path.trim().to_string();
     bootrom = load_bootrom(bootrom_path);
 
-    info!("Point me to a GameBoy ROM");
+    info!("Emu: Point me to a GameBoy ROM");
 
-    io::stdin().read_line(&mut rom_path).expect("Error while reading path to Bootrom");
+    io::stdin().read_line(&mut rom_path).expect("Loader: Error while reading path to Bootrom");
     rom_path = rom_path.trim().to_string();
     rom = load_rom(rom_path);
 
@@ -77,18 +77,18 @@ fn execution_loop(state: ConsoleState) {
         }
     }
 
-    info!("Stopped emulation. Last CPU state was '{:?}'.", cpu_result);
+    info!("CPU: Stopped emulation. Last CPU state was '{:?}'.", cpu_result);
 }
 
 
 fn load_bootrom(path: String) -> Vec<u8> {
     
-    let mut rom_file = File::open(path).expect("Failed to open Bootrom");
+    let mut rom_file = File::open(path).expect("Loader: Failed to open Bootrom");
     let mut data = Vec::new();
 
     match rom_file.read_to_end(&mut data){
-        Ok(_) => info!("Bootrom loaded"),
-        Err(_) => error!("Failed to open the Bootrom file"),
+        Ok(_) => info!("Loader: Bootrom loaded"),
+        Err(_) => error!("Loader: Failed to open the Bootrom file"),
     };
 
     data
@@ -96,12 +96,12 @@ fn load_bootrom(path: String) -> Vec<u8> {
 
 fn load_rom(path: String) -> Vec<u8> {
     
-    let mut rom_file = File::open(path).expect("Failed to open ROM");
+    let mut rom_file = File::open(path).expect("Loader: Failed to open ROM");
     let mut data = Vec::new();
 
     match rom_file.read_to_end(&mut data){
-        Ok(_) => info!("ROM loaded"),
-        Err(_) => error!("Failed to open the ROM file"),
+        Ok(_) => info!("Loader: ROM loaded"),
+        Err(_) => error!("Loader: Failed to open the ROM file"),
     };
 
     data
