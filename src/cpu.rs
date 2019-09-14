@@ -12,6 +12,7 @@ use super::register;
 use super::register::PcTrait;
 
 pub struct CpuState {
+    
     pub af: register::CpuReg,
     pub bc: register::CpuReg,
     pub de: register::CpuReg,

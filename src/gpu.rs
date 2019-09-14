@@ -12,23 +12,22 @@ use sdl2::pixels::Color;
 use sdl2::video::Window;
 use sdl2::render::Canvas;
 
-pub struct Tile
-{
+pub struct Tile {
+    
     pub tile_colors: Vec<Color>,
 }
 
-pub struct BGPoint
-{
+pub struct BGPoint {
+
     pub point: Point,
     pub color: Color,
 }
 
-pub struct GpuState
-{
+pub struct GpuState {
+
     pub mode: u8,
     pub mode_clock: u32,
     pub line: u8,
-    pub last_bg: u16,
     pub all_tiles: Vec<Tile>,
     pub background_points: Vec<BGPoint>,
 }
@@ -39,7 +38,6 @@ pub fn init_gpu() -> GpuState {
         mode: 0,
         mode_clock: 0,
         line: 0,
-        last_bg: 0x9800,
         all_tiles: Vec::new(),
 
         background_points: Vec::new(),
@@ -137,9 +135,8 @@ pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut 
     }
 }
 
+fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &mut Memory) {
 
-fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &mut Memory) 
-{
     let scroll_x = cpu::memory_read_u8(&0xFF43, memory);
     let scroll_y = cpu::memory_read_u8(&0xFF42, memory);
     let mut point_idx: u16 = 0;
@@ -208,11 +205,13 @@ fn make_tile(bytes: &Vec<u8>) -> Tile {
     let mut generated_colors = 0;
     let mut colors: Vec<Color> = vec![Color::RGB(255, 255, 255); 64];
     
-    while generated_colors < colors.len() {
+    while generated_colors < 64 {
 
         let mut bit_counter = 8;
         let tile_bytes = vec![bytes[current_byte], bytes[current_byte + 1]];
 
+        // If both bytes are zero, then we won't have colors since all bits will be 0.
+        // Just skip checking them if that's the case and move on to the next ones.
         if tile_bytes[0] == 0 && tile_bytes[1] == 0 {
             generated_colors += 8;
             color_index += 8;
@@ -318,6 +317,9 @@ fn get_color(bytes: &Vec<u8>, bit: u8) -> Color {
     else if !byte0 && byte1 {
         color_66
     }
+    // TODO: For some reason, the selected color is this one instead of just black.
+    // Maybe related to color palettes, which I haven't implemented yet,
+    // so it's hardcoded to color_on (black) for now since it's easier to see.
     else if byte0 && !byte1 {
         color_on//color_33
     }
