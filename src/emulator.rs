@@ -54,9 +54,11 @@ fn execution_loop(state: ConsoleState) {
 
     let sdl_context = sdl2::init().unwrap();
     let sdl_video = sdl_context.video().unwrap();
-    let sdl_window = sdl_video.window("Rusty Boi", 160, 144).position_centered().build().unwrap();
+    let sdl_window = sdl_video.window("Rusty Boi", 160 * 3, 144 * 3).position_centered().build().unwrap();
     let mut sdl_canvas = sdl_window.into_canvas().build().unwrap();
     let mut sdl_events = sdl_context.event_pump().unwrap();
+
+    sdl_canvas.set_scale(3.0, 3.0).unwrap();
 
     sdl_canvas.set_draw_color(Color::RGB(255, 255, 255));
     sdl_canvas.clear();
