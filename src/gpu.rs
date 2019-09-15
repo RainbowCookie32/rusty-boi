@@ -13,7 +13,7 @@ use sdl2::video::Window;
 use sdl2::render::Canvas;
 
 pub struct Tile {
-    
+
     pub tile_colors: Vec<Color>,
 }
 
@@ -79,7 +79,7 @@ pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut 
                     }
 
                     // Cache the background if something new was written to that VRAM area and the tiles are already cached.
-                    if memory.background_dirty && state.all_tiles.len() == 384 {
+                    if memory.background_dirty && state.all_tiles.len() >= 128 {
                         info!("GPU: Regenerating background cache");
                         make_background(memory, state);
                         memory.background_dirty = false;
@@ -95,7 +95,7 @@ pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut 
                     state.line += 1;
                     cpu::memory_write(0xFF44, state.line, memory);
 
-                    if state.all_tiles.len() == 384
+                    if state.all_tiles.len() >= 128
                     {
                         draw(state, canvas, memory);
                     }
@@ -137,8 +137,8 @@ pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut 
 
 fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &mut Memory) {
 
-    let scroll_x = cpu::memory_read_u8(&0xFF43, memory);
-    let scroll_y = cpu::memory_read_u8(&0xFF42, memory);
+    let scroll_x = cpu::memory_read_u8(&0xFF43, memory) as i32;
+    let scroll_y = cpu::memory_read_u8(&0xFF42, memory) as i32;
     let mut point_idx: u16 = 0;
     let mut drawn_pixels: u16 = 0;
 
@@ -161,7 +161,9 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &mut Memory) 
         }
 
         if should_draw {
-            let final_point = current_point.point.offset(scroll_x as i32, scroll_y as i32);
+            // Substracting the scroll value by itself * 2 it's an ugly way to get the same value, but in negative.
+            // That way we can make offset() to substract from the target coordinates instead of adding.
+            let final_point = current_point.point.offset(scroll_x - (scroll_x * 2), scroll_y - (scroll_y * 2));
             trace!("GPU: Drawing at X: {} and Y {}", final_point.x(), final_point.y());
             canvas.set_draw_color(current_point.color);
             canvas.draw_point(final_point).unwrap();
@@ -174,18 +176,18 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &mut Memory) 
 
 fn make_tiles(memory: &mut Memory, state: &mut GpuState) {
 
-    let mut memory_position = 0;
+    let mut memory_position = 0x8000;
     let mut tiles_position = 0;
     let mut new_tiles:Vec<Tile> = Vec::new();
 
-    while memory_position < memory.char_ram.len() {
+    while memory_position < 0x9000 {
 
         let mut loaded_bytes = 0;
         let mut tile_bytes: Vec<u8> = vec![0; 16];
 
         while loaded_bytes < tile_bytes.len() {
 
-            tile_bytes[loaded_bytes] = memory.char_ram[memory_position];
+            tile_bytes[loaded_bytes] = cpu::memory_read_u8(&memory_position, memory);
             memory_position += 1;
             loaded_bytes += 1;
         }
@@ -304,24 +306,22 @@ fn make_background_line(tiles: &Vec<&Tile>, tile_line: u8, screen_line: u8) -> V
 fn get_color(bytes: &Vec<u8>, bit: u8) -> Color {
 
     let color_off = Color::RGB(255, 255, 255);
-    let _color_33 = Color::RGB(192, 192, 192);
+    let color_33 = Color::RGB(192, 192, 192);
     let color_66 = Color::RGB(96, 96, 96);
     let color_on = Color::RGB(0, 0, 0);
 
     let byte0 = utils::check_bit(bytes[0], bit);
     let byte1 = utils::check_bit(bytes[1], bit);
 
+    // TODO: Implement color palettes to fix wrong colors being used.
     if  byte0 && byte1 {
         color_on
     }
     else if !byte0 && byte1 {
         color_66
     }
-    // TODO: For some reason, the selected color is this one instead of just black.
-    // Maybe related to color palettes, which I haven't implemented yet,
-    // so it's hardcoded to color_on (black) for now since it's easier to see.
     else if byte0 && !byte1 {
-        color_on//color_33
+        color_33
     }
     else if !byte0 && !byte1 {
         color_off
