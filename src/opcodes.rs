@@ -1026,10 +1026,12 @@ fn rla(af: &mut CpuReg) -> (u16, u32) {
 
     let mut value = af.get_register_lb();
     let carry: u8;
+
     if utils::check_bit(af.get_register_rb(), 7) {carry = 1}
     else {carry = 0}
     utils::set_cf(utils::check_bit(value, 7), af);
-    value = value << 1;
+
+    value = value.rotate_left(1);
     af.set_register_lb(value | carry);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
@@ -1041,10 +1043,12 @@ fn rr_a(af: &mut CpuReg) -> (u16, u32) {
 
     let mut value = af.get_register_lb();
     let carry: u8;
+
     if utils::check_bit(af.get_register_rb(), 7) {carry = 1}
     else {carry = 0}
     utils::set_cf(utils::check_bit(value, 7), af);
-    value = value >> 1;
+
+    value = value.rotate_right(1);
     af.set_register_lb(value | carry);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
