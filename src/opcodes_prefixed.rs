@@ -271,16 +271,14 @@ fn instruction_finished(values: (u16, u32), state: &mut CpuState) {
 fn rr_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 
     let mut value = reg.get_register_lb();
-    let carry: u8;
+    let old_carry = utils::get_carry(af);
 
-    if utils::check_bit(reg.get_register_lb(), 7) {carry = 1}
-    else {carry = 0}
-    utils::set_cf(utils::check_bit(value, 0), af);
-
-    value = value.rotate_right(1);
-    reg.set_register_lb(value | carry);
+    utils::set_cf(utils::check_bit(value, 7), af);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
+
+    value = value >> 1;
+    reg.set_register_rb(value | old_carry);
     utils::set_zf(value == 0, af);
     (2, 4)
 }
@@ -288,16 +286,14 @@ fn rr_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 fn rr_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 
     let mut value = reg.get_register_rb();
-    let carry: u8;
+    let old_carry = utils::get_carry(af);
 
-    if utils::check_bit(reg.get_register_rb(), 7) {carry = 1}
-    else {carry = 0}
-    utils::set_cf(utils::check_bit(value, 0), af);
-
-    value = value.rotate_right(1);
-    reg.set_register_rb(value | carry);
+    utils::set_cf(utils::check_bit(value, 7), af);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
+
+    value = value >> 1;
+    reg.set_register_rb(value | old_carry);
     utils::set_zf(value == 0, af);
     (2, 4)
 }
@@ -305,16 +301,14 @@ fn rr_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 fn rl_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 
     let mut value = reg.get_register_lb();
-    let carry: u8;
+    let old_carry = utils::get_carry(af);
 
-    if utils::check_bit(reg.get_register_lb(), 7) {carry = 1}
-    else {carry = 0}
     utils::set_cf(utils::check_bit(value, 7), af);
-
-    value = value.rotate_left(1);
-    reg.set_register_lb(value | carry);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
+
+    value = value << 1;
+    reg.set_register_lb(value | old_carry);
     utils::set_zf(value == 0, af);
     (2, 4)
 }
@@ -322,16 +316,14 @@ fn rl_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 fn rl_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 
     let mut value = reg.get_register_rb();
-    let carry: u8;
+    let old_carry = utils::get_carry(af);
 
-    if utils::check_bit(reg.get_register_rb(), 7) {carry = 1}
-    else {carry = 0}
     utils::set_cf(utils::check_bit(value, 7), af);
-
-    value = value.rotate_left(1);
-    reg.set_register_rb(value | carry);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
+
+    value = value << 1;
+    reg.set_register_rb(value | old_carry);
     utils::set_zf(value == 0, af);
     (2, 4)
 }

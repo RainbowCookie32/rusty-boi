@@ -10,6 +10,7 @@ use sdl2::pixels::Color;
 use super::cpu;
 use super::gpu;
 
+
 pub struct ConsoleState {
     pub current_cpu: cpu::CpuState,
     pub current_gpu: gpu::GpuState,
@@ -58,6 +59,8 @@ fn execution_loop(state: ConsoleState) {
     let mut sdl_canvas = sdl_window.into_canvas().build().unwrap();
     let mut sdl_events = sdl_context.event_pump().unwrap();
 
+    // TODO: Add a way to change scaling without having to change it from code.
+    // Maybe as an argument, or request a scale multiplier after loading the ROMs.
     sdl_canvas.set_scale(3.0, 3.0).unwrap();
 
     sdl_canvas.set_draw_color(Color::RGB(255, 255, 255));
