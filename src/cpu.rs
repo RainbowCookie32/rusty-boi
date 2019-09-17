@@ -57,11 +57,11 @@ pub enum CycleResult {
 pub fn init_cpu() -> CpuState {
 
     let initial_state = CpuState {
-        af: register::CpuReg{value: 0x01B0},
-        bc: register::CpuReg{value: 0x0013},
-        de: register::CpuReg{value: 0x00D8},
-        hl: register::CpuReg{value: 0x014D},
-        sp: register::CpuReg{value: 0xFFFE},
+        af: register::CpuReg{value: 0x0000},
+        bc: register::CpuReg{value: 0x0000},
+        de: register::CpuReg{value: 0x0000},
+        hl: register::CpuReg{value: 0x0000},
+        sp: register::CpuReg{value: 0x0000},
 
         pc: register::Pc{value: 0x0}, // 0x0100 is the start PC for ROMs, 0x00 is for the bootrom
         cycles: register::Cycles{value: 0},
