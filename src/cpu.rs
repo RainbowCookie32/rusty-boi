@@ -5,25 +5,23 @@ use log::trace;
 use log::info;
 use log::error;
 
+use super::utils;
 use super::opcodes;
 use super::opcodes_prefixed;
 
-use super::register;
-use super::register::PcTrait;
+use super::register::{CpuReg, Register, Pc, PcTrait, Cycles};
 
 pub struct CpuState {
     
-    pub af: register::CpuReg,
-    pub bc: register::CpuReg,
-    pub de: register::CpuReg,
-    pub hl: register::CpuReg,
-    pub sp: register::CpuReg,
+    pub af: CpuReg,
+    pub bc: CpuReg,
+    pub de: CpuReg,
+    pub hl: CpuReg,
+    pub sp: CpuReg,
     
-    pub pc: register::Pc,
-    pub cycles: register::Cycles,
-    
-    pub stack: Vec<u8>, 
-
+    pub pc: Pc,
+    pub cycles: Cycles,
+        
     pub nops: u8,
 }
 
@@ -34,6 +32,8 @@ pub struct Memory {
 
     pub ram: Vec<u8>,
     pub io_regs: Vec<u8>,
+    pub hram: Vec<u8>,
+    pub interrupts: u8,
 
     pub char_ram: Vec<u8>,
     pub bg_map: Vec<u8>,
@@ -57,16 +57,14 @@ pub enum CycleResult {
 pub fn init_cpu() -> CpuState {
 
     let initial_state = CpuState {
-        af: register::CpuReg{value: 0x0000},
-        bc: register::CpuReg{value: 0x0000},
-        de: register::CpuReg{value: 0x0000},
-        hl: register::CpuReg{value: 0x0000},
-        sp: register::CpuReg{value: 0x0000},
+        af: CpuReg{value: 0x0000},
+        bc: CpuReg{value: 0x0000},
+        de: CpuReg{value: 0x0000},
+        hl: CpuReg{value: 0x0000},
+        sp: CpuReg{value: 0x0000},
 
-        pc: register::Pc{value: 0x0}, // 0x0100 is the start PC for ROMs, 0x00 is for the bootrom
-        cycles: register::Cycles{value: 0},
-
-        stack: Vec::new(),
+        pc: Pc{value: 0x0}, // 0x0100 is the start PC for ROMs, 0x00 is for the bootrom
+        cycles: Cycles{value: 0},
 
         nops: 0,
     };
@@ -85,6 +83,8 @@ pub fn init_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> Memory {
 
         ram: vec![0; 8192],
         io_regs: vec![0; 256],
+        hram: vec![0; 127],
+        interrupts: 0x0,
 
         char_ram: vec![0; 6144],
         bg_map: vec![0; 2048],
@@ -173,10 +173,19 @@ pub fn memory_read_u8(addr: &u16, memory: &Memory) -> u8 {
         error!("CPU: Read to unusable memory at address {}. Returning 0", format!("{:#X}", address));
         0
     }
-    else if address >= 0xFF00
+    else if address >= 0xFF00 && address <= 0xFF7F
     {
         let memory_addr: usize = (address - 0xFF00).try_into().unwrap();
         memory.io_regs[memory_addr]
+    }
+    else if address >= 0xFF80 && address <= 0xFFFE
+    {
+        let memory_addr: usize = (address - 0xFF80).try_into().unwrap();
+        memory.hram[memory_addr]
+    }
+    else if address == 0xFFFF
+    {
+        memory.interrupts
     }
     else
     {
@@ -259,11 +268,19 @@ pub fn memory_read_u16(addr: &u16, memory: &Memory) -> u16 {
         error!("CPU: Read to unusable memory at address {}. Returning 0", format!("{:#X}", addr));
         0
     }
-    else if address >= 0xFF00
+    else if address >= 0xFF00 && address <= 0xFF7F
     {
         let memory_addr: usize = (address - 0xFF00).try_into().unwrap();
         target[0] = memory.io_regs[memory_addr];
         target[1] = memory.io_regs[memory_addr + 1];
+        target_addr = LittleEndian::read_u16(&target);
+        target_addr
+    }
+    else if address >= 0xFF80 && address <= 0xFFFE 
+    {
+        let memory_addr: usize = (address - 0xFF80).try_into().unwrap();
+        target[0] = memory.hram[memory_addr];
+        target[1] = memory.hram[memory_addr + 1];
         target_addr = LittleEndian::read_u16(&target);
         target_addr
     }
@@ -318,15 +335,45 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     {
         error!("CPU: Write to unusable memory at address {}. Ignoring...", format!("{:#X}", address));
     }
-    else if address >= 0xFF00
+    else if address >= 0xFF00 && address <= 0xFF7F
     {
         let memory_addr: usize = (address - 0xFF00).try_into().unwrap();
         memory.io_regs[memory_addr] = value;
+    }
+    else if address >= 0xFF80 && address <= 0xFFFE 
+    {
+        let memory_addr: usize = (address - 0xFF80).try_into().unwrap();
+        memory.hram[memory_addr] = value;
+    }
+    else if address == 0xFFFF
+    {
+        memory.interrupts = value;
     }
     else
     {
         panic!("Invalid or unimplemented write at {}", format!("{:#X}", address));
     }
+}
+
+pub fn stack_read(sp: &mut CpuReg, memory: &mut Memory) -> u16 {
+
+    let final_value: u16;
+    let mut values: Vec<u8> = vec![0; 2];
+    
+    values[0] = memory_read_u8(&sp.get_register(), memory);
+    sp.increment();
+    values[1] = memory_read_u8(&sp.get_register(), memory);
+    sp.increment();
+    final_value = LittleEndian::read_u16(&values);
+    final_value
+}
+
+pub fn stack_write(sp: &mut CpuReg, value: u16, memory: &mut Memory) {
+
+    sp.decrement();
+    memory_write(sp.get_register(), utils::get_lb(value), memory);
+    sp.decrement();
+    memory_write(sp.get_register(), utils::get_rb(value), memory);
 }
 
 fn check_write(old_value: &u8, new_value: &u8) -> bool {
