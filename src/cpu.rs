@@ -112,10 +112,6 @@ pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) -> CycleResult {
         info!("CPU: Bootrom execution finished, starting loaded ROM.");
         current_memory.bootrom_finished = true;
     }
-
-    if current_state.pc.get() == 0xC845 {
-        info!("CPU: Bootrom execution finished, starting loaded ROM.");
-    }
         
     if opcode == 0xCB {
         opcode = memory_read_u8(&(current_state.pc.get() + 1), &current_memory);
