@@ -1,5 +1,3 @@
-use byteorder::{ByteOrder, LittleEndian};
-
 use log::trace;
 use log::error;
 
@@ -229,6 +227,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xC4 => conditional_call(memory, current_state, JumpCondition::ZNotSet),
         0xC5 => instruction_finished(push(&mut current_state.bc, &mut current_state.sp, memory), current_state),
         0xC6 => instruction_finished(add_imm_to_a(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xC7 => rst(0x0000, memory, current_state),
         0xC8 => conditional_ret(current_state, memory, JumpCondition::ZSet),
         0xC9 => ret(current_state, memory),
         0xCA => conditional_jump(JumpCondition::ZSet, memory, current_state),
@@ -236,6 +235,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xCC => conditional_call(memory, current_state, JumpCondition::ZSet),
         0xCD => call(memory, current_state),
         0xCE => instruction_finished(adc_imm_to_a(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xCF => rst(0x0008, memory, current_state),
 
         0xD0 => conditional_ret(current_state, memory, JumpCondition::CNotSet),
         0xD1 => instruction_finished(pop(&mut current_state.de, &mut current_state.sp, memory), current_state),
@@ -244,12 +244,14 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xD4 => conditional_call(memory, current_state, JumpCondition::CNotSet),
         0xD5 => instruction_finished(push(&mut current_state.de, &mut current_state.sp, memory), current_state),
         0xD6 => instruction_finished(sub_imm_from_a(&mut current_state.af, memory, &current_state.pc.get()), current_state),
+        0xD7 => rst(0x0010, memory, current_state),
         0xD8 => conditional_ret(current_state, memory, JumpCondition::CSet),
         0xDA => conditional_jump(JumpCondition::CSet, memory, current_state),
         0xDB => result = CycleResult::InvalidOp,
         0xDC => conditional_call(memory, current_state, JumpCondition::CSet),
         0xDD => result = CycleResult::InvalidOp,
         0xDE => instruction_finished(sbc_imm_from_a(&mut current_state.af, memory, &current_state.pc.get()), current_state),
+        0xDF => rst(0x0017, memory, current_state),
 
         0xE0 => instruction_finished(save_a_to_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
         0xE1 => instruction_finished(pop(&mut current_state.hl, &mut current_state.sp, memory), current_state),
@@ -258,12 +260,14 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xE4 => result = CycleResult::InvalidOp,
         0xE5 => instruction_finished(push(&mut current_state.hl, &mut current_state.sp, memory), current_state),
         0xE6 => instruction_finished(and_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xE7 => rst(0x0020, memory, current_state),
         0xE9 => jump_to_hl(current_state),
         0xEA => instruction_finished(save_a_to_nn(&mut current_state.af, &current_state.pc.get(), memory), current_state),
         0xEB => result = CycleResult::InvalidOp,
         0xEC => result = CycleResult::InvalidOp,
         0xED => result = CycleResult::InvalidOp,
         0xEE => instruction_finished(xor_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xEF => rst(0x0028, memory, current_state),
 
         0xF0 => instruction_finished(ld_a_from_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
         0xF1 => instruction_finished(pop(&mut current_state.af, &mut current_state.sp, memory), current_state),
@@ -271,11 +275,13 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xF4 => result = CycleResult::InvalidOp,
         0xF5 => instruction_finished(push(&mut current_state.af, &mut current_state.sp, memory), current_state),
         0xF6 => instruction_finished(or_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xF7 => rst(0x0030, memory, current_state),
         0xFA => instruction_finished(ld_a_from_imm_addr(&mut current_state.af, &current_state.pc.get(), memory), current_state),
         0xFB => instruction_finished(ei(memory), current_state),
         0xFC => result = CycleResult::InvalidOp,
         0xFD => result = CycleResult::InvalidOp,
         0xFE => instruction_finished(cp_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xFF => rst(0x0038, memory, current_state),
 
         _ => { 
             error!("Tried to run unimplemented opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
@@ -1080,4 +1086,11 @@ fn ccf(af: &mut CpuReg) -> (u16, u32) {
     utils::set_hf(false, af);
     utils::set_cf(false, af);
     (1, 4)
+}
+
+fn rst(target: u16, memory: &mut Memory, state: &mut CpuState) {
+
+    cpu::stack_write(&mut state.sp, state.pc.get(), memory);
+    state.cycles.add(32);
+    state.pc.set(target);
 }

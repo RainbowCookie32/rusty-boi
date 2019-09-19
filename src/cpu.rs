@@ -41,6 +41,7 @@ pub struct Memory {
 
     pub tiles_dirty: bool,
     pub background_dirty: bool,
+    pub bootrom_finished: bool,
 }
 
 #[derive(PartialEq, Debug)]
@@ -92,6 +93,7 @@ pub fn init_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> Memory {
 
         tiles_dirty: false,
         background_dirty: false,
+        bootrom_finished: false,
     };
 
     info!("CPU: Memory initialized");
@@ -107,6 +109,11 @@ pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) -> CycleResult {
     let mut opcode = memory_read_u8(&current_state.pc.get(), &current_memory);
 
     if current_state.pc.get() == 0x0100 {
+        info!("CPU: Bootrom execution finished, starting loaded ROM.");
+        current_memory.bootrom_finished = true;
+    }
+
+    if current_state.pc.get() == 0xC845 {
         info!("CPU: Bootrom execution finished, starting loaded ROM.");
     }
         
@@ -131,7 +138,12 @@ pub fn memory_read_u8(addr: &u16, memory: &Memory) -> u8 {
     if address < 0x0100 
     {
         let memory_addr: usize = address.try_into().unwrap();
-        memory.loaded_bootrom[memory_addr]
+        if memory.bootrom_finished {
+            memory.loaded_rom[memory_addr]
+        }
+        else {
+            memory.loaded_bootrom[memory_addr]
+        }
     }
     else if address >= 0x0100 && address <= 0x3FFF
     {
@@ -202,10 +214,19 @@ pub fn memory_read_u16(addr: &u16, memory: &Memory) -> u16 {
     if address < 0x0100
     {
         let memory_addr: usize = address.try_into().unwrap();
-        target[0] = memory.loaded_bootrom[memory_addr];
-        target[1] = memory.loaded_bootrom[memory_addr + 1];
-        target_addr = LittleEndian::read_u16(&target);
-        target_addr
+
+        if memory.bootrom_finished {
+            target[0] = memory.loaded_rom[memory_addr];
+            target[1] = memory.loaded_rom[memory_addr + 1];
+            target_addr = LittleEndian::read_u16(&target);
+            target_addr
+        }
+        else {
+            target[0] = memory.loaded_bootrom[memory_addr];
+            target[1] = memory.loaded_bootrom[memory_addr + 1];
+            target_addr = LittleEndian::read_u16(&target);
+            target_addr
+        }
     }
     else if address >= 0x0100 && address <= 0x3FFF
     {
