@@ -280,6 +280,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
 
         0xF0 => instruction_finished(ld_a_from_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
         0xF1 => instruction_finished(pop(&mut current_state.af, &mut current_state.sp, memory), current_state),
+        0xF2 => result = CycleResult::InvalidOp,
         0xF3 => instruction_finished(di(memory), current_state),
         0xF4 => result = CycleResult::InvalidOp,
         0xF5 => instruction_finished(push(&mut current_state.af, &mut current_state.sp, memory), current_state),
