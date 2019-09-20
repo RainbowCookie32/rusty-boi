@@ -281,12 +281,12 @@ fn rr_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
     let mut value = reg.get_register_lb();
     let old_carry = utils::get_carry(af);
 
-    utils::set_cf(utils::check_bit(value, 7), af);
+    utils::set_cf(utils::check_bit(value, 0), af);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
 
     value = value >> 1;
-    reg.set_register_rb(value | old_carry);
+    reg.set_register_lb(value | (old_carry << 7));
     utils::set_zf(value == 0, af);
     (2, 4)
 }
@@ -296,12 +296,12 @@ fn rr_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
     let mut value = reg.get_register_rb();
     let old_carry = utils::get_carry(af);
 
-    utils::set_cf(utils::check_bit(value, 7), af);
+    utils::set_cf(utils::check_bit(value, 0), af);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
 
     value = value >> 1;
-    reg.set_register_rb(value | old_carry);
+    reg.set_register_rb(value | (old_carry << 7));
     utils::set_zf(value == 0, af);
     (2, 4)
 }

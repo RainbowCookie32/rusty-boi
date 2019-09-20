@@ -133,7 +133,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0x6A => instruction_finished(ld_hi_into_low(&mut current_state.hl, &mut current_state.de), current_state),
         0x6B => instruction_finished(ld_low_into_low(&mut current_state.hl, &mut current_state.de), current_state),
         0x6D => instruction_finished((1, 4), current_state),
-        0x6E => instruction_finished(ld_l_from_hl(&mut current_state.de, memory), current_state),
+        0x6E => instruction_finished(ld_l_from_hl(&mut current_state.hl, memory), current_state),
         0x6F => instruction_finished(ld_hi_into_low(&mut current_state.hl, &mut current_state.af), current_state),
 
         0x70 => instruction_finished(save_hi_to_hl(&mut current_state.bc, &mut current_state.hl, memory), current_state),
@@ -697,47 +697,56 @@ fn add_imm_to_a(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
 
 fn adc_hi_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::get_carry(af);
-    let overflow = af.add_to_lb(source.get_register_lb() + carry);
+    let old_carry = utils::get_carry(af);
+    let value = source.get_register_lb() + old_carry;
+    let carry = af.add_to_lb(value);
+
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(overflow, af);
+    utils::set_cf(carry, af);
     (1, 4)
 }
 
 fn adc_low_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::get_carry(af);
-    let overflow = af.add_to_lb(source.get_register_rb() + carry);
+    let old_carry = utils::get_carry(af);
+    let value = source.get_register_rb() + old_carry;
+    let carry = af.add_to_lb(value);
+
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(overflow, af);
+    utils::set_cf(carry, af);
     (1, 4)
 }
 
 fn adc_val_to_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
 
-    let carry = utils::get_carry(af);
-    let overflow = af.add_to_lb(cpu::memory_read_u8(&hl.get_register(), memory) + carry);
+    let old_carry = utils::get_carry(af);
+    let value = cpu::memory_read_u8(&hl.get_register(), memory) + old_carry;
+    let carry = af.add_to_lb(value);
+
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(overflow, af);
+    utils::set_cf(carry, af);
     (1, 4)
 }
 
 fn adc_a_to_a(af: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::get_carry(af);
-    let value = af.get_register_lb();
-    let overflow = af.add_to_lb(value + carry);
+    let old_carry = utils::get_carry(af);
+    let value = af.get_register_lb() + old_carry;
+    let carry = af.add_to_lb(value);
+
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(overflow, af);
+    utils::set_cf(carry, af);
     (1, 4)
 }
 
 fn adc_imm_to_a(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
 
-    let carry = utils::get_carry(af);
-    let overflow = af.add_to_lb(cpu::memory_read_u8(&(pc + 1), memory) + carry);
+    let old_carry = utils::get_carry(af);
+    let value = cpu::memory_read_u8(&(pc + 1), memory) + old_carry;
+    let carry = af.add_to_lb(value);
+
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(overflow, af);
+    utils::set_cf(carry, af);
     (2, 8)
 }
 
@@ -1041,12 +1050,12 @@ fn rr_a(af: &mut CpuReg) -> (u16, u32) {
     let mut value = af.get_register_lb();
     let old_carry = utils::get_carry(af);
 
-    utils::set_cf(utils::check_bit(value, 7), af);
+    utils::set_cf(utils::check_bit(value, 0), af);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
 
     value = value >> 1;
-    af.set_register_rb(value | old_carry);
+    af.set_register_lb(value | (old_carry << 7));
     utils::set_zf(value == 0, af);
     (1, 4)
 }
