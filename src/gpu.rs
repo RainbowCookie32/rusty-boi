@@ -272,7 +272,7 @@ fn make_background(memory: &mut Memory, state: &mut GpuState) {
 
 fn make_background_line(tiles: &Vec<&Tile>, tile_line: u8, screen_line: u8) -> Vec<BGPoint> {
 
-    let start_idx = vec![0, 8, 15, 23, 31, 39, 47, 55];
+    let start_idx = vec![0, 8, 16, 24, 32, 40, 48, 56];
     let mut generated_points = 0;
     let mut processed_tiles = 0;
     let mut final_line: Vec<BGPoint> = Vec::new();
