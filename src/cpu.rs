@@ -161,14 +161,9 @@ pub fn memory_read_u8(addr: &u16, memory: &Memory) -> u8 {
         let memory_addr: usize = (addr - 0x9800).try_into().unwrap();
         memory.bg_map[memory_addr]
     }
-    else if address >= 0xC000 && address <= 0xCFFF
+    else if address >= 0xC000 && address <= 0xDFFF
     {
         let memory_addr: usize = (address - 0xC000).try_into().unwrap();
-        memory.ram[memory_addr]
-    }
-    else if address >= 0xD000 && address <= 0xDFFF
-    {
-        let memory_addr: usize = (address - 0xD000).try_into().unwrap();
         memory.ram[memory_addr]
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
@@ -256,17 +251,9 @@ pub fn memory_read_u16(addr: &u16, memory: &Memory) -> u16 {
         target_addr = LittleEndian::read_u16(&target);
         target_addr
     }
-    else if address >= 0xC000 && address <= 0xCFFF
+    else if address >= 0xC000 && address <= 0xDFFF
     {
         let memory_addr: usize = (address - 0xC000).try_into().unwrap();
-        target[0] = memory.ram[memory_addr];
-        target[1] = memory.ram[memory_addr + 1];
-        target_addr = LittleEndian::read_u16(&target);
-        target_addr
-    }
-    else if address >= 0xD000 && address <= 0xDFFF
-    {
-        let memory_addr: usize = (address - 0xD000).try_into().unwrap();
         target[0] = memory.ram[memory_addr];
         target[1] = memory.ram[memory_addr + 1];
         target_addr = LittleEndian::read_u16(&target);
@@ -309,11 +296,7 @@ pub fn memory_read_u16(addr: &u16, memory: &Memory) -> u16 {
 
 pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
 
-    if address <= 0x3FFF
-    {
-        error!("CPU: Tried to write to cart, illegal write");
-    }
-    else if address >= 0x4000 && address <= 0x7FFF
+    if address <= 0x7FFF
     {
         error!("CPU: Tried to write to cart, illegal write");
     }
@@ -333,14 +316,9 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
         memory.background_dirty = check_write(&memory.bg_map[memory_addr], &value);
         memory.bg_map[memory_addr] = value;
     }
-    else if address >= 0xC000 && address <= 0xCFFF
+    else if address >= 0xC000 && address <= 0xDFFF
     {
         let memory_addr: usize = (address - 0xC000).try_into().unwrap();
-        memory.ram[memory_addr] = value;
-    }
-    else if address >= 0xD000 && address <= 0xDFFF
-    {
-        let memory_addr: usize = (address - 0xD000).try_into().unwrap();
         memory.ram[memory_addr] = value;
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
