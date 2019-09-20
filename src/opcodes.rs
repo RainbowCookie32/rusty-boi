@@ -37,7 +37,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0x06 => instruction_finished(ld_imm_into_hi(&mut current_state.bc, memory, &current_state.pc.get()), current_state),
         0x08 => instruction_finished(save_sp_to_imm(&mut current_state.sp, memory, &current_state.pc.get()), current_state),
         0x09 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.bc, &mut current_state.af), current_state),
-        0x0A => instruction_finished(ld_hi_from_full(&mut current_state.af, &mut current_state.bc, memory), current_state),
+        0x0A => instruction_finished(ld_hi_from_hl(&mut current_state.af, &mut current_state.bc, memory), current_state),
         0x0B => instruction_finished(decrement_full(&mut current_state.bc), current_state),
         0x0C => instruction_finished(increment_rb(&mut current_state.bc, &mut current_state.af), current_state),
         0x0D => instruction_finished(decrement_rb(&mut current_state.bc, &mut current_state.af), current_state),
@@ -52,7 +52,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0x17 => instruction_finished(rla(&mut current_state.af), current_state),
         0x18 => relative_jump(memory, current_state),
         0x19 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.de, &mut current_state.af), current_state),
-        0x1A => instruction_finished(ld_hi_from_full(&mut current_state.af, &mut current_state.de, memory), current_state),
+        0x1A => instruction_finished(ld_hi_from_hl(&mut current_state.af, &mut current_state.de, memory), current_state),
         0x1B => instruction_finished(decrement_full(&mut current_state.de), current_state),
         0x1C => instruction_finished(increment_rb(&mut current_state.de, &mut current_state.af), current_state),
         0x1D => instruction_finished(decrement_rb(&mut current_state.de, &mut current_state.af), current_state),
@@ -80,7 +80,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0x32 => instruction_finished(save_a_to_hl_dec(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x33 => instruction_finished(increment_full(&mut current_state.sp), current_state),
         0x34 => instruction_finished(increment_value(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x35 => instruction_finished(decrement_value(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x35 => instruction_finished(decrement_at_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x36 => instruction_finished(save_imm_to_hl(&mut current_state.hl, memory, &current_state.pc.get()), current_state),
         0x37 => instruction_finished(scf(&mut current_state.af), current_state),
         0x38 => conditional_relative_jump(JumpCondition::CSet, memory, current_state),
@@ -98,7 +98,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0x43 => instruction_finished(ld_low_into_hi(&mut current_state.bc, &mut current_state.de), current_state),
         0x44 => instruction_finished(ld_hi_into_hi(&mut current_state.bc, &mut current_state.hl), current_state),
         0x45 => instruction_finished(ld_low_into_hi(&mut current_state.bc, &mut current_state.hl), current_state),
-        0x46 => instruction_finished(ld_hi_from_full(&mut current_state.bc, &mut current_state.hl, memory), current_state),
+        0x46 => instruction_finished(ld_hi_from_hl(&mut current_state.bc, &mut current_state.hl, memory), current_state),
         0x47 => instruction_finished(ld_hi_into_hi(&mut current_state.bc, &mut current_state.af), current_state),
         0x48 => instruction_finished(ld_self_hi_to_low(&mut current_state.bc), current_state),
         0x49 => instruction_finished((1, 4), current_state),
@@ -106,7 +106,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0x4B => instruction_finished(ld_low_into_low(&mut current_state.bc, &mut current_state.de), current_state),
         0x4C => instruction_finished(ld_hi_into_low(&mut current_state.bc, &mut current_state.hl), current_state),
         0x4D => instruction_finished(ld_low_into_low(&mut current_state.bc, &mut current_state.hl), current_state),
-        0x4E => instruction_finished(ld_low_from_full(&mut current_state.bc, &mut current_state.hl, memory), current_state),
+        0x4E => instruction_finished(ld_low_from_hl(&mut current_state.bc, &mut current_state.hl, memory), current_state),
         0x4F => instruction_finished(ld_hi_into_low(&mut current_state.bc, &mut current_state.af), current_state),
 
         0x50 => instruction_finished(ld_hi_into_hi(&mut current_state.de, &mut current_state.bc), current_state),
@@ -115,7 +115,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0x53 => instruction_finished(ld_self_low_to_hi(&mut current_state.de), current_state),
         0x54 => instruction_finished(ld_hi_into_hi(&mut current_state.de, &mut current_state.hl), current_state),
         0x55 => instruction_finished(ld_low_into_hi(&mut current_state.de, &mut current_state.hl), current_state),
-        0x56 => instruction_finished(ld_hi_from_full(&mut current_state.de, &mut current_state.hl, memory), current_state),
+        0x56 => instruction_finished(ld_hi_from_hl(&mut current_state.de, &mut current_state.hl, memory), current_state),
         0x57 => instruction_finished(ld_hi_into_hi(&mut current_state.de, &mut current_state.af), current_state),
         0x58 => instruction_finished(ld_hi_into_low(&mut current_state.de, &mut current_state.bc), current_state),
         0x59 => instruction_finished(ld_low_into_low(&mut current_state.de, &mut current_state.bc), current_state),
@@ -123,7 +123,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0x5B => instruction_finished((1, 4), current_state),
         0x5C => instruction_finished(ld_hi_into_low(&mut current_state.de, &mut current_state.hl), current_state),
         0x5D => instruction_finished(ld_low_into_low(&mut current_state.de, &mut current_state.hl), current_state),
-        0x5E => instruction_finished(ld_low_from_full(&mut current_state.de, &mut current_state.hl, memory), current_state),
+        0x5E => instruction_finished(ld_low_from_hl(&mut current_state.de, &mut current_state.hl, memory), current_state),
         0x5F => instruction_finished(ld_hi_into_low(&mut current_state.de, &mut current_state.af), current_state),
 
         0x60 => instruction_finished(ld_hi_into_hi(&mut current_state.hl, &mut current_state.bc), current_state),
@@ -308,11 +308,18 @@ fn instruction_finished(values: (u16, u32), state: &mut CpuState) {
     state.pc.add(values.0); state.cycles.add(values.1);
 }
 
+
+
+// NOP
+
 fn nop(current_state: &mut CpuState) {
 
     current_state.pc.add(1);
     current_state.cycles.add(1);
 }
+
+
+// Jumps
 
 fn jump(memory: &mut Memory, state: &mut CpuState) {
 
@@ -339,6 +346,7 @@ fn relative_jump(memory: &mut Memory, state: &mut CpuState) {
 fn conditional_jump(condition: JumpCondition, memory: &mut Memory, state: &mut CpuState) {
 
     let should_jump: bool;
+
     match condition {
 
         JumpCondition::ZNotSet => should_jump = !utils::check_bit(state.af.get_register_rb(), 7),
@@ -354,6 +362,7 @@ fn conditional_jump(condition: JumpCondition, memory: &mut Memory, state: &mut C
 fn conditional_relative_jump(condition: JumpCondition, memory: &mut Memory, state: &mut CpuState) {
 
     let jump: bool;
+
     match condition {
 
         JumpCondition::ZNotSet => jump = !utils::check_bit(state.af.get_register_rb(), 7),
@@ -365,6 +374,9 @@ fn conditional_relative_jump(condition: JumpCondition, memory: &mut Memory, stat
     if jump { relative_jump(memory, state) ;}
     else { state.pc.add(2); state.cycles.add(8) }
 }
+
+
+// Calls and Returns
 
 fn call(memory: &mut Memory, state: &mut CpuState) {
 
@@ -378,6 +390,7 @@ fn call(memory: &mut Memory, state: &mut CpuState) {
 fn conditional_call(memory: &mut Memory, state: &mut CpuState, condition: JumpCondition) {
 
     let should_call: bool;
+
     match condition {
 
         JumpCondition::ZNotSet => should_call = !utils::check_bit(state.af.get_register_rb(), 7),
@@ -405,6 +418,7 @@ fn reti(state: &mut CpuState, memory: &mut Memory) {
 fn conditional_ret(state: &mut CpuState, memory: &mut Memory, condition: JumpCondition) {
 
     let should_ret: bool;
+
     match condition {
 
         JumpCondition::ZNotSet => should_ret = !utils::check_bit(state.af.get_register_rb(), 7),
@@ -417,221 +431,8 @@ fn conditional_ret(state: &mut CpuState, memory: &mut Memory, condition: JumpCon
     else { state.pc.add(1); state.cycles.add(8) }
 }
 
-fn ld_imm_into_full(target_reg: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, u32) {
 
-    target_reg.set_register(cpu::memory_read_u16(&(pc + 1), memory));
-    (3, 12)
-}
-
-fn ld_hi_from_full(reg: &mut CpuReg, full: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    reg.set_register_lb(cpu::memory_read_u8(&full.get_register(), memory));
-    (1, 8)
-}
-
-fn ld_low_from_full(reg: &mut CpuReg, full: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    reg.set_register_rb(cpu::memory_read_u8(&full.get_register(), memory));
-    (1, 8)
-}
-
-fn ld_h_from_hl(hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    let addr = hl.get_register();
-    hl.set_register_lb(cpu::memory_read_u8(&addr, memory));
-    (1, 8)
-}
-
-fn ld_l_from_hl(hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    let addr = hl.get_register();
-    hl.set_register_rb(cpu::memory_read_u8(&addr, memory));
-    (1, 8)
-}
-
-fn ld_a_from_hl_inc(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    af.set_register_lb(cpu::memory_read_u8(&hl.get_register(), memory));
-    hl.increment();
-    (1, 8)
-}
-
-fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-    
-    af.set_register_lb(cpu::memory_read_u8(&hl.get_register(), memory));
-    hl.decrement();
-    (1, 8)
-}
-
-fn ld_a_from_imm_addr(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
-
-    let target_addr = cpu::memory_read_u16(&(pc + 1), memory);
-    af.set_register_lb(cpu::memory_read_u8(&target_addr, memory));
-    (3, 16)
-}
-
-fn ld_a_from_ff_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
-
-    let target_addr = 0xFF00 + cpu::memory_read_u8(&(pc + 1), memory) as u16;
-    af.set_register_lb(cpu::memory_read_u8(&target_addr, memory));
-    (2, 12)
-}
-
-fn ld_hl_into_sp(sp: &mut CpuReg, hl: &mut CpuReg) -> (u16, u32) {
-
-    sp.set_register(hl.get_register());
-    (1, 8)
-}
-
-fn save_a_to_full(a: &mut CpuReg, full: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    cpu::memory_write(full.get_register(), a.get_register_lb(), memory);
-    (1, 8)
-}
-
-fn save_a_to_hl_inc(a: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    cpu::memory_write(hl.get_register(), a.get_register_lb(), memory);
-    hl.increment();
-    (1, 8)
-}
-
-fn save_a_to_hl_dec(a: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    cpu::memory_write(hl.get_register(), a.get_register_lb(), memory);
-    hl.decrement();
-    (1, 8)
-}
-
-fn save_a_to_ff_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
-
-    let target_addr = 0xFF00 + cpu::memory_read_u8(&(pc + 1), memory) as u16;
-    cpu::memory_write(target_addr, af.get_register_lb(), memory);
-    (2, 12)
-}
-
-fn save_a_to_c_imm(af: &mut CpuReg, bc: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    let target_addr = 0xFF00 + bc.get_register_rb() as u16;
-    cpu::memory_write(target_addr, af.get_register_lb(), memory);
-    (1, 8)
-}
-
-fn save_a_to_nn(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
-
-    let target_addr = cpu::memory_read_u16(&(pc + 1), memory);
-    cpu::memory_write(target_addr, af.get_register_lb(), memory);
-    (3, 16)
-}
-
-fn save_hi_to_hl(reg: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    cpu::memory_write(hl.get_register(), reg.get_register_lb(), memory);
-    (1, 8)
-}
-
-fn save_low_to_hl(reg: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    cpu::memory_write(hl.get_register(), reg.get_register_rb(), memory);
-    (1, 8)
-}
-
-fn save_h_to_hl(hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    cpu::memory_write(hl.get_register(), hl.get_register_lb(), memory);
-    (1, 8)
-}
-
-fn save_l_to_hl(hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-
-    cpu::memory_write(hl.get_register(), hl.get_register_rb(), memory);
-    (1, 8)
-}
-
-fn save_imm_to_hl(hl: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, u32) {
-
-    let value = cpu::memory_read_u8(pc, memory);
-    cpu::memory_write(hl.get_register(), value, memory);
-    (2, 12)
-}
-
-fn save_sp_to_imm(sp: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, u32) {
-
-    let target_addr = cpu::memory_read_u16(&(pc + 1), memory);
-    cpu::memory_write(target_addr, sp.get_register_rb(), memory);
-    cpu::memory_write(target_addr + 1, sp.get_register_lb(), memory);
-    (3, 20)
-}
-
-fn increment_full(reg: &mut CpuReg) -> (u16, u32) {
-
-    reg.increment();
-    (1, 8)
-}
-
-fn increment_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
-
-    let overflow = reg.increment_lb();
-    utils::set_zf(overflow, af); utils::set_nf(false, af);
-    (1, 4)
-}
-
-fn increment_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
-    
-    let overflow = reg.increment_rb();
-    utils::set_zf(overflow, af); utils::set_nf(false, af);
-    (1, 4)
-}
-
-fn increment_a(af: &mut CpuReg) -> (u16, u32) {
-
-    let overflow = af.increment_lb();
-    utils::set_zf(overflow, af); utils::set_nf(false, af);
-    (1, 4)
-}
-
-fn increment_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-    
-    let value = cpu::memory_read_u8(&hl.get_register(), memory).overflowing_add(1);
-    cpu::memory_write(hl.get_register(), value.0, memory);
-    utils::set_zf(value.1, af); utils::set_nf(false, af);
-    (1, 12)
-}
-
-fn decrement_full(reg: &mut CpuReg) -> (u16, u32) {
-    
-    reg.decrement();
-    (1, 4)
-}
-
-fn decrement_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
-    
-    reg.decrement_lb();
-    utils::set_zf(reg.get_register_lb() == 0, af); utils::set_nf(true, af);
-    (1, 4)
-}
-
-fn decrement_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
-    
-    reg.decrement_rb();
-    utils::set_zf(reg.get_register_rb() == 0, af); utils::set_nf(true, af);
-    (1, 4)
-}
-
-fn decrement_a(af: &mut CpuReg) -> (u16, u32) {
-    
-    af.decrement_lb();
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    (1, 4)
-}
-
-fn decrement_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
-    
-    let value = cpu::memory_read_u8(&hl.get_register(), memory).overflowing_sub(1);
-    cpu::memory_write(hl.get_register(), value.0, memory);
-    utils::set_zf(value.0 == 0, af); utils::set_nf(true, af);
-    (1, 12)
-}
+// Load register to register
 
 fn ld_hi_into_low(target: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
@@ -671,6 +472,9 @@ fn ld_self_hi_to_low(reg: &mut CpuReg) -> (u16, u32) {
     (1, 4)
 }
 
+
+// Load register from immediate
+
 fn ld_imm_into_hi(target: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, u32) {
     
     target.set_register_lb(cpu::memory_read_u8(&(pc + 1), memory));
@@ -682,6 +486,255 @@ fn ld_imm_into_low(target: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, 
     target.set_register_rb(cpu::memory_read_u8(&(pc + 1), memory));
     (2, 8)
 }
+
+fn ld_imm_into_full(target_reg: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, u32) {
+
+    target_reg.set_register(cpu::memory_read_u16(&(pc + 1), memory));
+    (3, 12)
+}
+
+
+// Load register from address
+
+fn ld_a_from_imm_addr(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
+
+    let target_addr = cpu::memory_read_u16(&(pc + 1), memory);
+    af.set_register_lb(cpu::memory_read_u8(&target_addr, memory));
+    (3, 16)
+}
+
+fn ld_a_from_ff_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
+
+    let target_addr = 0xFF00 + cpu::memory_read_u8(&(pc + 1), memory) as u16;
+    af.set_register_lb(cpu::memory_read_u8(&target_addr, memory));
+    (2, 12)
+}
+
+
+// Load register from HL
+
+fn ld_hi_from_hl(reg: &mut CpuReg, full: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    reg.set_register_lb(cpu::memory_read_u8(&full.get_register(), memory));
+    (1, 8)
+}
+
+fn ld_low_from_hl(reg: &mut CpuReg, full: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    reg.set_register_rb(cpu::memory_read_u8(&full.get_register(), memory));
+    (1, 8)
+}
+
+fn ld_h_from_hl(hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    let addr = hl.get_register();
+    hl.set_register_lb(cpu::memory_read_u8(&addr, memory));
+    (1, 8)
+}
+
+fn ld_l_from_hl(hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    let addr = hl.get_register();
+    hl.set_register_rb(cpu::memory_read_u8(&addr, memory));
+    (1, 8)
+}
+
+fn ld_a_from_hl_inc(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    af.set_register_lb(cpu::memory_read_u8(&hl.get_register(), memory));
+    hl.increment();
+    (1, 8)
+}
+
+fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+    
+    af.set_register_lb(cpu::memory_read_u8(&hl.get_register(), memory));
+    hl.decrement();
+    (1, 8)
+}
+
+
+// Save register to HL
+
+fn save_a_to_hl_inc(a: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    cpu::memory_write(hl.get_register(), a.get_register_lb(), memory);
+    hl.increment();
+    (1, 8)
+}
+
+fn save_a_to_hl_dec(a: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    cpu::memory_write(hl.get_register(), a.get_register_lb(), memory);
+    hl.decrement();
+    (1, 8)
+}
+
+fn save_hi_to_hl(reg: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    cpu::memory_write(hl.get_register(), reg.get_register_lb(), memory);
+    (1, 8)
+}
+
+fn save_low_to_hl(reg: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    cpu::memory_write(hl.get_register(), reg.get_register_rb(), memory);
+    (1, 8)
+}
+
+fn save_h_to_hl(hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    cpu::memory_write(hl.get_register(), hl.get_register_lb(), memory);
+    (1, 8)
+}
+
+fn save_l_to_hl(hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    cpu::memory_write(hl.get_register(), hl.get_register_rb(), memory);
+    (1, 8)
+}
+
+fn ld_hl_into_sp(sp: &mut CpuReg, hl: &mut CpuReg) -> (u16, u32) {
+
+    sp.set_register(hl.get_register());
+    (1, 8)
+}
+
+fn save_a_to_full(a: &mut CpuReg, full: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    cpu::memory_write(full.get_register(), a.get_register_lb(), memory);
+    (1, 8)
+}
+
+
+// Save register to address
+
+fn save_a_to_ff_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
+
+    let target_addr = 0xFF00 + (cpu::memory_read_u8(&(pc + 1), memory) as u16);
+    cpu::memory_write(target_addr, af.get_register_lb(), memory);
+    (2, 12)
+}
+
+fn save_a_to_c_imm(af: &mut CpuReg, bc: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    let target_addr = 0xFF00 + (bc.get_register_rb() as u16);
+    cpu::memory_write(target_addr, af.get_register_lb(), memory);
+    (1, 8)
+}
+
+fn save_a_to_nn(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
+
+    let target_addr = cpu::memory_read_u16(&(pc + 1), memory);
+    cpu::memory_write(target_addr, af.get_register_lb(), memory);
+    (3, 16)
+}
+
+
+// Save value to HL
+
+fn save_imm_to_hl(hl: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(pc, memory);
+    cpu::memory_write(hl.get_register(), value, memory);
+    (2, 12)
+}
+
+
+// Save SP to immediate address
+
+fn save_sp_to_imm(sp: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, u32) {
+
+    let target_addr = cpu::memory_read_u16(&(pc + 1), memory);
+    cpu::memory_write(target_addr, sp.get_register_rb(), memory);
+    cpu::memory_write(target_addr + 1, sp.get_register_lb(), memory);
+    (3, 20)
+}
+
+
+// Increment registers
+
+fn increment_full(reg: &mut CpuReg) -> (u16, u32) {
+
+    reg.increment();
+    (1, 8)
+}
+
+fn increment_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
+
+    let overflow = reg.increment_lb();
+    utils::set_zf(overflow, af); utils::set_nf(false, af);
+    (1, 4)
+}
+
+fn increment_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
+    
+    let overflow = reg.increment_rb();
+    utils::set_zf(overflow, af); utils::set_nf(false, af);
+    (1, 4)
+}
+
+fn increment_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let overflow = af.increment_lb();
+    utils::set_zf(overflow, af); utils::set_nf(false, af);
+    (1, 4)
+}
+
+
+// Increment value at HL
+
+fn increment_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+    
+    let value = cpu::memory_read_u8(&hl.get_register(), memory).overflowing_add(1);
+    cpu::memory_write(hl.get_register(), value.0, memory);
+    utils::set_zf(value.1, af); utils::set_nf(false, af);
+    (1, 12)
+}
+
+
+// Decrement registers
+
+fn decrement_full(reg: &mut CpuReg) -> (u16, u32) {
+    
+    reg.decrement();
+    (1, 4)
+}
+
+fn decrement_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
+    
+    reg.decrement_lb();
+    utils::set_zf(reg.get_register_lb() == 0, af); utils::set_nf(true, af);
+    (1, 4)
+}
+
+fn decrement_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
+    
+    reg.decrement_rb();
+    utils::set_zf(reg.get_register_rb() == 0, af); utils::set_nf(true, af);
+    (1, 4)
+}
+
+fn decrement_a(af: &mut CpuReg) -> (u16, u32) {
+    
+    af.decrement_lb();
+    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
+    (1, 4)
+}
+
+
+// Decrement value at HL
+
+fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+    
+    let value = cpu::memory_read_u8(&hl.get_register(), memory).overflowing_sub(1);
+    cpu::memory_write(hl.get_register(), value.0, memory);
+    utils::set_zf(value.0 == 0, af); utils::set_nf(true, af);
+    (1, 12)
+}
+
+
+// Add value to Registers
 
 fn add_hl_to_hl(hl: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 
@@ -746,6 +799,9 @@ fn add_imm_to_sp(sp: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
     (2, 16)
 }
 
+
+// ADC opcodes
+
 fn adc_hi_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
     let old_carry = utils::get_carry(af);
@@ -801,6 +857,9 @@ fn adc_imm_to_a(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
     (2, 8)
 }
 
+
+// Substract value from registers
+
 fn sub_hi_from_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
     let overflow = af.sub_from_lb(source.get_register_lb());
@@ -843,52 +902,66 @@ fn sub_imm_from_a(af: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, u32) 
     (2, 8)
 }
 
+
+// SBC opcodes
+
 fn sbc_hi_from_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::get_carry(af);
-    let overflow = af.sub_from_lb(source.get_register_lb() + carry);
+    let old_carry = utils::get_carry(af);
+    let value = source.get_register_lb() + old_carry;
+    let carry = af.sub_from_lb(value);
+
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(overflow, af);
+    utils::set_cf(carry, af);
     (1, 4)
 }
 
 fn sbc_low_from_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::get_carry(af);
-    let overflow = af.sub_from_lb(source.get_register_rb() + carry);
+    let old_carry = utils::get_carry(af);
+    let value = source.get_register_rb() + old_carry;
+    let carry = af.sub_from_lb(value);
+
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(overflow, af);
+    utils::set_cf(carry, af);
     (1, 4)
 }
 
 fn sbc_val_from_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
 
-    let carry = utils::get_carry(af);
-    let overflow = af.sub_from_lb(cpu::memory_read_u8(&hl.get_register(), memory) + carry);
+    let old_carry = utils::get_carry(af);
+    let value = cpu::memory_read_u8(&hl.get_register(), memory) + old_carry;
+    let carry = af.sub_from_lb(value);
+
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(overflow, af);
+    utils::set_cf(carry, af);
     (1, 4)
 }
 
 fn sbc_a_from_a(af: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::get_carry(af);
-    let value = af.get_register_lb();
-    let overflow = af.sub_from_lb(value + carry);
+    let old_carry = utils::get_carry(af);
+    let value = af.get_register_lb() + old_carry;
+    let carry = af.sub_from_lb(value);
+
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(overflow, af);
+    utils::set_cf(carry, af);
     (1, 4)
 }
 
 fn sbc_imm_from_a(af: &mut CpuReg, memory: &mut Memory, pc: &u16) -> (u16, u32) {
 
-    let carry = utils::get_carry(af);
-    let value = cpu::memory_read_u8(&(pc + 1), memory);
-    let overflow = af.sub_from_lb(value + carry);
+    let old_carry = utils::get_carry(af);
+    let value = cpu::memory_read_u8(&(pc + 1), memory) + old_carry;
+    let carry = af.sub_from_lb(value);
+
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(overflow, af);
+    utils::set_cf(carry, af);
     (2, 8)
 }
+
+
+// AND opcodes
 
 fn and_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
@@ -936,6 +1009,9 @@ fn and_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) 
     (2, 8)
 }
 
+
+// OR opcodes
+
 fn or_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
     let result = af.get_register_lb() | source.get_register_lb();
@@ -981,6 +1057,9 @@ fn or_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) {
     utils::set_hf(false, af); utils::set_cf(false, af);
     (2, 8)
 }
+
+
+// XOR opcodes
 
 fn xor_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
@@ -1028,6 +1107,21 @@ fn xor_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &mut Memory) -> (u16, u32) 
     (2, 8)
 }
 
+
+// Compliment (logical NOT) A
+
+fn cpl(af: &mut CpuReg) -> (u16, u32) {
+
+    let value = !af.get_register_lb();
+    af.set_register_lb(value);
+    utils::set_nf(true, af);
+    utils::set_hf(true, af);
+    (1, 4)
+}
+
+
+// CP opcodes
+
 fn cp_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
     let value = source.get_register_lb();
@@ -1068,6 +1162,9 @@ fn cp_a_with_a(af: &mut CpuReg) -> (u16, u32) {
     (1, 4)
 }
 
+
+// Push and Pop
+
 fn pop(reg: &mut CpuReg, sp: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
 
     reg.set_register(cpu::stack_read(sp, memory));
@@ -1080,6 +1177,9 @@ fn push(reg: &mut CpuReg, sp: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
     (1, 16)
     
 }
+
+
+// Rotation opcodes
 
 fn rla(af: &mut CpuReg) -> (u16, u32) {
 
@@ -1111,6 +1211,9 @@ fn rr_a(af: &mut CpuReg) -> (u16, u32) {
     (1, 4)
 }
 
+
+// Enable/Disable interrupts
+
 fn ei(memory: &mut Memory) -> (u16, u32) {
 
     cpu::memory_write(0xFFFF, 0, memory);
@@ -1123,14 +1226,8 @@ fn di(memory: &mut Memory) -> (u16, u32) {
     (1, 4)
 }
 
-fn cpl(af: &mut CpuReg) -> (u16, u32) {
 
-    let value = !af.get_register_lb();
-    af.set_register_lb(value);
-    utils::set_nf(true, af);
-    utils::set_hf(true, af);
-    (1, 4)
-}
+// Set/clear flags
 
 fn scf(af: &mut CpuReg) -> (u16, u32) {
 
@@ -1147,6 +1244,9 @@ fn ccf(af: &mut CpuReg) -> (u16, u32) {
     utils::set_cf(false, af);
     (1, 4)
 }
+
+
+// Reset opcode
 
 fn rst(target: u16, memory: &mut Memory, state: &mut CpuState) {
 
