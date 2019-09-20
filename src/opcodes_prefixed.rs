@@ -20,18 +20,39 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
     trace!("Running prefixed opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
     match opcode {
 
+        0x00 => instruction_finished(rlc_lb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x01 => instruction_finished(rlc_rb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x02 => instruction_finished(rlc_lb(&mut current_state.af, &mut current_state.de), current_state),
+        0x03 => instruction_finished(rlc_rb(&mut current_state.af, &mut current_state.de), current_state),
+        0x04 => instruction_finished(rlc_lb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x05 => instruction_finished(rlc_rb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x06 => instruction_finished(rlc_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x07 => instruction_finished(rlc_a(&mut current_state.af), current_state),
+        0x08 => instruction_finished(rrc_lb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x09 => instruction_finished(rrc_rb(&mut current_state.af, &mut current_state.bc), current_state),
+        0x0A => instruction_finished(rrc_lb(&mut current_state.af, &mut current_state.de), current_state),
+        0x0B => instruction_finished(rrc_rb(&mut current_state.af, &mut current_state.de), current_state),
+        0x0C => instruction_finished(rrc_lb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x0D => instruction_finished(rrc_rb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x0E => instruction_finished(rrc_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x0F => instruction_finished(rrc_a(&mut current_state.af), current_state),
+        
         0x10 => instruction_finished(rl_lb(&mut current_state.bc, &mut current_state.af), current_state),
         0x11 => instruction_finished(rl_rb(&mut current_state.bc, &mut current_state.af), current_state),
         0x12 => instruction_finished(rl_lb(&mut current_state.de, &mut current_state.af), current_state),
         0x13 => instruction_finished(rl_rb(&mut current_state.de, &mut current_state.af), current_state),
         0x14 => instruction_finished(rl_lb(&mut current_state.hl, &mut current_state.af), current_state),
         0x15 => instruction_finished(rl_rb(&mut current_state.hl, &mut current_state.af), current_state),
+        0x16 => instruction_finished(rl_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x17 => instruction_finished(rl_a(&mut current_state.af), current_state),
         0x18 => instruction_finished(rr_lb(&mut current_state.bc, &mut current_state.af), current_state),
         0x19 => instruction_finished(rr_rb(&mut current_state.bc, &mut current_state.af), current_state),
         0x1A => instruction_finished(rr_lb(&mut current_state.de, &mut current_state.af), current_state),
         0x1B => instruction_finished(rr_rb(&mut current_state.de, &mut current_state.af), current_state),
         0x1C => instruction_finished(rr_lb(&mut current_state.hl, &mut current_state.af), current_state),
         0x1D => instruction_finished(rr_rb(&mut current_state.hl, &mut current_state.af), current_state),
+        0x1E => instruction_finished(rr_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x1F => instruction_finished(rr_a(&mut current_state.af), current_state),
 
         0x20 => instruction_finished(sla_lb(&mut current_state.af, &mut current_state.bc), current_state),
         0x21 => instruction_finished(sla_rb(&mut current_state.af, &mut current_state.bc), current_state),
@@ -56,6 +77,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0x33 => instruction_finished(swap_rb(&mut current_state.af, &mut current_state.de), current_state),
         0x34 => instruction_finished(swap_lb(&mut current_state.af, &mut current_state.hl), current_state),
         0x35 => instruction_finished(swap_rb(&mut current_state.af, &mut current_state.hl), current_state),
+        0x36 => instruction_finished(swap_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x37 => instruction_finished(swap_a(&mut current_state.af), current_state),
         0x38 => instruction_finished(srl_lb(&mut current_state.af, &mut current_state.bc), current_state),
         0x39 => instruction_finished(srl_rb(&mut current_state.af, &mut current_state.bc), current_state),
@@ -73,6 +95,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0x44 => instruction_finished(bit_lb(&mut current_state.hl, 0, &mut current_state.af), current_state),
         0x45 => instruction_finished(bit_rb(&mut current_state.hl, 0, &mut current_state.af), current_state),
         0x46 => instruction_finished(bit_hl(0, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x47 => instruction_finished(bit_a(&mut current_state.af, 0), current_state),
         0x48 => instruction_finished(bit_lb(&mut current_state.bc, 1, &mut current_state.af), current_state),
         0x49 => instruction_finished(bit_rb(&mut current_state.bc, 1, &mut current_state.af), current_state),
         0x4A => instruction_finished(bit_lb(&mut current_state.de, 1, &mut current_state.af), current_state),
@@ -80,6 +103,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0x4C => instruction_finished(bit_lb(&mut current_state.hl, 1, &mut current_state.af), current_state),
         0x4D => instruction_finished(bit_rb(&mut current_state.hl, 1, &mut current_state.af), current_state),
         0x4E => instruction_finished(bit_hl(1, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x4F => instruction_finished(bit_a(&mut current_state.af, 1), current_state),
 
         0x50 => instruction_finished(bit_lb(&mut current_state.bc, 2, &mut current_state.af), current_state),
         0x51 => instruction_finished(bit_rb(&mut current_state.bc, 2, &mut current_state.af), current_state),
@@ -88,6 +112,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0x54 => instruction_finished(bit_lb(&mut current_state.hl, 2, &mut current_state.af), current_state),
         0x55 => instruction_finished(bit_rb(&mut current_state.hl, 2, &mut current_state.af), current_state),
         0x56 => instruction_finished(bit_hl(2, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x57 => instruction_finished(bit_a(&mut current_state.af, 2), current_state),
         0x58 => instruction_finished(bit_lb(&mut current_state.bc, 3, &mut current_state.af), current_state),
         0x59 => instruction_finished(bit_rb(&mut current_state.bc, 3, &mut current_state.af), current_state),
         0x5A => instruction_finished(bit_lb(&mut current_state.de, 3, &mut current_state.af), current_state),
@@ -95,6 +120,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0x5C => instruction_finished(bit_lb(&mut current_state.hl, 3, &mut current_state.af), current_state),
         0x5D => instruction_finished(bit_rb(&mut current_state.hl, 3, &mut current_state.af), current_state),
         0x5E => instruction_finished(bit_hl(3, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x5F => instruction_finished(bit_a(&mut current_state.af, 3), current_state),
 
         0x60 => instruction_finished(bit_lb(&mut current_state.bc, 4, &mut current_state.af), current_state),
         0x61 => instruction_finished(bit_rb(&mut current_state.bc, 4, &mut current_state.af), current_state),
@@ -103,6 +129,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0x64 => instruction_finished(bit_lb(&mut current_state.hl, 4, &mut current_state.af), current_state),
         0x65 => instruction_finished(bit_rb(&mut current_state.hl, 4, &mut current_state.af), current_state),
         0x66 => instruction_finished(bit_hl(4, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x67 => instruction_finished(bit_a(&mut current_state.af, 4), current_state),
         0x68 => instruction_finished(bit_lb(&mut current_state.bc, 5, &mut current_state.af), current_state),
         0x69 => instruction_finished(bit_rb(&mut current_state.bc, 5, &mut current_state.af), current_state),
         0x6A => instruction_finished(bit_lb(&mut current_state.de, 5, &mut current_state.af), current_state),
@@ -110,6 +137,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0x6C => instruction_finished(bit_lb(&mut current_state.hl, 5, &mut current_state.af), current_state),
         0x6D => instruction_finished(bit_rb(&mut current_state.hl, 5, &mut current_state.af), current_state),
         0x6E => instruction_finished(bit_hl(5, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x6F => instruction_finished(bit_a(&mut current_state.af, 5), current_state),
 
         0x70 => instruction_finished(bit_lb(&mut current_state.bc, 6, &mut current_state.af), current_state),
         0x71 => instruction_finished(bit_rb(&mut current_state.bc, 6, &mut current_state.af), current_state),
@@ -118,6 +146,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0x74 => instruction_finished(bit_lb(&mut current_state.hl, 6, &mut current_state.af), current_state),
         0x75 => instruction_finished(bit_rb(&mut current_state.hl, 6, &mut current_state.af), current_state),
         0x76 => instruction_finished(bit_hl(6, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x77 => instruction_finished(bit_a(&mut current_state.af, 6), current_state),
         0x78 => instruction_finished(bit_lb(&mut current_state.bc, 7, &mut current_state.af), current_state),
         0x79 => instruction_finished(bit_rb(&mut current_state.bc, 7, &mut current_state.af), current_state),
         0x7A => instruction_finished(bit_lb(&mut current_state.de, 7, &mut current_state.af), current_state),
@@ -125,6 +154,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0x7C => instruction_finished(bit_lb(&mut current_state.hl, 7, &mut current_state.af), current_state),
         0x7D => instruction_finished(bit_rb(&mut current_state.hl, 7, &mut current_state.af), current_state),
         0x7E => instruction_finished(bit_hl(7, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x7F => instruction_finished(bit_a(&mut current_state.af, 7), current_state),
 
         0x80 => instruction_finished(res_lb(&mut current_state.bc, 0), current_state),
         0x81 => instruction_finished(res_rb(&mut current_state.bc, 0), current_state),
@@ -276,6 +306,112 @@ fn instruction_finished(values: (u16, u32), state: &mut CpuState) {
     state.pc.add(values.0); state.cycles.add(values.1);
 }
 
+fn rlc_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let carry = utils::check_bit(reg.get_register_lb(), 7);
+    let result = reg.get_register_lb().rotate_left(1);
+
+    reg.set_register_lb(result);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(carry, af);
+    (2, 8)
+}
+
+fn rlc_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let carry = utils::check_bit(reg.get_register_rb(), 7);
+    let result = reg.get_register_lb().rotate_left(1);
+
+    reg.set_register_rb(result);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(carry, af);
+    (2, 8)
+}
+
+fn rlc_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let carry = utils::check_bit(af.get_register_lb(), 7);
+    let result = af.get_register_lb().rotate_left(1);
+
+    af.set_register_lb(result);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(carry, af);
+    (2, 8)
+}
+
+fn rlc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let carry = utils::check_bit(value, 7);
+    let result = value.rotate_left(1);
+
+    cpu::memory_write(hl.get_register(), result, memory);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(carry, af);
+    (2, 16)
+}
+
+fn rrc_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let carry = utils::check_bit(reg.get_register_lb(), 0);
+    let result = reg.get_register_lb().rotate_right(1);
+
+    reg.set_register_lb(result);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(carry, af);
+    (2, 8)
+}
+
+fn rrc_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let carry = utils::check_bit(reg.get_register_rb(), 0);
+    let result = reg.get_register_lb().rotate_right(1);
+
+    reg.set_register_rb(result);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(carry, af);
+    (2, 8)
+}
+
+fn rrc_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let carry = utils::check_bit(af.get_register_lb(), 0);
+    let result = af.get_register_lb().rotate_right(1);
+
+    af.set_register_lb(result);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(carry, af);
+    (2, 8)
+}
+
+fn rrc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let carry = utils::check_bit(value, 0);
+    let result = value.rotate_right(1);
+
+    cpu::memory_write(hl.get_register(), result, memory);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(carry, af);
+    (2, 16)
+}
+
 fn rr_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 
     let mut value = reg.get_register_lb();
@@ -288,7 +424,7 @@ fn rr_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
     value = value >> 1;
     reg.set_register_lb(value | (old_carry << 7));
     utils::set_zf(value == 0, af);
-    (2, 4)
+    (2, 8)
 }
 
 fn rr_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
@@ -303,7 +439,37 @@ fn rr_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
     value = value >> 1;
     reg.set_register_rb(value | (old_carry << 7));
     utils::set_zf(value == 0, af);
-    (2, 4)
+    (2, 8)
+}
+
+fn rr_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let mut value = af.get_register_lb();
+    let old_carry = utils::get_carry(af);
+
+    utils::set_cf(utils::check_bit(value, 0), af);
+    utils::set_hf(false, af);
+    utils::set_nf(false, af);
+
+    value = value >> 1;
+    af.set_register_lb(value | (old_carry << 7));
+    utils::set_zf(value == 0, af);
+    (2, 8)
+}
+
+fn rr_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    let mut value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let old_carry = utils::get_carry(af);
+
+    utils::set_cf(utils::check_bit(value, 0), af);
+    utils::set_hf(false, af);
+    utils::set_nf(false, af);
+
+    value = value >> 1;
+    cpu::memory_write(hl.get_register(), value | (old_carry << 7), memory);
+    utils::set_zf(value == 0, af);
+    (2, 16)
 }
 
 fn rl_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
@@ -318,7 +484,7 @@ fn rl_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
     value = value << 1;
     reg.set_register_lb(value | old_carry);
     utils::set_zf(value == 0, af);
-    (2, 4)
+    (2, 8)
 }
 
 fn rl_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
@@ -333,7 +499,45 @@ fn rl_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
     value = value << 1;
     reg.set_register_rb(value | old_carry);
     utils::set_zf(value == 0, af);
-    (2, 4)
+    (2, 8)
+}
+
+fn rl_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let mut value = af.get_register_lb();
+    let old_carry = utils::get_carry(af);
+
+    utils::set_cf(utils::check_bit(value, 7), af);
+    utils::set_hf(false, af);
+    utils::set_nf(false, af);
+
+    value = value << 1;
+    af.set_register_lb(value | old_carry);
+    utils::set_zf(value == 0, af);
+    (2, 8)
+}
+
+fn rl_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    let mut value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let old_carry = utils::get_carry(af);
+
+    utils::set_cf(utils::check_bit(value, 7), af);
+    utils::set_hf(false, af);
+    utils::set_nf(false, af);
+
+    value = value << 1;
+    cpu::memory_write(hl.get_register(), value | old_carry, memory);
+    utils::set_zf(value == 0, af);
+    (2, 16)
+}
+
+fn bit_a(af: &mut CpuReg, bit: u8) -> (u16, u32) {
+
+    let result = utils::check_bit(af.get_register_lb(), bit);
+    utils::set_zf(!result, af); utils::set_nf(false, af);
+    utils::set_hf(true, af);
+    (2, 8)
 }
 
 fn bit_lb(reg: &mut CpuReg, bit: u8, af: &mut CpuReg) -> (u16, u32) {
@@ -680,4 +884,17 @@ fn swap_a(af: &mut CpuReg) -> (u16, u32) {
     utils::set_hf(false, af);
     utils::set_cf(false, af);
     (2, 8)
+}
+
+fn swap_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &mut Memory) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = utils::swap_nibbles(value);
+    
+    cpu::memory_write(hl.get_register(), value, memory);
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(false, af);
+    (2, 16)
 }
