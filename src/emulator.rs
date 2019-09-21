@@ -17,6 +17,15 @@ pub struct ConsoleState {
     pub current_memory: cpu::Memory,
 }
 
+#[derive(PartialEq, Debug)]
+pub enum Interrupt {
+
+    Vblank,
+    LcdcStat,
+    Timer,
+    Serial,
+    ButtonPress,
+}
 
 pub fn init_emu() {
 
@@ -52,6 +61,7 @@ fn execution_loop(state: ConsoleState) {
     
     let mut current_state = state;
     let mut cpu_result = cpu::CycleResult::Success;
+    let mut interrupt_state = (false, Interrupt::Vblank);
 
     let sdl_context = sdl2::init().unwrap();
     let sdl_video = sdl_context.video().unwrap();
@@ -69,8 +79,8 @@ fn execution_loop(state: ConsoleState) {
 
     while cpu_result == cpu::CycleResult::Success && should_run {
 
-        cpu_result = cpu::exec_loop(&mut current_state.current_cpu, &mut current_state.current_memory);
-        gpu::gpu_tick(&mut sdl_canvas, &mut current_state.current_gpu, &mut current_state.current_memory, &mut current_state.current_cpu.cycles.value);
+        cpu_result = cpu::exec_loop(&mut current_state.current_cpu, &mut current_state.current_memory, &mut interrupt_state);
+        interrupt_state = gpu::gpu_tick(&mut sdl_canvas, &mut current_state.current_gpu, &mut current_state.current_memory, &mut current_state.current_cpu.cycles.value);
         
         // Handle the Quit SDL event
         for event in sdl_events.poll_iter() {

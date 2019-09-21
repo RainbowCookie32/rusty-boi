@@ -9,6 +9,8 @@ use super::utils;
 use super::opcodes;
 use super::opcodes_prefixed;
 
+use super::emulator::Interrupt;
+
 use super::register::{CpuReg, Register, Pc, PcTrait, Cycles};
 
 pub struct CpuState {
@@ -101,16 +103,35 @@ pub fn init_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> Memory {
     initial_memory
 }
 
-pub fn exec_loop(state: &mut CpuState, memory: &mut Memory) -> CycleResult {
+pub fn exec_loop(state: &mut CpuState, memory: &mut Memory, interrupt_state: &mut (bool, Interrupt)) -> CycleResult {
 
     let mut current_state = state;
     let mut current_memory = memory;
     let mut result: CycleResult;
     let mut opcode = memory_read_u8(&current_state.pc.get(), &current_memory);
 
+    if interrupt_state.0 && current_memory.interrupts == 1 {
+
+        stack_write(&mut current_state.sp, current_state.pc.get(), &mut current_memory);
+
+        match interrupt_state.1 {
+            Interrupt::Vblank => current_state.pc.set(0x40),
+            Interrupt::LcdcStat => current_state.pc.set(0x48),
+            Interrupt::Timer => current_state.pc.set(0x50),
+            Interrupt::Serial => current_state.pc.set(0x58),
+            Interrupt::ButtonPress => current_state.pc.set(0x60),
+        }
+
+        memory_write(0xFFFF, 0, current_memory);
+    }
+    
     if current_state.pc.get() == 0x0100 {
         info!("CPU: Bootrom execution finished, starting loaded ROM.");
         current_memory.bootrom_finished = true;
+    }
+
+    if current_state.pc.get() == 0xCB9C {
+        info!("CPU: Checkpoint.");
     }
         
     if opcode == 0xCB {

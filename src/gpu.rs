@@ -1,6 +1,8 @@
 use super::cpu;
 use super::cpu::Memory;
 
+use super::emulator::Interrupt;
+
 use super::utils;
 
 use log;
@@ -46,9 +48,10 @@ pub fn init_gpu() -> GpuState {
     initial_state
 }
 
-pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut Memory, cycles: &u32) {
+pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut Memory, cycles: &u32) -> (bool, Interrupt) {
 
     let display_enabled = utils::check_bit(cpu::memory_read_u8(&0xFF40, memory), 7);
+    let mut interrupt_result = (false, Interrupt::Vblank);
     
     if display_enabled {
 
@@ -91,6 +94,7 @@ pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut 
             0 => {
                 if state.mode_clock >= 204 {
                 
+                    interrupt_result = (true, Interrupt::LcdcStat);
                     state.mode_clock = 0;
                     state.line += 1;
                     cpu::memory_write(0xFF44, state.line, memory);
@@ -114,6 +118,7 @@ pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut 
             1 => {
                 if state.mode_clock >= 456 {
 
+                    interrupt_result = (true, Interrupt::Vblank);
                     state.mode_clock = 0;
                     state.line += 1;
                     cpu::memory_write(0xFF44, state.line, memory);
@@ -131,8 +136,9 @@ pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut 
 
             _ => panic!("Invalid GPU Mode"),
         }
-
     }
+
+    interrupt_result
 }
 
 fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &mut Memory) {
