@@ -1,5 +1,4 @@
 use log::trace;
-use log::error;
 
 use super::utils;
 
@@ -15,7 +14,7 @@ use super::register::CycleCounter;
 
 pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode: u8) -> CycleResult {
 
-    let mut result = CycleResult::Success;
+    let result = CycleResult::Success;
 
     trace!("Running prefixed opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
     match opcode {
@@ -291,11 +290,6 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &mut Memor
         0xFD => instruction_finished(set_rb(&mut current_state.hl, 7), current_state),
         0xFE => instruction_finished(set_hl(7, &mut current_state.hl, memory), current_state),
         0xFF => instruction_finished(set_lb(&mut current_state.af, 7), current_state),
-        
-        _ => { 
-            error!("Tried to run unimplemented prefixed opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
-            result = CycleResult::UnimplementedOp;
-        }
     }
 
     result
