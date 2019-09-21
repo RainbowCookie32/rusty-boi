@@ -1291,7 +1291,7 @@ fn ccf(af: &mut CpuReg) -> (u16, u32) {
 
 fn rst(target: u16, memory: &mut Memory, state: &mut CpuState) {
 
-    cpu::stack_write(&mut state.sp, state.pc.get(), memory);
+    cpu::stack_write(&mut state.sp, state.pc.get() + 1, memory);
     state.cycles.add(32);
     state.pc.set(target);
 }
