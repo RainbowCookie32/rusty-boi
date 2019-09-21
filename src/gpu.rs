@@ -142,6 +142,11 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &mut Memory) 
     let mut point_idx: u16 = 0;
     let mut drawn_pixels: u16 = 0;
 
+    // Substracting the scroll value by itself * 2 it's an ugly way to get the same value, but in negative.
+    // That way we can make offset() to substract from the target coordinates instead of adding.
+    let final_sx = scroll_x - (scroll_x * 2);
+    let final_sy = scroll_y - (scroll_y * 2);
+
     // Index offset for the points array in case the current line is not 0.
     if state.line > 0 {
         point_idx += 256 * state.line as u16;
@@ -155,15 +160,13 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &mut Memory) 
 
         // If the point is outside of the screen bounds, just skip drawing it.
         // The scroll registers should keep everything important on screen.
-        if current_point.point.x() + scroll_x as i32 > 160 || current_point.point.y() + scroll_y as i32 > 144 {
+        if current_point.point.x() + scroll_x > 160 || current_point.point.y() + scroll_y > 144 {
             should_draw = false;
-            trace!("GPU: Discarding out of bounds point: X {}, Y {}", current_point.point.x() + scroll_x as i32, current_point.point.y() + scroll_y as i32);
+            trace!("GPU: Discarding out of bounds point: X {}, Y {}", current_point.point.x() + scroll_x, current_point.point.y() + scroll_y);
         }
 
         if should_draw {
-            // Substracting the scroll value by itself * 2 it's an ugly way to get the same value, but in negative.
-            // That way we can make offset() to substract from the target coordinates instead of adding.
-            let final_point = current_point.point.offset(scroll_x - (scroll_x * 2), scroll_y - (scroll_y * 2));
+            let final_point = current_point.point.offset(final_sx, final_sy);
             trace!("GPU: Drawing at X: {} and Y {}", final_point.x(), final_point.y());
             canvas.set_draw_color(current_point.color);
             canvas.draw_point(final_point).unwrap();
