@@ -97,7 +97,7 @@ pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut 
                     interrupt_result = (true, Interrupt::LcdcStat);
                     state.mode_clock = 0;
                     state.line += 1;
-                    cpu::memory_write(0xFF44, state.line, memory);
+                    memory.io_regs[68] = state.line;
 
                     if state.all_tiles.len() >= 128
                     {
@@ -121,14 +121,14 @@ pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut 
                     interrupt_result = (true, Interrupt::Vblank);
                     state.mode_clock = 0;
                     state.line += 1;
-                    cpu::memory_write(0xFF44, state.line, memory);
+                    memory.io_regs[68] = state.line;
 
                     if state.line == 154 {
 
                         // End of the screen, restart.
                         state.mode = 2;
                         state.line = 1;
-                        cpu::memory_write(0xFF44, state.line, memory);
+                        memory.io_regs[68] = state.line;
                         canvas.clear();
                     }
                 }

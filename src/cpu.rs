@@ -23,6 +23,14 @@ pub struct CpuState {
     
     pub pc: Pc,
     pub cycles: Cycles,
+
+    pub halted: bool,
+    pub last_result: CycleResult,
+
+    pub interrupts_flag: bool,
+    pub ie_pending: bool,
+    pub new_ie_value: u8,
+    pub new_ie_countdown: u8,
         
     pub nops: u8,
 }
@@ -46,7 +54,7 @@ pub struct Memory {
     pub bootrom_finished: bool,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub enum CycleResult {
 
     UnimplementedOp,
@@ -69,6 +77,14 @@ pub fn init_cpu() -> CpuState {
         pc: Pc{value: 0x0}, // 0x0100 is the start PC for ROMs, 0x00 is for the bootrom
         cycles: Cycles{value: 0},
 
+        halted: false,
+        last_result: CycleResult::Success,
+
+        interrupts_flag: false,
+        ie_pending: false,
+        new_ie_value: 0,
+        new_ie_countdown: 2,
+
         nops: 0,
     };
 
@@ -87,7 +103,7 @@ pub fn init_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> Memory {
         ram: vec![0; 8192],
         io_regs: vec![0; 256],
         hram: vec![0; 127],
-        interrupts: 0x0,
+        interrupts: 0,
 
         char_ram: vec![0; 6144],
         bg_map: vec![0; 2048],
@@ -107,42 +123,85 @@ pub fn exec_loop(state: &mut CpuState, memory: &mut Memory, interrupt_state: &mu
 
     let mut current_state = state;
     let mut current_memory = memory;
-    let mut result: CycleResult;
+    let mut result = current_state.last_result;
     let mut opcode = memory_read_u8(&current_state.pc.get(), &current_memory);
 
-    if interrupt_state.0 && current_memory.interrupts == 1 {
+    if current_state.ie_pending {
+
+        if current_state.new_ie_countdown == 0 {
+            
+            current_state.interrupts_flag = true;
+            current_state.ie_pending = false;
+            current_state.new_ie_countdown = 2;
+            current_state.new_ie_value = 0;
+        }
+        else {
+            current_state.new_ie_countdown -= 1;
+        }
+    }
+
+    if current_state.interrupts_flag && interrupt_state.0 {
 
         stack_write(&mut current_state.sp, current_state.pc.get(), &mut current_memory);
 
         match interrupt_state.1 {
-            Interrupt::Vblank => current_state.pc.set(0x40),
-            Interrupt::LcdcStat => current_state.pc.set(0x48),
-            Interrupt::Timer => current_state.pc.set(0x50),
-            Interrupt::Serial => current_state.pc.set(0x58),
-            Interrupt::ButtonPress => current_state.pc.set(0x60),
+            Interrupt::Vblank => if utils::check_bit(current_memory.interrupts, 0) {
+                current_state.pc.set(0x40);
+                current_state.interrupts_flag = false;
+                current_state.halted = false;
+            },
+            Interrupt::LcdcStat => if utils::check_bit(current_memory.interrupts, 1) {
+                current_state.pc.set(0x48);
+                current_state.interrupts_flag = false;
+                current_state.halted = false;
+            },
+            Interrupt::Timer => if utils::check_bit(current_memory.interrupts, 2) {
+                current_state.pc.set(0x50);
+                current_state.interrupts_flag = false;
+                current_state.halted = false;
+            },
+            Interrupt::Serial => if utils::check_bit(current_memory.interrupts, 3) {
+                current_state.pc.set(0x58);
+                current_state.interrupts_flag = false;
+                current_state.halted = false;
+            },
+            Interrupt::ButtonPress => if utils::check_bit(current_memory.interrupts, 4) {
+                current_state.pc.set(0x60);
+                current_state.interrupts_flag = false;
+                current_state.halted = false;
+            },
+        }
+    }
+
+    if !current_state.halted {
+
+        if current_state.pc.get() == 0x0100 {
+            info!("CPU: Bootrom execution finished, starting loaded ROM.");
+            current_memory.bootrom_finished = true;
         }
 
-        memory_write(0xFFFF, 0, current_memory);
-    }
-    
-    if current_state.pc.get() == 0x0100 {
-        info!("CPU: Bootrom execution finished, starting loaded ROM.");
-        current_memory.bootrom_finished = true;
-    }
+        if current_state.pc.get() == 0x02A6 {
+            info!("CPU: Tetris checkpoint.");
+        }
 
-    if current_state.pc.get() == 0xCB9C {
-        info!("CPU: Checkpoint.");
-    }
+        if current_state.pc.get() == 0x0358 {
+            info!("CPU: Tetris checkpoint.");
+        }
         
-    if opcode == 0xCB {
-        opcode = memory_read_u8(&(current_state.pc.get() + 1), &current_memory);
-        result = opcodes_prefixed::run_prefixed_instruction(&mut current_state, &mut current_memory, opcode);
-    }
-    else {
-        result = opcodes::run_instruction(&mut current_state, &mut current_memory, opcode);
-        if opcode == 0x00 {current_state.nops += 1;}
-        else {current_state.nops = 0;}
-        if current_state.nops >= 5 { result = CycleResult::NopFlood }
+        if opcode == 0xCB {
+            opcode = memory_read_u8(&(current_state.pc.get() + 1), &current_memory);
+            result = opcodes_prefixed::run_prefixed_instruction(&mut current_state, &mut current_memory, opcode);
+        }
+        else {
+            result = opcodes::run_instruction(&mut current_state, &mut current_memory, opcode);
+            if opcode == 0x00 {current_state.nops += 1;}
+            else {current_state.nops = 0;}
+            if current_state.nops >= 5 { result = CycleResult::NopFlood }
+        }
+
+        if result == CycleResult::Halt {
+            current_state.halted = true;
+        }
     }
 
     result
@@ -182,10 +241,20 @@ pub fn memory_read_u8(addr: &u16, memory: &Memory) -> u8 {
         let memory_addr: usize = (addr - 0x9800).try_into().unwrap();
         memory.bg_map[memory_addr]
     }
+    else if address >= 0xA000 && address <= 0xBFFF 
+    {
+        error!("CPU: Unimplemented read at {}, returning 0", format!("{:#X}", address));
+        0
+    }
     else if address >= 0xC000 && address <= 0xDFFF
     {
         let memory_addr: usize = (address - 0xC000).try_into().unwrap();
         memory.ram[memory_addr]
+    }
+    else if address >= 0xE000 && address <= 0xFDFF 
+    {
+        error!("CPU: Unimplemented read at {}, returning 0", format!("{:#X}", address));
+        0
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
@@ -272,6 +341,11 @@ pub fn memory_read_u16(addr: &u16, memory: &Memory) -> u16 {
         target_addr = LittleEndian::read_u16(&target);
         target_addr
     }
+    else if address >= 0xA000 && address <= 0xBFFF 
+    {
+        error!("CPU: Unimplemented read at {}, returning 0", format!("{:#X}", address));
+        0
+    }
     else if address >= 0xC000 && address <= 0xDFFF
     {
         let memory_addr: usize = (address - 0xC000).try_into().unwrap();
@@ -279,6 +353,11 @@ pub fn memory_read_u16(addr: &u16, memory: &Memory) -> u16 {
         target[1] = memory.ram[memory_addr + 1];
         target_addr = LittleEndian::read_u16(&target);
         target_addr
+    }
+    else if address >= 0xE000 && address <= 0xFDFF 
+    {
+        error!("CPU: Unimplemented read at {}, returning 0", format!("{:#X}", address));
+        0
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
@@ -337,10 +416,18 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
         memory.background_dirty = check_write(&memory.bg_map[memory_addr], &value);
         memory.bg_map[memory_addr] = value;
     }
+    else if address >= 0xA000 && address <= 0xBFFF 
+    {
+        error!("CPU: Write to unimplemented area at address {}. Ignoring...", format!("{:#X}", address));
+    }
     else if address >= 0xC000 && address <= 0xDFFF
     {
         let memory_addr: usize = (address - 0xC000).try_into().unwrap();
         memory.ram[memory_addr] = value;
+    }
+    else if address >= 0xE000 && address <= 0xFDFF 
+    {
+        error!("CPU: Write to unimplemented area at address {}. Ignoring...", format!("{:#X}", address));
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
@@ -354,7 +441,13 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     else if address >= 0xFF00 && address <= 0xFF7F
     {
         let memory_addr: usize = (address - 0xFF00).try_into().unwrap();
-        memory.io_regs[memory_addr] = value;
+
+        if address == 0xFF44 {
+            memory.io_regs[memory_addr] = 0;
+        }
+        else {
+            memory.io_regs[memory_addr] = value;
+        }   
     }
     else if address >= 0xFF80 && address <= 0xFFFE 
     {
@@ -401,4 +494,11 @@ fn check_write(old_value: &u8, new_value: &u8) -> bool {
     else {
         true
     }
+}
+
+pub fn toggle_interrupts(state: &mut CpuState, value: u8) {
+
+    state.ie_pending = true;
+    state.new_ie_countdown = 2;
+    state.new_ie_value = value;
 }

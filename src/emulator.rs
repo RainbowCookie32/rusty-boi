@@ -77,7 +77,7 @@ fn execution_loop(state: ConsoleState) {
     sdl_canvas.clear();
     sdl_canvas.present();
 
-    while cpu_result == cpu::CycleResult::Success && should_run {
+    while cpu_result == cpu::CycleResult::Success || cpu_result == cpu::CycleResult::Stop || cpu_result == cpu::CycleResult::Halt && should_run {
 
         cpu_result = cpu::exec_loop(&mut current_state.current_cpu, &mut current_state.current_memory, &mut interrupt_state);
         interrupt_state = gpu::gpu_tick(&mut sdl_canvas, &mut current_state.current_gpu, &mut current_state.current_memory, &mut current_state.current_cpu.cycles.value);

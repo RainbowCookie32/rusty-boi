@@ -151,6 +151,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0x73 => instruction_finished(save_low_to_hl(&mut current_state.de, &mut current_state.hl, memory), current_state),
         0x74 => instruction_finished(save_h_to_hl(&mut current_state.hl, memory), current_state),
         0x75 => instruction_finished(save_l_to_hl(&mut current_state.hl, memory), current_state),
+        0x76 => result = halt(current_state),
         0x77 => instruction_finished(save_hi_to_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x78 => instruction_finished(ld_hi_into_hi(&mut current_state.af, &mut current_state.bc), current_state),
         0x79 => instruction_finished(ld_low_into_hi(&mut current_state.af, &mut current_state.bc), current_state),
@@ -283,7 +284,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xF0 => instruction_finished(ld_a_from_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
         0xF1 => instruction_finished(pop(&mut current_state.af, &mut current_state.sp, memory), current_state),
         0xF2 => result = CycleResult::InvalidOp,
-        0xF3 => instruction_finished(di(memory), current_state),
+        0xF3 => instruction_finished(di(current_state), current_state),
         0xF4 => result = CycleResult::InvalidOp,
         0xF5 => instruction_finished(push(&mut current_state.af, &mut current_state.sp, memory), current_state),
         0xF6 => instruction_finished(or_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
@@ -291,7 +292,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &mut Memory, opcode
         0xF8 => instruction_finished(add_imm_to_sp_ld_to_hl(current_state, memory), current_state),
         0xF9 => instruction_finished(ld_hl_into_sp(&mut current_state.sp, &mut current_state.hl), current_state),
         0xFA => instruction_finished(ld_a_from_imm_addr(&mut current_state.af, &current_state.pc.get(), memory), current_state),
-        0xFB => instruction_finished(ei(memory), current_state),
+        0xFB => instruction_finished(ei(current_state), current_state),
         0xFC => result = CycleResult::InvalidOp,
         0xFD => result = CycleResult::InvalidOp,
         0xFE => instruction_finished(cp_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
@@ -320,6 +321,18 @@ fn nop(current_state: &mut CpuState) {
 
     current_state.pc.add(1);
     current_state.cycles.add(1);
+}
+
+fn halt(current_state: &mut CpuState) -> CycleResult {
+
+    if current_state.interrupts_flag {
+        current_state.pc.add(2);
+    }
+    else {
+        current_state.pc.add(1);
+    }
+    current_state.cycles.add(4);
+    CycleResult::Halt
 }
 
 
@@ -1255,15 +1268,15 @@ fn rrc_a(af: &mut CpuReg) -> (u16, u32) {
 
 // Enable/Disable interrupts
 
-fn ei(memory: &mut Memory) -> (u16, u32) {
+fn ei(state: &mut CpuState) -> (u16, u32) {
 
-    cpu::memory_write(0xFFFF, 0, memory);
+    cpu::toggle_interrupts(state, 1);
     (1, 4)
 }
 
-fn di(memory: &mut Memory) -> (u16, u32) {
+fn di(state: &mut CpuState) -> (u16, u32) {
 
-    cpu::memory_write(0xFFFF, 0, memory);
+    cpu::toggle_interrupts(state, 0);
     (1, 4)
 }
 
