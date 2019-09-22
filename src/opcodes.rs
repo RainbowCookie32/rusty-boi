@@ -323,8 +323,12 @@ fn nop(current_state: &mut CpuState) {
     current_state.cycles.add(1);
 }
 
+// HALT (and STOP eventually)
+
 fn halt(current_state: &mut CpuState) -> CycleResult {
 
+    // Apparently, HALT skips the instruction right after it if interrupts are enabled.
+    // The opcode is technically 1 byte long, so add 2 to PC if they are enabled.
     if current_state.interrupts_flag {
         current_state.pc.add(2);
     }
@@ -428,7 +432,7 @@ fn ret(state: &mut CpuState, memory: &mut Memory) {
 
 fn reti(state: &mut CpuState, memory: &mut Memory) {
 
-    cpu::memory_write(0xFFFF, 0, memory);
+    cpu::toggle_interrupts(state, 1);
     ret(state, memory);
 }
 
