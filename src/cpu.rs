@@ -1,19 +1,13 @@
-use std::sync::mpsc;
-
 use log::info;
-
-use super::utils;
-use super::opcodes;
-use super::opcodes_prefixed;
-
-use super::emulator::Interrupt;
-
-use super::memory::MemoryOp;
-use super::memory::MemoryAccess;
-
+use std::sync::mpsc;
 use byteorder::{ByteOrder, LittleEndian};
 
+use super::emulator::Interrupt;
+use super::memory::{MemoryOp, MemoryAccess};
+use super::{utils, opcodes, opcodes_prefixed};
 use super::register::{CpuReg, Register, Pc, PcTrait, Cycles};
+
+
 
 pub struct CpuState {
     

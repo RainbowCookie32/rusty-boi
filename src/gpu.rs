@@ -1,9 +1,7 @@
 use std::thread;
 use std::sync::mpsc::{Sender, Receiver};
 
-use log;
-use log::info;
-use log::trace;
+use log::{info, trace};
 
 use sdl2::rect::Point;
 use sdl2::pixels::Color;
@@ -11,11 +9,8 @@ use sdl2::video::Window;
 use sdl2::render::Canvas;
 
 use super::utils;
-use super::memory::MemoryOp;
-use super::memory::VramCheck;
-use super::memory::MemoryAccess;
-use super::emulator::Interrupt;
-use super::emulator::InterruptType;
+use super::emulator::{Interrupt, InterruptType};
+use super::memory::{MemoryOp, GpuResponse, MemoryAccess};
 
 
 pub struct Tile {
@@ -36,17 +31,22 @@ pub struct GpuState {
     pub line: u8,
     pub all_tiles: Vec<Tile>,
     pub background_points: Vec<BGPoint>,
+
+    pub bg_dirty: bool,
+    pub tiles_dirty: bool,
 }
 
-pub fn gpu_loop(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<MemoryAccess>, Receiver<u8>, Receiver<VramCheck>)) {
+pub fn gpu_loop(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>)) {
 
     let initial_state = GpuState {
         mode: 0,
         mode_clock: 0,
         line: 0,
         all_tiles: Vec::new(),
-
         background_points: Vec::new(),
+
+        bg_dirty: false,
+        tiles_dirty: false,
     };
     
     thread::spawn(move || {
@@ -56,7 +56,7 @@ pub fn gpu_loop(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<M
         let sdl_ctx = sdl2::init().unwrap();
         let sdl_video = sdl_ctx.video().unwrap();    
         let emu_window = sdl_video.window("Rusty Boi", 160 * 3, 144 * 3).position_centered().build().unwrap();
-        let mut emu_canvas = emu_window.into_canvas().build().unwrap();
+        let mut emu_canvas = emu_window.into_canvas().present_vsync().build().unwrap();
 
         // TODO: Add a way to change scaling without having to change it from code.
         // Maybe as an argument, or request a scale multiplier after loading the ROMs.
@@ -79,9 +79,14 @@ pub fn gpu_loop(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<M
                 address: 0xFF40,
                 value: 0,
             };
+            let response: GpuResponse;
 
             memory.0.send(mem_request).unwrap();
-            display_enabled = utils::check_bit(memory.1.recv().unwrap(), 7);
+            response = memory.1.recv().unwrap();
+            display_enabled = utils::check_bit(response.read_value, 7);
+
+            current_state.bg_dirty = response.background_dirty;
+            current_state.tiles_dirty = response.tiles_dirty;
 
             if display_enabled {
 
@@ -101,18 +106,17 @@ pub fn gpu_loop(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<M
                             current_state.mode_clock = 0;
                             current_state.mode = 0;
 
-                            let dirty = memory.2.try_recv();
-                            
-                            match dirty {
-                                Ok(result) => {
-                                    match result {
-                                        VramCheck::Tiles => make_tiles((&memory.0, &memory.1), &mut current_state),
-                                        VramCheck::Background => make_background((&memory.0, &memory.1), &mut current_state),
-                                        _ => (),
-                                    }
-                                }
-                                Err(_error) => {},
+                            if current_state.tiles_dirty {
+                                make_tiles((&memory.0, &memory.1), &mut current_state);
+                                current_state.tiles_dirty = false;
                             }
+
+                            if current_state.bg_dirty {
+                                make_background((&memory.0, &memory.1), &mut current_state);
+                                current_state.bg_dirty = false;
+                            }
+
+                            memory.2.send(false).unwrap();
                         }
                     }
 
@@ -190,16 +194,18 @@ pub fn gpu_loop(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<M
     });
 }
 
-fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: (&Sender<MemoryAccess>, &Receiver<u8>)) {
+fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>)) {
 
+    let mut response: GpuResponse;
     let mut mem_request = MemoryAccess {
         operation: MemoryOp::Read,
         address: 0xFF43,
         value: 0,
     };
     memory.0.send(mem_request).unwrap();
+    response = memory.1.recv().unwrap();
 
-    let scroll_x = memory.1.recv().unwrap() as i32;
+    let scroll_x = response.read_value as i32;
 
     mem_request = MemoryAccess {
         operation: MemoryOp::Read,
@@ -207,8 +213,9 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: (&Sender<Memo
         value: 0,
     };
     memory.0.send(mem_request).unwrap();
+    response = memory.1.recv().unwrap();
 
-    let scroll_y = memory.1.recv().unwrap() as i32;
+    let scroll_y = response.read_value as i32;
     let mut point_idx: u16 = 0;
     let mut drawn_pixels: u16 = 0;
 
@@ -247,11 +254,13 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: (&Sender<Memo
     }
 }
 
-fn make_tiles(memory: (&Sender<MemoryAccess>, &Receiver<u8>), state: &mut GpuState) {
+fn make_tiles(memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>), state: &mut GpuState) {
 
     let mut memory_position = 0x8000;
     let mut tiles_position = 0;
     let mut new_tiles:Vec<Tile> = Vec::new();
+
+    let mut response: GpuResponse;
 
     info!("GPU: Regenerating tile cache");
 
@@ -259,8 +268,6 @@ fn make_tiles(memory: (&Sender<MemoryAccess>, &Receiver<u8>), state: &mut GpuSta
 
         let mut loaded_bytes = 0;
         let mut tile_bytes: Vec<u8> = vec![0; 16];
-
-        
 
         while loaded_bytes < tile_bytes.len() {
 
@@ -271,7 +278,8 @@ fn make_tiles(memory: (&Sender<MemoryAccess>, &Receiver<u8>), state: &mut GpuSta
             };
             
             memory.0.send(mem_request).unwrap();
-            tile_bytes[loaded_bytes] = memory.1.recv().unwrap();;
+            response = memory.1.recv().unwrap();
+            tile_bytes[loaded_bytes] = response.read_value;
             memory_position += 1;
             loaded_bytes += 1;
         }
@@ -319,11 +327,13 @@ fn make_tile(bytes: &Vec<u8>) -> Tile {
     new_tile
 }
 
-fn make_background(memory: (&Sender<MemoryAccess>, &Receiver<u8>), state: &mut GpuState) {
+fn make_background(memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>), state: &mut GpuState) {
 
     let mut new_points: Vec<BGPoint> = Vec::new();
     let mut current_background = 0x9800;
     let mut generated_lines: u16 = 0;
+
+    let mut response: GpuResponse;
 
     info!("GPU: Regenerating background cache");
     
@@ -343,8 +353,9 @@ fn make_background(memory: (&Sender<MemoryAccess>, &Receiver<u8>), state: &mut G
             };
             
             memory.0.send(mem_request).unwrap();
+            response = memory.1.recv().unwrap();
 
-            let target_tile = memory.1.recv().unwrap();
+            let target_tile = response.read_value;
 
             tiles.insert(tile_idx, &state.all_tiles[target_tile as usize]);
             tile_idx += 1;

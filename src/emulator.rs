@@ -1,5 +1,5 @@
 use std::io;
-use std::io::prelude::*;
+use std::io::Read;
 use std::fs::File;
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
@@ -9,15 +9,13 @@ use log::error;
 
 use super::cpu;
 use super::gpu;
-use super::memory;
-use super::memory::VramCheck;
-use super::memory::MemoryAccess;
 use super::register::CycleCounter;
+use super::memory::{start_memory, GpuResponse, MemoryAccess};
 
 
 pub struct ConsoleState {
     pub current_cpu: cpu::CpuState,
-    pub current_memory: ((Sender<MemoryAccess>, Receiver<u8>), (Sender<MemoryAccess>, Receiver<u8>, Receiver<VramCheck>)),
+    pub current_memory: ((Sender<MemoryAccess>, Receiver<u8>), (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>)),
 }
 
 pub struct Interrupt {
@@ -56,7 +54,7 @@ pub fn init_emu() {
 
     let initial_state = ConsoleState {
         current_cpu: cpu::init_cpu(),
-        current_memory: memory::start_memory(bootrom, rom),
+        current_memory: start_memory(bootrom, rom),
     };
 
     execution_loop(initial_state);

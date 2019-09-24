@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::convert::TryInto;
 
-use log::{error, info, trace};
+use log::{error, trace};
 
 pub struct Memory {
 
@@ -30,12 +30,6 @@ pub enum MemoryOp {
     Write,
 }
 
-pub enum VramCheck {
-    Tiles,
-    Sprites,
-    Background,
-}
-
 pub struct MemoryAccess {
 
     pub operation: MemoryOp,
@@ -43,15 +37,21 @@ pub struct MemoryAccess {
     pub value: u8,
 }
 
+pub struct GpuResponse {
 
-pub fn start_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> ((Sender<MemoryAccess>, Receiver<u8>), (Sender<MemoryAccess>, Receiver<u8>, Receiver<VramCheck>)) {
+    pub tiles_dirty: bool,
+    pub background_dirty: bool,
+    pub read_value: u8,
+}
+
+pub fn start_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> ((Sender<MemoryAccess>, Receiver<u8>), (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>)) {
 
     let (cpu_req_tx, cpu_req_rx) = mpsc::channel();
     let (cpu_res_tx, cpu_res_rx) = mpsc::channel();
 
     let (gpu_req_tx, gpu_req_rx) = mpsc::channel();
     let (gpu_res_tx, gpu_res_rx) = mpsc::channel();
-    let (gpu_check_tx, gpu_check_rx) = mpsc::channel();
+    let (gpu_cache_tx, gpu_cache_rx) = mpsc::channel();
 
     let initial_memory = Memory {
 
@@ -80,33 +80,29 @@ pub fn start_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> ((Sender<MemoryAccess>, R
 
             let cpu_request = cpu_req_rx.try_recv();
             let gpu_request = gpu_req_rx.try_recv();
+            let gpu_cache = gpu_cache_rx.try_recv();
 
             match cpu_request {
-                Ok(request) => {
-                    handle_cpu_request(&request, &cpu_res_tx, &mut current_memory);
-
-                    if current_memory.background_dirty {
-                        current_memory.background_dirty = false;
-                        gpu_check_tx.send(VramCheck::Background).unwrap();
-                    }
-                    if current_memory.tiles_dirty {
-                        current_memory.tiles_dirty = false;
-                        gpu_check_tx.send(VramCheck::Tiles).unwrap();
-                    }
-                }
+                Ok(request) => handle_cpu_request(&request, &cpu_res_tx, &mut current_memory),
                 Err(_error) => {},
             };
 
             match gpu_request {
-                Ok(request) => {
-                    handle_gpu_request(&request, &gpu_res_tx, &mut current_memory);
-                }
+                Ok(request) => handle_gpu_request(&request, &gpu_res_tx, &mut current_memory),
                 Err(_error) => {},
             };
+
+            match gpu_cache {
+                Ok(status) => {
+                    current_memory.background_dirty = status;
+                    current_memory.tiles_dirty = status;
+                },
+                Err(_error) => {},
+            }
         }
     });
 
-    ((cpu_req_tx, cpu_res_rx), (gpu_req_tx, gpu_res_rx, gpu_check_rx))
+    ((cpu_req_tx, cpu_res_rx), (gpu_req_tx, gpu_res_rx, gpu_cache_tx))
 }
 
 fn handle_cpu_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &mut Memory) {
@@ -119,6 +115,7 @@ fn handle_cpu_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &
             tx.send(result_value).unwrap();
         },
         MemoryOp::Write => {
+            
             if request.address == 0xFF44 { 
                 memory_write(request.address, 0, current_memory);
             }
@@ -129,18 +126,24 @@ fn handle_cpu_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &
     }
 }
 
-fn handle_gpu_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &mut Memory) {
+fn handle_gpu_request(request: &MemoryAccess, tx: &Sender<GpuResponse>, current_memory: &mut Memory) {
 
     let result_value: u8;
     
     match request.operation {
         MemoryOp::Read => {
+
             result_value = memory_read(&request.address, current_memory);
-            tx.send(result_value).unwrap();
+            
+            let response = GpuResponse {
+                tiles_dirty: current_memory.tiles_dirty,
+                background_dirty: current_memory.background_dirty,
+                read_value: result_value,
+            };
+
+            tx.send(response).unwrap();
         },
-        MemoryOp::Write => {
-            memory_write(request.address, request.value, current_memory);
-        }
+        MemoryOp::Write => memory_write(request.address, request.value, current_memory),
     }
 }
 
@@ -294,7 +297,6 @@ fn check_write(old_value: &u8, new_value: &u8) -> bool {
         false
     }
     else {
-        info!("Memory: Marking as dirty");
         true
     }
 }
