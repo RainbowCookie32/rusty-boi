@@ -4,6 +4,7 @@ extern crate simple_logger;
 
 mod cpu;
 mod gpu;
+mod memory;
 mod register;
 
 mod utils;

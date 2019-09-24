@@ -48,6 +48,7 @@ pub trait PcTrait {
 pub trait CycleCounter {
 
     fn add(&mut self, value: u32);
+    fn get(&self) -> u32;
 }
 
 impl Register for CpuReg {
@@ -156,5 +157,9 @@ impl CycleCounter for Cycles {
 
     fn add(&mut self, value: u32) {
         self.value += value;
+    }
+
+    fn get(&self) -> u32 {
+        self.value
     }
 }

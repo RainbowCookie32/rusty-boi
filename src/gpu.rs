@@ -1,9 +1,5 @@
-use super::cpu;
-use super::cpu::Memory;
-
-use super::emulator::Interrupt;
-
-use super::utils;
+use std::thread;
+use std::sync::mpsc::{Sender, Receiver};
 
 use log;
 use log::info;
@@ -13,6 +9,14 @@ use sdl2::rect::Point;
 use sdl2::pixels::Color;
 use sdl2::video::Window;
 use sdl2::render::Canvas;
+
+use super::utils;
+use super::memory::MemoryOp;
+use super::memory::VramCheck;
+use super::memory::MemoryAccess;
+use super::emulator::Interrupt;
+use super::emulator::InterruptType;
+
 
 pub struct Tile {
 
@@ -34,9 +38,9 @@ pub struct GpuState {
     pub background_points: Vec<BGPoint>,
 }
 
-pub fn init_gpu() -> GpuState {
+pub fn gpu_loop(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<MemoryAccess>, Receiver<u8>, Receiver<VramCheck>)) {
 
-    let initial_state = GpuState{
+    let initial_state = GpuState {
         mode: 0,
         mode_clock: 0,
         line: 0,
@@ -44,107 +48,167 @@ pub fn init_gpu() -> GpuState {
 
         background_points: Vec::new(),
     };
-
-    initial_state
-}
-
-pub fn gpu_tick(canvas: &mut Canvas<Window>, state: &mut GpuState, memory: &mut Memory, cycles: &u32) -> (bool, Interrupt) {
-
-    let display_enabled = utils::check_bit(cpu::memory_read_u8(&0xFF40, memory), 7);
-    let mut interrupt_result = (false, Interrupt::Vblank);
     
-    if display_enabled {
-
-        state.mode_clock += *cycles;
-        match state.mode {
-
-            // OAM Read mode
-            2 => {
-                if state.mode_clock >= 80 {
-
-                    state.mode_clock = 0;
-                    state.mode = 3;
-                }
-            }
-
-            // VRAM Read mode
-            3 => {
-                if state.mode_clock >= 172 {
-
-                    state.mode_clock = 0;
-                    state.mode = 0;
-
-                    // Cache all the tiles if something new was written to that VRAM area.
-                    if memory.tiles_dirty {
-                        info!("GPU: Regenerating tile cache");
-                        make_tiles(memory, state);
-                        memory.tiles_dirty = false;
-                    }
-
-                    // Cache the background if something new was written to that VRAM area and the tiles are already cached.
-                    if memory.background_dirty && state.all_tiles.len() >= 128 {
-                        info!("GPU: Regenerating background cache");
-                        make_background(memory, state);
-                        memory.background_dirty = false;
-                    }
-                }
-            }
-
-            // HBlank mode
-            0 => {
-                if state.mode_clock >= 204 {
-                
-                    interrupt_result = (true, Interrupt::LcdcStat);
-                    state.mode_clock = 0;
-                    state.line += 1;
-                    memory.io_regs[68] = state.line;
-
-                    if state.all_tiles.len() >= 128
-                    {
-                        draw(state, canvas, memory);
-                    }
-
-                    if state.line == 144 {
-                        trace!("GPU: Presenting framebuffer to SDL canvas");
-                        // Go into VBlank mode.
-                        state.mode = 1;
-                        // Send data to screen.
-                        canvas.present();
-                    }
-                }
-            }
+    thread::spawn(move || {
         
-            // VBlank mode
-            1 => {
-                if state.mode_clock >= 456 {
+        let mut current_state = initial_state;
+        
+        let sdl_ctx = sdl2::init().unwrap();
+        let sdl_video = sdl_ctx.video().unwrap();    
+        let emu_window = sdl_video.window("Rusty Boi", 160 * 3, 144 * 3).position_centered().build().unwrap();
+        let mut emu_canvas = emu_window.into_canvas().build().unwrap();
 
-                    interrupt_result = (true, Interrupt::Vblank);
-                    state.mode_clock = 0;
-                    state.line += 1;
-                    memory.io_regs[68] = state.line;
+        // TODO: Add a way to change scaling without having to change it from code.
+        // Maybe as an argument, or request a scale multiplier after loading the ROMs.
+        emu_canvas.set_scale(3.0, 3.0).unwrap();
 
-                    if state.line == 154 {
+        emu_canvas.set_draw_color(Color::RGB(255, 255, 255));
+        emu_canvas.clear();
+        emu_canvas.present();
 
-                        // End of the screen, restart.
-                        state.mode = 2;
-                        state.line = 1;
-                        memory.io_regs[68] = state.line;
-                        canvas.clear();
+
+        loop {
+
+            let mut generated_interrupt = Interrupt {
+                interrupt: false,
+                interrupt_type: InterruptType::LcdcStat,
+            };
+            let display_enabled: bool;
+            let mut mem_request = MemoryAccess {
+                operation: MemoryOp::Read,
+                address: 0xFF40,
+                value: 0,
+            };
+
+            memory.0.send(mem_request).unwrap();
+            display_enabled = utils::check_bit(memory.1.recv().unwrap(), 7);
+
+            if display_enabled {
+
+                current_state.mode_clock += emu_state.1.recv().unwrap();
+
+                match current_state.mode {
+
+                    2 => {
+                        if current_state.mode_clock >= 80 {
+                            current_state.mode_clock = 0;
+                            current_state.mode = 3;
+                        }
                     }
+
+                    3 => {
+                        if current_state.mode_clock >= 172 {
+                            current_state.mode_clock = 0;
+                            current_state.mode = 0;
+
+                            let dirty = memory.2.try_recv();
+                            
+                            match dirty {
+                                Ok(result) => {
+                                    match result {
+                                        VramCheck::Tiles => make_tiles((&memory.0, &memory.1), &mut current_state),
+                                        VramCheck::Background => make_background((&memory.0, &memory.1), &mut current_state),
+                                        _ => (),
+                                    }
+                                }
+                                Err(_error) => {},
+                            }
+                        }
+                    }
+
+                    0 => {
+                        if current_state.mode_clock >= 204 {
+                
+                            generated_interrupt.interrupt = true;
+                            generated_interrupt.interrupt_type = InterruptType::LcdcStat;
+                            current_state.mode_clock = 0;
+                            current_state.line += 1;
+
+                            mem_request = MemoryAccess {
+                                operation: MemoryOp::Write,
+                                address: 0xFF44,
+                                value: current_state.line,
+                            };
+
+                            memory.0.send(mem_request).unwrap();
+
+                            if current_state.all_tiles.len() >= 128 && current_state.background_points.len() >= 65536
+                            {
+                                draw(&mut current_state, &mut emu_canvas, (&memory.0, &memory.1));
+                            }
+
+                            if current_state.line == 144 {
+                                trace!("GPU: Presenting framebuffer to SDL canvas");
+                                // Go into VBlank mode.
+                                current_state.mode = 1;
+                                // Send data to screen.
+                                emu_canvas.present();
+                            }
+                        }
+                    }
+        
+                    // VBlank mode
+                    1 => {
+                        if current_state.mode_clock >= 456 {
+
+                            generated_interrupt.interrupt = true;
+                            generated_interrupt.interrupt_type = InterruptType::Vblank;
+                            current_state.mode_clock = 0;
+                            current_state.line += 1;
+
+                            mem_request = MemoryAccess {
+                                operation: MemoryOp::Write,
+                                address: 0xFF44,
+                                value: current_state.line,
+                            };
+                            memory.0.send(mem_request).unwrap();
+
+                            if current_state.line == 154 {
+
+                            // End of the screen, restart.
+                                current_state.mode = 2;
+                                current_state.line = 1;
+                                
+                                mem_request = MemoryAccess {
+                                    operation: MemoryOp::Write,
+                                    address: 0xFF44,
+                                    value: current_state.line,
+                                };
+                                memory.0.send(mem_request).unwrap();
+
+                                emu_canvas.clear();
+                            }
+                        }
+                    }
+
+                    _ => panic!("Invalid GPU Mode"),
                 }
             }
 
-            _ => panic!("Invalid GPU Mode"),
+            emu_state.0.send(generated_interrupt).unwrap();
         }
-    }
-
-    interrupt_result
+    });
 }
 
-fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &mut Memory) {
+fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: (&Sender<MemoryAccess>, &Receiver<u8>)) {
 
-    let scroll_x = cpu::memory_read_u8(&0xFF43, memory) as i32;
-    let scroll_y = cpu::memory_read_u8(&0xFF42, memory) as i32;
+    let mut mem_request = MemoryAccess {
+        operation: MemoryOp::Read,
+        address: 0xFF43,
+        value: 0,
+    };
+    memory.0.send(mem_request).unwrap();
+
+    let scroll_x = memory.1.recv().unwrap() as i32;
+
+    mem_request = MemoryAccess {
+        operation: MemoryOp::Read,
+        address: 0xFF42,
+        value: 0,
+    };
+    memory.0.send(mem_request).unwrap();
+
+    let scroll_y = memory.1.recv().unwrap() as i32;
     let mut point_idx: u16 = 0;
     let mut drawn_pixels: u16 = 0;
 
@@ -183,20 +247,31 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &mut Memory) 
     }
 }
 
-fn make_tiles(memory: &mut Memory, state: &mut GpuState) {
+fn make_tiles(memory: (&Sender<MemoryAccess>, &Receiver<u8>), state: &mut GpuState) {
 
     let mut memory_position = 0x8000;
     let mut tiles_position = 0;
     let mut new_tiles:Vec<Tile> = Vec::new();
+
+    info!("GPU: Regenerating tile cache");
 
     while memory_position < 0x9000 {
 
         let mut loaded_bytes = 0;
         let mut tile_bytes: Vec<u8> = vec![0; 16];
 
+        
+
         while loaded_bytes < tile_bytes.len() {
 
-            tile_bytes[loaded_bytes] = cpu::memory_read_u8(&memory_position, memory);
+            let mem_request = MemoryAccess {
+                operation: MemoryOp::Read,
+                address: memory_position,
+                value: 0,
+            };
+            
+            memory.0.send(mem_request).unwrap();
+            tile_bytes[loaded_bytes] = memory.1.recv().unwrap();;
             memory_position += 1;
             loaded_bytes += 1;
         }
@@ -244,11 +319,13 @@ fn make_tile(bytes: &Vec<u8>) -> Tile {
     new_tile
 }
 
-fn make_background(memory: &mut Memory, state: &mut GpuState) {
+fn make_background(memory: (&Sender<MemoryAccess>, &Receiver<u8>), state: &mut GpuState) {
 
     let mut new_points: Vec<BGPoint> = Vec::new();
     let mut current_background = 0x9800;
     let mut generated_lines: u16 = 0;
+
+    info!("GPU: Regenerating background cache");
     
     while generated_lines < 256 {
 
@@ -259,7 +336,15 @@ fn make_background(memory: &mut Memory, state: &mut GpuState) {
         // 32 tiles is the maximum amount of tiles per line in the background.
         while tiles.len() < 32 {
 
-            let target_tile = cpu::memory_read_u8(&current_background, memory);
+            let mem_request = MemoryAccess {
+                operation: MemoryOp::Read,
+                address: current_background,
+                value: 0,
+            };
+            
+            memory.0.send(mem_request).unwrap();
+
+            let target_tile = memory.1.recv().unwrap();
 
             tiles.insert(tile_idx, &state.all_tiles[target_tile as usize]);
             tile_idx += 1;

@@ -1,24 +1,32 @@
 use std::io;
 use std::io::prelude::*;
 use std::fs::File;
+use std::sync::mpsc;
+use std::sync::mpsc::{Sender, Receiver};
 
 use log::info;
 use log::error;
 
-use sdl2::pixels::Color;
-
 use super::cpu;
 use super::gpu;
+use super::memory;
+use super::memory::VramCheck;
+use super::memory::MemoryAccess;
+use super::register::CycleCounter;
 
 
 pub struct ConsoleState {
     pub current_cpu: cpu::CpuState,
-    pub current_gpu: gpu::GpuState,
-    pub current_memory: cpu::Memory,
+    pub current_memory: ((Sender<MemoryAccess>, Receiver<u8>), (Sender<MemoryAccess>, Receiver<u8>, Receiver<VramCheck>)),
+}
+
+pub struct Interrupt {
+    pub interrupt: bool,
+    pub interrupt_type: InterruptType,
 }
 
 #[derive(PartialEq, Debug)]
-pub enum Interrupt {
+pub enum InterruptType {
 
     Vblank,
     LcdcStat,
@@ -48,48 +56,30 @@ pub fn init_emu() {
 
     let initial_state = ConsoleState {
         current_cpu: cpu::init_cpu(),
-        current_gpu: gpu::init_gpu(),
-        current_memory: cpu::init_memory(bootrom, rom),
+        current_memory: memory::start_memory(bootrom, rom),
     };
 
     execution_loop(initial_state);
 }
 
 fn execution_loop(state: ConsoleState) {
-
-    let mut should_run = true;
     
     let mut current_state = state;
     let mut cpu_result = cpu::CycleResult::Success;
-    let mut interrupt_state = (false, Interrupt::Vblank);
+    let mut interrupt_state = Interrupt { 
+        interrupt: false,
+        interrupt_type: InterruptType::Vblank,
+    };
 
-    let sdl_context = sdl2::init().unwrap();
-    let sdl_video = sdl_context.video().unwrap();
-    let sdl_window = sdl_video.window("Rusty Boi", 160 * 3, 144 * 3).position_centered().build().unwrap();
-    let mut sdl_canvas = sdl_window.into_canvas().build().unwrap();
-    let mut sdl_events = sdl_context.event_pump().unwrap();
+    let (cycles_tx, cycles_rx) = mpsc::channel();
+    let (interrupt_tx, interrupt_rx) = mpsc::channel();
 
-    // TODO: Add a way to change scaling without having to change it from code.
-    // Maybe as an argument, or request a scale multiplier after loading the ROMs.
-    sdl_canvas.set_scale(3.0, 3.0).unwrap();
+    gpu::gpu_loop((interrupt_tx, cycles_rx), current_state.current_memory.1);
 
-    sdl_canvas.set_draw_color(Color::RGB(255, 255, 255));
-    sdl_canvas.clear();
-    sdl_canvas.present();
+    while cpu_result == cpu::CycleResult::Success || cpu_result == cpu::CycleResult::Stop || cpu_result == cpu::CycleResult::Halt {
 
-    while cpu_result == cpu::CycleResult::Success || cpu_result == cpu::CycleResult::Stop || cpu_result == cpu::CycleResult::Halt && should_run {
-
-        cpu_result = cpu::exec_loop(&mut current_state.current_cpu, &mut current_state.current_memory, &mut interrupt_state);
-        interrupt_state = gpu::gpu_tick(&mut sdl_canvas, &mut current_state.current_gpu, &mut current_state.current_memory, &mut current_state.current_cpu.cycles.value);
-        
-        // Handle the Quit SDL event
-        for event in sdl_events.poll_iter() {
-            
-            match event {
-                sdl2::event::Event::Quit {..} => should_run = false,
-                _ => {},
-            }
-        }
+        cpu_result = cpu::exec_loop(&mut current_state.current_cpu, &current_state.current_memory.0, &mut interrupt_state);
+        cycles_tx.send(current_state.current_cpu.cycles.get()).unwrap();
     }
 
     info!("CPU: Stopped emulation. Last CPU state was '{:?}'.", cpu_result);
