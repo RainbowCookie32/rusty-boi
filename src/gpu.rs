@@ -4,12 +4,16 @@ use std::sync::mpsc::{Sender, Receiver};
 use log::{info, trace};
 
 use sdl2::rect::Point;
-use sdl2::pixels::Color;
+use sdl2::event::Event;
 use sdl2::video::Window;
+use sdl2::pixels::Color;
 use sdl2::render::Canvas;
+use sdl2::keyboard::Keycode;
+
 
 use super::utils;
-use super::emulator::{Interrupt, InterruptType};
+use super::emulator::InputEvent;
+use super::cpu::{Interrupt, InterruptType};
 use super::memory::{MemoryOp, GpuResponse, MemoryAccess};
 
 
@@ -36,7 +40,7 @@ pub struct GpuState {
     pub tiles_dirty: bool,
 }
 
-pub fn gpu_loop(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>)) {
+pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>), input: Sender<InputEvent>) {
 
     let initial_state = GpuState {
         mode: 0,
@@ -54,7 +58,8 @@ pub fn gpu_loop(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<M
         let mut current_state = initial_state;
         
         let sdl_ctx = sdl2::init().unwrap();
-        let sdl_video = sdl_ctx.video().unwrap();    
+        let sdl_video = sdl_ctx.video().unwrap();
+        let mut sdl_events = sdl_ctx.event_pump().unwrap();
         let emu_window = sdl_video.window("Rusty Boi", 160 * 3, 144 * 3).position_centered().build().unwrap();
         let mut emu_canvas = emu_window.into_canvas().present_vsync().build().unwrap();
 
@@ -68,6 +73,30 @@ pub fn gpu_loop(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<M
 
 
         loop {
+
+            for event in sdl_events.poll_iter() {
+
+                match event {
+                    Event::Quit {..} => { input.send(InputEvent::Quit).unwrap() },
+                    Event::KeyDown { keycode: Some(Keycode::A), .. } => { input.send(InputEvent::APressed).unwrap() },
+                    Event::KeyUp  { keycode: Some(Keycode::A), .. } => { input.send(InputEvent::AReleased).unwrap() },
+                    Event::KeyDown { keycode: Some(Keycode::S), .. } => { input.send(InputEvent::BPressed).unwrap() },
+                    Event::KeyUp  { keycode: Some(Keycode::S), .. } => { input.send(InputEvent::BReleased).unwrap() },
+                    Event::KeyDown { keycode: Some(Keycode::Up), .. } => { input.send(InputEvent::UpPressed).unwrap() },
+                    Event::KeyUp  { keycode: Some(Keycode::Up), .. } => { input.send(InputEvent::UpReleased).unwrap() },
+                    Event::KeyDown { keycode: Some(Keycode::Left), .. } => { input.send(InputEvent::LeftPressed).unwrap() },
+                    Event::KeyUp  { keycode: Some(Keycode::Left), .. } => { input.send(InputEvent::LeftReleased).unwrap() },
+                    Event::KeyDown { keycode: Some(Keycode::Right), .. } => { input.send(InputEvent::RightPressed).unwrap() },
+                    Event::KeyUp  { keycode: Some(Keycode::Right), .. } => { input.send(InputEvent::RightReleased).unwrap() },
+                    Event::KeyDown { keycode: Some(Keycode::Down), .. } => { input.send(InputEvent::DownPressed).unwrap() },
+                    Event::KeyUp  { keycode: Some(Keycode::Down), .. } => { input.send(InputEvent::DownReleased).unwrap() },
+                    Event::KeyDown { keycode: Some(Keycode::Return), .. } => { input.send(InputEvent::StartPressed).unwrap() },
+                    Event::KeyUp  { keycode: Some(Keycode::Return), .. } => { input.send(InputEvent::StartReleased).unwrap() },
+                    Event::KeyDown { keycode: Some(Keycode::Backspace), .. } => { input.send(InputEvent::SelectPressed).unwrap() },
+                    Event::KeyUp  { keycode: Some(Keycode::Backspace), .. } => { input.send(InputEvent::SelectReleased).unwrap() },
+                    _ => {}
+                }
+            }
 
             let mut generated_interrupt = Interrupt {
                 interrupt: false,

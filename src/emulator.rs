@@ -1,39 +1,112 @@
 use std::io;
+use std::thread;
 use std::io::Read;
 use std::fs::File;
 use std::sync::mpsc;
-use std::sync::mpsc::{Sender, Receiver};
 
 use log::info;
 use log::error;
 
 use super::cpu;
 use super::gpu;
-use super::register::CycleCounter;
-use super::memory::{start_memory, GpuResponse, MemoryAccess};
+use super::memory::start_memory;
 
 
-pub struct ConsoleState {
-    pub current_cpu: cpu::CpuState,
-    pub current_memory: ((Sender<MemoryAccess>, Receiver<u8>), (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>)),
-}
+pub enum InputEvent {
+    
+    // SDL Quit event.
+    Quit,
 
-pub struct Interrupt {
-    pub interrupt: bool,
-    pub interrupt_type: InterruptType,
-}
+    // Buttons being pressed.
+    APressed,
+    BPressed,
+    UpPressed,
+    DownPressed,
+    LeftPressed,
+    RightPressed,
+    StartPressed,
+    SelectPressed,
 
-#[derive(PartialEq, Debug)]
-pub enum InterruptType {
-
-    Vblank,
-    LcdcStat,
-    Timer,
-    Serial,
-    ButtonPress,
+    // Buttons being released.
+    // TODO: Double check, does the GameBoy care? Does it trigger
+    // another interrupt, or it's just a value change in the I/O register?
+    AReleased,
+    BReleased,
+    UpReleased,
+    DownReleased,
+    LeftReleased,
+    RightReleased,
+    StartReleased,
+    SelectReleased,
 }
 
 pub fn init_emu() {
+
+    execution_loop();
+}
+
+fn execution_loop() {
+    
+    let rom_data = get_roms_data();
+
+    let (cycles_tx, cycles_rx) = mpsc::channel();
+    let (interrupt_tx, interrupt_rx) = mpsc::channel();
+    let (mem_init_tx, mem_init_rx) = mpsc::channel();
+    let (input_tx, input_rx) = mpsc::channel();
+
+    let _memory_thread = thread::Builder::new().name("memory_thread".to_string()).spawn(move || {
+        start_memory(rom_data, mem_init_tx);
+    }).unwrap();
+
+    let mem_channels = mem_init_rx.recv().unwrap();
+    let cpu_channels = mem_channels.cpu;
+    let gpu_channels = mem_channels.gpu;
+
+    let _cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
+        cpu::exec_loop(cycles_tx, cpu_channels, interrupt_rx);
+    }).unwrap();
+
+    let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
+        gpu::start_gpu((interrupt_tx, cycles_rx), gpu_channels, input_tx);
+    }).unwrap();
+
+    loop {
+
+        let input_event = input_rx.try_recv();
+        let received_message: InputEvent;
+
+        match input_event {
+            Ok(result) => {
+
+                received_message = result;
+                match received_message {
+                    InputEvent::Quit => break,
+                    InputEvent::APressed => { info!("Emu: Pressed A") },
+                    InputEvent::AReleased => { info!("Emu: Released A") },
+                    InputEvent::BPressed => { info!("Emu: Pressed B") },
+                    InputEvent::BReleased => { info!("Emu: Released B") },
+                    InputEvent::UpPressed => { info!("Emu: Pressed Up") },
+                    InputEvent::UpReleased => { info!("Emu: Released Up") },
+                    InputEvent::DownPressed => { info!("Emu: Pressed Down") },
+                    InputEvent::DownReleased => { info!("Emu: Released Down") },
+                    InputEvent::LeftPressed => { info!("Emu: Pressed Left") },
+                    InputEvent::LeftReleased => { info!("Emu: Released Left") },
+                    InputEvent::RightPressed => { info!("Emu: Pressed Right") },
+                    InputEvent::RightReleased => { info!("Emu: Released Right") },
+                    InputEvent::StartPressed => { info!("Emu: Pressed Start") },
+                    InputEvent::StartReleased => { info!("Emu: Released Start") },
+                    InputEvent::SelectPressed => { info!("Emu: Pressed Select") },
+                    InputEvent::SelectReleased => { info!("Emu: Released Select") },
+                }
+            },
+            Err(_error) => {}
+        };
+    }
+    
+    info!("Emu: Stopped emulation.");
+}
+
+fn get_roms_data() -> (Vec<u8>, Vec<u8>) {
 
     let mut rom_path = String::new();
     let mut bootrom_path = String::new();
@@ -52,37 +125,8 @@ pub fn init_emu() {
     rom_path = rom_path.trim().to_string();
     rom = load_rom(rom_path);
 
-    let initial_state = ConsoleState {
-        current_cpu: cpu::init_cpu(),
-        current_memory: start_memory(bootrom, rom),
-    };
-
-    execution_loop(initial_state);
+    (bootrom, rom)
 }
-
-fn execution_loop(state: ConsoleState) {
-    
-    let mut current_state = state;
-    let mut cpu_result = cpu::CycleResult::Success;
-    let mut interrupt_state = Interrupt { 
-        interrupt: false,
-        interrupt_type: InterruptType::Vblank,
-    };
-
-    let (cycles_tx, cycles_rx) = mpsc::channel();
-    let (interrupt_tx, interrupt_rx) = mpsc::channel();
-
-    gpu::gpu_loop((interrupt_tx, cycles_rx), current_state.current_memory.1);
-
-    while cpu_result == cpu::CycleResult::Success || cpu_result == cpu::CycleResult::Stop || cpu_result == cpu::CycleResult::Halt {
-
-        cpu_result = cpu::exec_loop(&mut current_state.current_cpu, &current_state.current_memory.0, &mut interrupt_state);
-        cycles_tx.send(current_state.current_cpu.cycles.get()).unwrap();
-    }
-
-    info!("CPU: Stopped emulation. Last CPU state was '{:?}'.", cpu_result);
-}
-
 
 fn load_bootrom(path: String) -> Vec<u8> {
     

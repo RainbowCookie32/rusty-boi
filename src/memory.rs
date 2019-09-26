@@ -1,4 +1,3 @@
-use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::convert::TryInto;
@@ -28,6 +27,7 @@ pub enum MemoryOp {
     
     Read,
     Write,
+    BootromFinished,
 }
 
 pub struct MemoryAccess {
@@ -44,7 +44,15 @@ pub struct GpuResponse {
     pub read_value: u8,
 }
 
-pub fn start_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> ((Sender<MemoryAccess>, Receiver<u8>), (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>)) {
+// Not really *that* necessary, but it's a cleaner
+// approach when passing around all the receiver and transmitters.
+pub struct ThreadComms {
+
+    pub cpu: ((Sender<MemoryAccess>, Receiver<u8>)),
+    pub gpu: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>),
+}
+
+pub fn start_memory(data: (Vec<u8>, Vec<u8>), sender: Sender<ThreadComms>) {
 
     let (cpu_req_tx, cpu_req_rx) = mpsc::channel();
     let (cpu_res_tx, cpu_res_rx) = mpsc::channel();
@@ -53,10 +61,15 @@ pub fn start_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> ((Sender<MemoryAccess>, R
     let (gpu_res_tx, gpu_res_rx) = mpsc::channel();
     let (gpu_cache_tx, gpu_cache_rx) = mpsc::channel();
 
+    let care_package = ThreadComms {
+        cpu: (cpu_req_tx, cpu_res_rx),
+        gpu: (gpu_req_tx, gpu_res_rx, gpu_cache_tx)
+    };
+
     let initial_memory = Memory {
 
-        loaded_bootrom: bootrom,
-        loaded_rom: rom,
+        loaded_bootrom: data.0,
+        loaded_rom: data.1,
 
         ram: vec![0; 8192],
         io_regs: vec![0; 256],
@@ -72,37 +85,33 @@ pub fn start_memory(bootrom: Vec<u8>, rom: Vec<u8>) -> ((Sender<MemoryAccess>, R
         bootrom_finished: false,
     };
 
-    thread::spawn(move || {
-        
-        let mut current_memory = initial_memory;
+    let mut current_memory = initial_memory;
+    sender.send(care_package).unwrap();
 
-        loop {
+    loop {
 
-            let cpu_request = cpu_req_rx.try_recv();
-            let gpu_request = gpu_req_rx.try_recv();
-            let gpu_cache = gpu_cache_rx.try_recv();
+        let cpu_request = cpu_req_rx.try_recv();
+        let gpu_request = gpu_req_rx.try_recv();
+        let gpu_cache = gpu_cache_rx.try_recv();
 
-            match cpu_request {
-                Ok(request) => handle_cpu_request(&request, &cpu_res_tx, &mut current_memory),
-                Err(_error) => {},
-            };
+        match cpu_request {
+            Ok(request) => handle_cpu_request(&request, &cpu_res_tx, &mut current_memory),
+            Err(_error) => {},
+        };
 
-            match gpu_request {
-                Ok(request) => handle_gpu_request(&request, &gpu_res_tx, &mut current_memory),
-                Err(_error) => {},
-            };
+        match gpu_request {
+            Ok(request) => handle_gpu_request(&request, &gpu_res_tx, &mut current_memory),
+            Err(_error) => {},
+        };
 
-            match gpu_cache {
-                Ok(status) => {
-                    current_memory.background_dirty = status;
-                    current_memory.tiles_dirty = status;
-                },
-                Err(_error) => {},
-            }
+        match gpu_cache {
+            Ok(status) => {
+                current_memory.background_dirty = status;
+                current_memory.tiles_dirty = status;
+            },
+            Err(_error) => {},
         }
-    });
-
-    ((cpu_req_tx, cpu_res_rx), (gpu_req_tx, gpu_res_rx, gpu_cache_tx))
+    }
 }
 
 fn handle_cpu_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &mut Memory) {
@@ -115,14 +124,16 @@ fn handle_cpu_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &
             tx.send(result_value).unwrap();
         },
         MemoryOp::Write => {
-            
             if request.address == 0xFF44 { 
                 memory_write(request.address, 0, current_memory);
             }
             else {
                 memory_write(request.address, request.value, current_memory);
             }
-        }
+        },
+        MemoryOp::BootromFinished => {
+            current_memory.bootrom_finished = true;
+        },
     }
 }
 
@@ -144,6 +155,9 @@ fn handle_gpu_request(request: &MemoryAccess, tx: &Sender<GpuResponse>, current_
             tx.send(response).unwrap();
         },
         MemoryOp::Write => memory_write(request.address, request.value, current_memory),
+        MemoryOp::BootromFinished => {
+            trace!("Memory: GPU triggered a BootromFinished event for some reason");
+        },
     }
 }
 
