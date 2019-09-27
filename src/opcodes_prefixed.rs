@@ -1,5 +1,3 @@
-use log::trace;
-
 use std::sync::mpsc;
 
 use super::utils;
@@ -19,7 +17,6 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &(mpsc::Se
 
     let result = CycleResult::Success;
 
-    trace!("Running prefixed opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
     match opcode {
 
         0x00 => instruction_finished(rlc_lb(&mut current_state.af, &mut current_state.bc), current_state),

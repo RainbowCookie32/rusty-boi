@@ -1,4 +1,3 @@
-use log::trace;
 use log::error;
 
 use std::sync::mpsc;
@@ -28,7 +27,6 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
 
     let mut result = CycleResult::Success;
 
-    trace!("Running opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
     match opcode {
 
         0x00 => nop(current_state),

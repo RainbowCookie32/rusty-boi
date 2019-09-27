@@ -2,7 +2,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::convert::TryInto;
 
-use log::{error, trace};
+use log::{error};
 
 pub struct Memory {
 
@@ -156,7 +156,7 @@ fn handle_gpu_request(request: &MemoryAccess, tx: &Sender<GpuResponse>, current_
         },
         MemoryOp::Write => memory_write(request.address, request.value, current_memory),
         MemoryOp::BootromFinished => {
-            trace!("Memory: GPU triggered a BootromFinished event for some reason");
+            error!("Memory: GPU triggered a BootromFinished event for some reason");
         },
     }
 }
@@ -197,7 +197,7 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else if address >= 0xA000 && address <= 0xBFFF 
     {
-        error!("CPU: Unimplemented read at {}, returning 0", format!("{:#X}", address));
+        error!("Memory: Unimplemented read at {}, returning 0", format!("{:#X}", address));
         0
     }
     else if address >= 0xC000 && address <= 0xDFFF
@@ -207,7 +207,7 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
-        error!("CPU: Unimplemented read at {}, returning 0", format!("{:#X}", address));
+        error!("Memory: Unimplemented read at {}, returning 0", format!("{:#X}", address));
         0
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
@@ -217,7 +217,7 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else if address >= 0xFEA0 && address <= 0xFEFF
     {
-        error!("CPU: Read to unusable memory at address {}. Returning 0", format!("{:#X}", address));
+        error!("Memory: Read to unusable memory at address {}. Returning 0", format!("{:#X}", address));
         0
     }
     else if address >= 0xFF00 && address <= 0xFF7F
@@ -244,7 +244,7 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
 
     if address <= 0x7FFF
     {
-        error!("CPU: Tried to write to cart, illegal write");
+        error!("Memory: Tried to write to cart, illegal write");
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
@@ -264,7 +264,7 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     }
     else if address >= 0xA000 && address <= 0xBFFF 
     {
-        error!("CPU: Write to unimplemented area at address {}. Ignoring...", format!("{:#X}", address));
+        error!("Memory: Write to unimplemented area at address {}. Ignoring...", format!("{:#X}", address));
     }
     else if address >= 0xC000 && address <= 0xDFFF
     {
@@ -273,7 +273,7 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
-        error!("CPU: Write to unimplemented area at address {}. Ignoring...", format!("{:#X}", address));
+        error!("Memory: Write to unimplemented area at address {}. Ignoring...", format!("{:#X}", address));
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
@@ -282,7 +282,7 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     }
     else if address >= 0xFEA0 && address <= 0xFEFF
     {
-        error!("CPU: Write to unusable memory at address {}. Ignoring...", format!("{:#X}", address));
+        error!("Memory: Write to unusable memory at address {}. Ignoring...", format!("{:#X}", address));
     }
     else if address >= 0xFF00 && address <= 0xFF7F
     {
@@ -307,7 +307,6 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
 fn check_write(old_value: &u8, new_value: &u8) -> bool {
 
     if old_value == new_value {
-        trace!("Memory: Old value in memory ({}) is the same as ({}), not marking as dirty", format!("{:#X}", old_value), format!("{:#X}", new_value));
         false
     }
     else {
