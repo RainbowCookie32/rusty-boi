@@ -158,14 +158,6 @@ pub fn exec_loop(cycles_tx: Sender<u32>, memory: (Sender<MemoryAccess>, Receiver
                 info!("CPU: Bootrom execution finished, starting loaded ROM.");
                 current_memory.0.send(MemoryAccess{ operation: MemoryOp::BootromFinished, address: 0, value: 0 }).unwrap();
             }
-
-            if current_state.pc.get() == 0x02A6 {
-                info!("CPU: Tetris checkpoint.");
-            }
-
-            if current_state.pc.get() == 0x0358 {
-                info!("CPU: Tetris checkpoint.");
-            }
         
             if opcode == 0xCB {
                 opcode = memory_read_u8(&(current_state.pc.get() + 1), &current_memory);
@@ -181,6 +173,10 @@ pub fn exec_loop(cycles_tx: Sender<u32>, memory: (Sender<MemoryAccess>, Receiver
             if current_state.last_result == CycleResult::Halt {
                 current_state.halted = true;
             }
+        }
+
+        if current_state.last_result == CycleResult::InvalidOp || current_state.last_result == CycleResult::UnimplementedOp {
+            break;
         }
 
         cycles_tx.send(current_state.cycles.get()).unwrap();
