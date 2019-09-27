@@ -1,7 +1,7 @@
 use std::thread;
 use std::sync::mpsc::{Sender, Receiver};
 
-use log::{info, trace};
+use log::{info};
 
 use sdl2::rect::Point;
 use sdl2::event::Event;
@@ -165,13 +165,15 @@ pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<
 
                             memory.0.send(mem_request).unwrap();
 
+                            generated_interrupt.interrupt = true;
+                            generated_interrupt.interrupt_type = InterruptType::LcdcStat;
+
                             if current_state.all_tiles.len() >= 128 && current_state.background_points.len() >= 65536
                             {
                                 draw(&mut current_state, &mut emu_canvas, (&memory.0, &memory.1));
                             }
 
                             if current_state.line == 144 {
-                                trace!("GPU: Presenting framebuffer to SDL canvas");
                                 // Go into VBlank mode.
                                 current_state.mode = 1;
                                 // Send data to screen.
@@ -218,7 +220,9 @@ pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<
                 }
             }
 
-            emu_state.0.send(generated_interrupt).unwrap();
+            if generated_interrupt.interrupt {
+                emu_state.0.send(generated_interrupt).unwrap();
+            }
         }
     });
 }
@@ -268,12 +272,10 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: (&Sender<Memo
         // The scroll registers should keep everything important on screen.
         if current_point.point.x() + scroll_x > 160 || current_point.point.y() + scroll_y > 144 {
             should_draw = false;
-            trace!("GPU: Discarding out of bounds point: X {}, Y {}", current_point.point.x() + scroll_x, current_point.point.y() + scroll_y);
         }
 
         if should_draw {
             let final_point = current_point.point.offset(final_sx, final_sy);
-            trace!("GPU: Drawing at X: {} and Y {}", final_point.x(), final_point.y());
             canvas.set_draw_color(current_point.color);
             canvas.draw_point(final_point).unwrap();
         }
