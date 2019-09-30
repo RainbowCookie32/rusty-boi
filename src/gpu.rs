@@ -1,4 +1,5 @@
 use std::thread;
+use std::time::Duration;
 use std::sync::mpsc::{Sender, Receiver};
 
 use log::{info};
@@ -13,7 +14,7 @@ use sdl2::keyboard::Keycode;
 
 use super::utils;
 use super::emulator::InputEvent;
-use super::cpu::{Interrupt, InterruptType};
+use super::cpu::{InterruptType, InterruptState};
 use super::memory::{MemoryOp, GpuResponse, MemoryAccess};
 
 
@@ -40,7 +41,8 @@ pub struct GpuState {
     pub tiles_dirty: bool,
 }
 
-pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>), input: Sender<InputEvent>) {
+// This is getting too long
+pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptState>, Receiver<u32>), memory: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>), input: Sender<InputEvent>) {
 
     let initial_state = GpuState {
         mode: 0,
@@ -71,7 +73,6 @@ pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<
         emu_canvas.clear();
         emu_canvas.present();
 
-
         loop {
 
             for event in sdl_events.poll_iter() {
@@ -98,10 +99,8 @@ pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<
                 }
             }
 
-            let mut generated_interrupt = Interrupt {
-                interrupt: false,
-                interrupt_type: InterruptType::LcdcStat,
-            };
+            let mut generated_interrupt = (false, InterruptType::Vblank);
+            let interrupts_state = emu_state.1.recv().unwrap();
             let display_enabled: bool;
             let mut mem_request = MemoryAccess {
                 operation: MemoryOp::Read,
@@ -119,7 +118,7 @@ pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<
 
             if display_enabled {
 
-                current_state.mode_clock += emu_state.1.recv().unwrap();
+                current_state.mode_clock += emu_state.2.recv().unwrap();
 
                 match current_state.mode {
 
@@ -152,8 +151,6 @@ pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<
                     0 => {
                         if current_state.mode_clock >= 204 {
                 
-                            generated_interrupt.interrupt = true;
-                            generated_interrupt.interrupt_type = InterruptType::LcdcStat;
                             current_state.mode_clock = 0;
                             current_state.line += 1;
 
@@ -165,8 +162,10 @@ pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<
 
                             memory.0.send(mem_request).unwrap();
 
-                            generated_interrupt.interrupt = true;
-                            generated_interrupt.interrupt_type = InterruptType::LcdcStat;
+                            if interrupts_state.can_interrupt && interrupts_state.lcdc_enabled {
+                                generated_interrupt.0 = true;
+                                generated_interrupt.1 = InterruptType::LcdcStat;
+                            }
 
                             if current_state.all_tiles.len() >= 128 && current_state.background_points.len() >= 65536
                             {
@@ -186,8 +185,6 @@ pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<
                     1 => {
                         if current_state.mode_clock >= 456 {
 
-                            generated_interrupt.interrupt = true;
-                            generated_interrupt.interrupt_type = InterruptType::Vblank;
                             current_state.mode_clock = 0;
                             current_state.line += 1;
 
@@ -198,8 +195,12 @@ pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<
                             };
                             memory.0.send(mem_request).unwrap();
 
-                            if current_state.line == 154 {
+                            if interrupts_state.can_interrupt && interrupts_state.vblank_enabled {
+                                generated_interrupt.0 = true;
+                                generated_interrupt.1 = InterruptType::Vblank;
+                            }
 
+                            if current_state.line == 154 {
                             // End of the screen, restart.
                                 current_state.mode = 2;
                                 current_state.line = 1;
@@ -220,9 +221,11 @@ pub fn start_gpu(emu_state: (Sender<Interrupt>, Receiver<u32>), memory: (Sender<
                 }
             }
 
-            if generated_interrupt.interrupt {
+            if generated_interrupt.0 && interrupts_state.can_interrupt {
                 emu_state.0.send(generated_interrupt).unwrap();
             }
+
+            //thread::sleep(Duration::from_micros(50));
         }
     });
 }

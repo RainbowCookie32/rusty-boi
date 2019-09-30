@@ -48,7 +48,7 @@ pub struct GpuResponse {
 // approach when passing around all the receiver and transmitters.
 pub struct ThreadComms {
 
-    pub cpu: ((Sender<MemoryAccess>, Receiver<u8>)),
+    pub cpu: ((Sender<MemoryAccess>, Receiver<u8>, Receiver<u8>)),
     pub gpu: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>),
 }
 
@@ -56,13 +56,14 @@ pub fn start_memory(data: (Vec<u8>, Vec<u8>), sender: Sender<ThreadComms>) {
 
     let (cpu_req_tx, cpu_req_rx) = mpsc::channel();
     let (cpu_res_tx, cpu_res_rx) = mpsc::channel();
+    let (ie_changed_tx, ie_changed_rx) = mpsc::channel();
 
     let (gpu_req_tx, gpu_req_rx) = mpsc::channel();
     let (gpu_res_tx, gpu_res_rx) = mpsc::channel();
     let (gpu_cache_tx, gpu_cache_rx) = mpsc::channel();
 
     let care_package = ThreadComms {
-        cpu: (cpu_req_tx, cpu_res_rx),
+        cpu: (cpu_req_tx, cpu_res_rx, ie_changed_rx),
         gpu: (gpu_req_tx, gpu_res_rx, gpu_cache_tx)
     };
 
@@ -95,7 +96,7 @@ pub fn start_memory(data: (Vec<u8>, Vec<u8>), sender: Sender<ThreadComms>) {
         let gpu_cache = gpu_cache_rx.try_recv();
 
         match cpu_request {
-            Ok(request) => handle_cpu_request(&request, &cpu_res_tx, &mut current_memory),
+            Ok(request) => handle_cpu_request(&request, (&cpu_res_tx, &ie_changed_tx), &mut current_memory),
             Err(_error) => {},
         };
 
@@ -114,16 +115,20 @@ pub fn start_memory(data: (Vec<u8>, Vec<u8>), sender: Sender<ThreadComms>) {
     }
 }
 
-fn handle_cpu_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &mut Memory) {
+fn handle_cpu_request(request: &MemoryAccess, tx: (&Sender<u8>, &Sender<u8>), current_memory: &mut Memory) {
 
     let result_value: u8;
     
     match request.operation {
         MemoryOp::Read => {
             result_value = memory_read(&request.address, current_memory);
-            tx.send(result_value).unwrap();
+            tx.0.send(result_value).unwrap();
         },
         MemoryOp::Write => {
+
+            if request.address == 0xFFFF {
+                tx.1.send(request.value).unwrap();
+            }
             if request.address == 0xFF44 { 
                 memory_write(request.address, 0, current_memory);
             }

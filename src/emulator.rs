@@ -51,6 +51,7 @@ fn execution_loop() {
 
     let (cycles_tx, cycles_rx) = mpsc::channel();
     let (interrupt_tx, interrupt_rx) = mpsc::channel();
+    let (interrupt_state_tx, interrupt_state_rx) = mpsc::channel();
     let (mem_init_tx, mem_init_rx) = mpsc::channel();
     let (input_tx, input_rx) = mpsc::channel();
 
@@ -63,11 +64,11 @@ fn execution_loop() {
     let gpu_channels = mem_channels.gpu;
 
     let _cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        cpu::exec_loop(cycles_tx, cpu_channels, interrupt_rx);
+        cpu::exec_loop((interrupt_rx, interrupt_state_tx), cycles_tx, cpu_channels);
     }).unwrap();
 
     let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
-        gpu::start_gpu((interrupt_tx, cycles_rx), gpu_channels, input_tx);
+        gpu::start_gpu((interrupt_tx, interrupt_state_rx, cycles_rx), gpu_channels, input_tx);
     }).unwrap();
 
     loop {

@@ -329,8 +329,8 @@ fn nop(current_state: &mut CpuState) {
 fn halt(current_state: &mut CpuState) -> CycleResult {
 
     // Apparently, HALT skips the instruction right after it if interrupts are enabled.
-    // The opcode is technically 1 byte long, so add 2 to PC if they are enabled.
-    if current_state.interrupts_flag {
+    // The opcode is 1 byte long, so add 2 to PC if they are enabled.
+    if current_state.interrupts.can_interrupt {
         current_state.pc.add(2);
     }
     else {
