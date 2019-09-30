@@ -160,7 +160,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x7B => instruction_finished(ld_low_into_hi(&mut current_state.af, &mut current_state.de), current_state),
         0x7C => instruction_finished(ld_hi_into_hi(&mut current_state.af, &mut current_state.hl), current_state),
         0x7D => instruction_finished(ld_low_into_hi(&mut current_state.af, &mut current_state.hl), current_state),
-        0x7E => instruction_finished(save_hi_to_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x7E => instruction_finished(ld_a_from_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x7F => instruction_finished((1, 4), current_state),
 
         0x80 => instruction_finished(add_hi_to_a(&mut current_state.af, &mut current_state.bc), current_state),
@@ -571,6 +571,12 @@ fn ld_l_from_hl(hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Rec
 
     let addr = hl.get_register();
     hl.set_register_rb(cpu::memory_read_u8(&addr, memory));
+    (1, 8)
+}
+
+fn ld_a_from_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    af.set_register_lb(cpu::memory_read_u8(&hl.get_register(), memory));
     (1, 8)
 }
 
