@@ -272,7 +272,7 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &(mpsc::Se
         0xEC => instruction_finished(set_lb(&mut current_state.hl, 5), current_state),
         0xED => instruction_finished(set_rb(&mut current_state.hl, 5), current_state),
         0xEE => instruction_finished(set_hl(5, &mut current_state.hl, memory), current_state),
-        0xEF => instruction_finished(set_lb(&mut current_state.af, 1), current_state),
+        0xEF => instruction_finished(set_lb(&mut current_state.af, 5), current_state),
 
         0xF0 => instruction_finished(set_lb(&mut current_state.bc, 6), current_state),
         0xF1 => instruction_finished(set_rb(&mut current_state.bc, 6), current_state),
