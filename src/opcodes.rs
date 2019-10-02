@@ -273,7 +273,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xE5 => instruction_finished(push(&mut current_state.hl, &mut current_state.sp, memory), current_state),
         0xE6 => instruction_finished(and_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
         0xE7 => rst(0x0020, memory, current_state),
-        0xE8 => instruction_finished(add_imm_to_sp(&mut current_state.sp, &current_state.pc.get(), memory), current_state),
+        0xE8 => instruction_finished(add_imm_to_sp(&mut current_state.af, &mut current_state.sp, &current_state.pc.get(), memory), current_state),
         0xE9 => jump_to_hl(current_state),
         0xEA => instruction_finished(save_a_to_nn(&mut current_state.af, &current_state.pc.get(), memory), current_state),
         0xEB => result = CycleResult::InvalidOp,
@@ -867,10 +867,15 @@ fn add_imm_to_a(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>,
     (2, 8)
 }
 
-fn add_imm_to_sp(sp: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&(pc + 1), memory) as i8;
     sp.add_to_reg(value as u16);
+    utils::set_zf(false, af);
+    utils::set_nf(false, af);
+    // TODO: Actually check the values for this flags.
+    utils::set_cf(false, af);
+    utils::set_cf(false, af);
     (2, 16)
 }
 
