@@ -98,6 +98,18 @@ pub fn check_bit(value: u8, bit: u8) -> bool {
     (value & (1 << bit)) != 0
 }
 
+pub fn check_half_carry_u8(values: (&u8, &u8)) -> bool {
+    (values.0 & 0x8) & (values.1 & 0x8) == 1
+}
+
+pub fn check_half_carry_u16(values: (&u16, &u16)) -> bool {
+    (values.0 & 0x800) & (values.1 & 0x800) == 1
+}
+
+pub fn check_half_borrow(values: (u8, u8)) -> bool {
+    !check_bit(values.0, 4) && check_bit(values.1, 4)
+}
+
 pub fn swap_nibbles(value: u8) -> u8 {
     (value & 0x0F) << 4 | (value & 0xF0) >> 4
 }
