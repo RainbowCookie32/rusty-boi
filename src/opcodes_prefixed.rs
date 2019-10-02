@@ -67,8 +67,8 @@ pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &(mpsc::Se
         0x2B => instruction_finished(sra_rb(&mut current_state.af, &mut current_state.de), current_state),
         0x2C => instruction_finished(sra_lb(&mut current_state.af, &mut current_state.hl), current_state),
         0x2D => instruction_finished(sra_rb(&mut current_state.af, &mut current_state.hl), current_state),
-        0x2E => instruction_finished(sra_a(&mut current_state.af), current_state),
-        0x2F => instruction_finished(sra_val(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x2E => instruction_finished(sra_val(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x2F => instruction_finished(sra_a(&mut current_state.af), current_state),
 
         0x30 => instruction_finished(swap_lb(&mut current_state.af, &mut current_state.bc), current_state),
         0x31 => instruction_finished(swap_rb(&mut current_state.af, &mut current_state.bc), current_state),
@@ -860,8 +860,8 @@ fn swap_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
 fn swap_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
-    let result = utils::swap_nibbles(reg.get_register_lb());
-    reg.set_register_lb(result);
+    let result = utils::swap_nibbles(reg.get_register_rb());
+    reg.set_register_rb(result);
     utils::set_zf(result == 0, af);
     utils::set_nf(false, af);
     utils::set_hf(false, af);
