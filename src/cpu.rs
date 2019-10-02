@@ -1,4 +1,4 @@
-use log::info;
+use log::{info, error};
 use std::sync::mpsc::{Sender, Receiver};
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -197,6 +197,7 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
         }
 
         if current_state.last_result == CycleResult::InvalidOp || current_state.last_result == CycleResult::UnimplementedOp {
+            error!("CPU: Breaking execution, last state was {:#?}", current_state.last_result);
             break;
         }
 
