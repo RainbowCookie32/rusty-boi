@@ -98,12 +98,16 @@ pub fn check_bit(value: u8, bit: u8) -> bool {
     (value & (1 << bit)) != 0
 }
 
+pub fn check_bit_u16(value: u16, bit: u16) -> bool {
+    (value & (1 << bit)) != 0
+}
+
 pub fn check_half_carry_u8(values: (&u8, &u8)) -> bool {
-    (values.0 & 0x8) & (values.1 & 0x8) == 1
+    check_bit(*values.0, 3) & check_bit(*values.1, 3)
 }
 
 pub fn check_half_carry_u16(values: (&u16, &u16)) -> bool {
-    (values.0 & 0x800) & (values.1 & 0x800) == 1
+    check_bit_u16(*values.0, 1) & check_bit_u16(*values.1, 1)
 }
 
 pub fn check_half_borrow(values: (u8, u8)) -> bool {

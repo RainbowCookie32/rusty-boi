@@ -1068,6 +1068,7 @@ fn sbc_imm_from_a(af: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::R
 
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
     utils::set_cf(carry, af);
+    utils::set_hf(half_carry, af);
     (2, 8)
 }
 
