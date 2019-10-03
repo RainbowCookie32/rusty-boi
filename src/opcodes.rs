@@ -334,14 +334,16 @@ fn daa(af: &mut CpuReg) -> (u16, u32) {
         
         if utils::get_cf(af) || value > 0x99 {
             let old_bit4 = utils::check_bit(value, 4);
-            af.set_register_lb(value - 0x60);
+            let new_value = value.overflowing_sub(0x60);
+            af.set_register_lb(new_value.0);
             utils::set_zf(af.get_register_lb() == 0, af);
             utils::set_hf(old_bit4 == utils::check_bit(af.get_register_lb(), 4), af);
             utils::set_cf(true, af);
         }
         else if utils::get_hf(af) || (value & 0xF) > 9 {
             let old_bit4 = utils::check_bit(value, 4);
-            af.set_register_lb(value - 6);
+            let new_value = value.overflowing_sub(0x6);
+            af.set_register_lb(new_value.0);
             utils::set_zf(af.get_register_lb() == 0, af);
             utils::set_hf(old_bit4 == utils::check_bit(af.get_register_lb(), 4), af);
             utils::set_cf(true, af);
@@ -350,13 +352,15 @@ fn daa(af: &mut CpuReg) -> (u16, u32) {
     else {
 
         if utils::get_cf(af) {
-            af.set_register_lb(value - 0x60);
+            let new_value = value.overflowing_sub(0x60);
+            af.set_register_lb(new_value.0);
             utils::set_zf(af.get_register_lb() == 0, af);
             utils::set_hf(false, af);
             utils::set_cf(true, af);
         }
         else if utils::get_hf(af) {
-            af.set_register_lb(value - 6);
+            let new_value = value.overflowing_sub(0x6);
+            af.set_register_lb(new_value.0);
             utils::set_zf(af.get_register_lb() == 0, af);
             utils::set_hf(false, af);
             utils::set_cf(true, af);
