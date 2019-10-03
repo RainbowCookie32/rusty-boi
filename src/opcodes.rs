@@ -1,5 +1,3 @@
-use log::error;
-
 use std::sync::mpsc;
 
 use super::utils;
@@ -46,6 +44,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x0E => instruction_finished(ld_imm_into_low(&mut current_state.bc, memory, &current_state.pc.get()), current_state),
         0x0F => instruction_finished(rrc_a(&mut current_state.af), current_state),
 
+        0x10 => result = stop(current_state),
         0x11 => instruction_finished(ld_imm_into_full(&mut current_state.de, memory, &current_state.pc.get()), current_state),
         0x12 => instruction_finished(save_a_to_full(&mut current_state.af, &mut current_state.de, memory), current_state),
         0x13 => instruction_finished(increment_full(&mut current_state.de), current_state),
@@ -243,7 +242,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xC8 => conditional_ret(current_state, memory, JumpCondition::ZSet),
         0xC9 => ret(current_state, memory),
         0xCA => conditional_jump(JumpCondition::ZSet, memory, current_state),
-        0xCB => result = CycleResult::InvalidOp,
+        0xCB => result = CycleResult::InvalidOp, // Shouldn't have a CB at this stage, so mark as invalid if it happens.
         0xCC => conditional_call(memory, current_state, JumpCondition::ZSet),
         0xCD => call(memory, current_state),
         0xCE => instruction_finished(adc_imm_to_a(&mut current_state.af, &current_state.pc.get(), memory), current_state),
@@ -299,11 +298,6 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xFD => result = CycleResult::InvalidOp,
         0xFE => instruction_finished(cp_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
         0xFF => rst(0x0038, memory, current_state),
-
-        _ => { 
-            error!("Tried to run unimplemented opcode 0x{} at PC {}", format!("{:X}", opcode), format!("{:X}", current_state.pc.get()));
-            result = CycleResult::UnimplementedOp;
-        }
     }
 
     result
@@ -378,12 +372,21 @@ fn halt(current_state: &mut CpuState) -> CycleResult {
     // The opcode is 1 byte long, so add 2 to PC if they are enabled.
     if current_state.interrupts.can_interrupt {
         current_state.pc.add(2);
+        current_state.cycles.add(4);
     }
     else {
         current_state.pc.add(1);
     }
     current_state.cycles.add(4);
+    current_state.cycles.add(4);
     CycleResult::Halt
+}
+
+fn stop(current_state: &mut CpuState) -> CycleResult {
+
+    current_state.pc.add(2);
+    current_state.cycles.add(4);
+    CycleResult::Stop
 }
 
 
@@ -1341,7 +1344,6 @@ fn push(reg: &mut CpuReg, sp: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>,
 
     cpu::stack_write(sp, reg.get_register(), &memory.0);
     (1, 16)
-    
 }
 
 
