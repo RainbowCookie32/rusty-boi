@@ -300,359 +300,247 @@ fn instruction_finished(values: (u16, u32), state: &mut CpuState) {
     state.pc.add(values.0); state.cycles.add(values.1);
 }
 
-fn rlc_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::check_bit(reg.get_register_lb(), 7);
-    let result = reg.get_register_lb().rotate_left(1);
+// RLC opcodes
 
-    reg.set_register_lb(result);
+fn rlc(af: &mut CpuReg, value: u8) -> u8 {
+
+    let carry = utils::check_bit(value, 7);
+    let result = value.rotate_left(1);
+
     utils::set_zf(result == 0, af);
     utils::set_nf(false, af);
     utils::set_hf(false, af);
     utils::set_cf(carry, af);
+
+    result
+}
+
+fn rlc_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let result = rlc(af, reg.get_register_lb());
+    reg.set_register_lb(result);
+
     (2, 8)
 }
 
 fn rlc_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::check_bit(reg.get_register_rb(), 7);
-    let result = reg.get_register_lb().rotate_left(1);
-
+    let result = rlc(af, reg.get_register_rb());
     reg.set_register_rb(result);
-    utils::set_zf(result == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-    utils::set_cf(carry, af);
+
     (2, 8)
 }
 
 fn rlc_a(af: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::check_bit(af.get_register_lb(), 7);
-    let result = af.get_register_lb().rotate_left(1);
-
+    let reg_value = af.get_register_lb();
+    let result = rlc(af, reg_value);
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-    utils::set_cf(carry, af);
+
     (2, 8)
 }
 
 fn rlc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let carry = utils::check_bit(value, 7);
-    let result = value.rotate_left(1);
-
+    let result = rlc(af, value);
     cpu::memory_write(&hl.get_register(), result, &memory.0);
+
+    (2, 16)
+}
+
+
+// RRC opcodes
+
+fn rrc(af: &mut CpuReg, value: u8) -> u8 {
+
+    let carry = utils::check_bit(value, 0);
+    let result = value.rotate_right(1);
+
     utils::set_zf(result == 0, af);
     utils::set_nf(false, af);
     utils::set_hf(false, af);
     utils::set_cf(carry, af);
-    (2, 16)
+
+    result
 }
 
 fn rrc_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::check_bit(reg.get_register_lb(), 0);
-    let result = reg.get_register_lb().rotate_right(1);
-
+    let result = rrc(af, reg.get_register_lb());
     reg.set_register_lb(result);
-    utils::set_zf(result == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-    utils::set_cf(carry, af);
+
     (2, 8)
 }
 
 fn rrc_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::check_bit(reg.get_register_rb(), 0);
-    let result = reg.get_register_lb().rotate_right(1);
-
+    let result = rrc(af, reg.get_register_rb());
     reg.set_register_rb(result);
-    utils::set_zf(result == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-    utils::set_cf(carry, af);
+
     (2, 8)
 }
 
 fn rrc_a(af: &mut CpuReg) -> (u16, u32) {
 
-    let carry = utils::check_bit(af.get_register_lb(), 0);
-    let result = af.get_register_lb().rotate_right(1);
-
+    let reg_value = af.get_register_lb();
+    let result = rrc(af, reg_value);
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-    utils::set_cf(carry, af);
+
     (2, 8)
 }
 
 fn rrc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let carry = utils::check_bit(value, 0);
-    let result = value.rotate_right(1);
-
+    let result = rrc(af, value);
     cpu::memory_write(&hl.get_register(), result, &memory.0);
+    
+    (2, 16)
+}
+
+
+// RL opcodes
+
+fn rl(af: &mut CpuReg, value: u8) -> u8 {
+
+    let will_carry = utils::check_bit(value, 7);
+    let old_carry = utils::get_carry(af);
+    let mut result = value << 1;
+    result = result | old_carry;
+
+    utils::set_cf(will_carry, af);
+    utils::set_hf(false, af);
+    utils::set_nf(false, af);
     utils::set_zf(result == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-    utils::set_cf(carry, af);
-    (2, 16)
-}
 
-fn rr_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
-
-    let mut value = reg.get_register_lb();
-    let old_carry = utils::get_carry(af);
-
-    utils::set_cf(utils::check_bit(value, 0), af);
-    utils::set_hf(false, af);
-    utils::set_nf(false, af);
-
-    value = value >> 1;
-    reg.set_register_lb(value | (old_carry << 7));
-    utils::set_zf(value == 0, af);
-    (2, 8)
-}
-
-fn rr_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
-
-    let mut value = reg.get_register_rb();
-    let old_carry = utils::get_carry(af);
-
-    utils::set_cf(utils::check_bit(value, 0), af);
-    utils::set_hf(false, af);
-    utils::set_nf(false, af);
-
-    value = value >> 1;
-    reg.set_register_rb(value | (old_carry << 7));
-    utils::set_zf(value == 0, af);
-    (2, 8)
-}
-
-fn rr_a(af: &mut CpuReg) -> (u16, u32) {
-
-    let mut value = af.get_register_lb();
-    let old_carry = utils::get_carry(af);
-
-    utils::set_cf(utils::check_bit(value, 0), af);
-    utils::set_hf(false, af);
-    utils::set_nf(false, af);
-
-    value = value >> 1;
-    af.set_register_lb(value | (old_carry << 7));
-    utils::set_zf(value == 0, af);
-    (2, 8)
-}
-
-fn rr_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let mut value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let old_carry = utils::get_carry(af);
-
-    utils::set_cf(utils::check_bit(value, 0), af);
-    utils::set_hf(false, af);
-    utils::set_nf(false, af);
-
-    value = value >> 1;
-    cpu::memory_write(&hl.get_register(), value | (old_carry << 7), &memory.0);
-    utils::set_zf(value == 0, af);
-    (2, 16)
+    result
 }
 
 fn rl_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 
-    let mut value = reg.get_register_lb();
-    let old_carry = utils::get_carry(af);
-
-    utils::set_cf(utils::check_bit(value, 7), af);
-    utils::set_hf(false, af);
-    utils::set_nf(false, af);
-
-    value = value << 1;
-    reg.set_register_lb(value | old_carry);
-    utils::set_zf(value == 0, af);
+    let result = rl(af, reg.get_register_lb());
+    reg.set_register_lb(result);
+    
     (2, 8)
 }
 
 fn rl_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 
-    let mut value = reg.get_register_rb();
-    let old_carry = utils::get_carry(af);
+    let result = rl(af, reg.get_register_rb());
+    reg.set_register_rb(result);
 
-    utils::set_cf(utils::check_bit(value, 7), af);
-    utils::set_hf(false, af);
-    utils::set_nf(false, af);
-
-    value = value << 1;
-    reg.set_register_rb(value | old_carry);
-    utils::set_zf(value == 0, af);
     (2, 8)
 }
 
 fn rl_a(af: &mut CpuReg) -> (u16, u32) {
 
-    let mut value = af.get_register_lb();
-    let old_carry = utils::get_carry(af);
+    let reg_value = af.get_register_lb();
+    let result = rl(af, reg_value);
+    af.set_register_lb(result);
 
-    utils::set_cf(utils::check_bit(value, 7), af);
-    utils::set_hf(false, af);
-    utils::set_nf(false, af);
-
-    value = value << 1;
-    af.set_register_lb(value | old_carry);
-    utils::set_zf(value == 0, af);
     (2, 8)
 }
 
 fn rl_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
-    let mut value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let old_carry = utils::get_carry(af);
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = rl(af, value);
+    cpu::memory_write(&hl.get_register(), result, &memory.0);
 
-    utils::set_cf(utils::check_bit(value, 7), af);
+    (2, 16)
+}
+
+
+// RR opcodes
+
+fn rr(af: &mut CpuReg, value: u8) -> u8 {
+    
+    let will_carry = utils::check_bit(value, 0);
+    let old_carry = utils::get_carry(af);
+    let mut result = value >> 1;
+    result = result | (old_carry << 7);
+
+    utils::set_cf(will_carry, af);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
-
-    value = value << 1;
-    cpu::memory_write(&hl.get_register(), value | old_carry, &memory.0);
-    utils::set_zf(value == 0, af);
-    (2, 16)
-}
-
-fn bit_a(af: &mut CpuReg, bit: u8) -> (u16, u32) {
-
-    let result = utils::check_bit(af.get_register_lb(), bit);
-    utils::set_zf(!result, af); utils::set_nf(false, af);
-    utils::set_hf(true, af);
-    (2, 8)
-}
-
-fn bit_lb(reg: &mut CpuReg, bit: u8, af: &mut CpuReg) -> (u16, u32) {
-
-    let result = utils::check_bit(reg.get_register_lb(), bit);
-    utils::set_zf(!result, af); utils::set_nf(false, af);
-    utils::set_hf(true, af);
-    (2, 8)
-}
-
-fn bit_rb(reg: &mut CpuReg, bit: u8, af: &mut CpuReg) -> (u16, u32) {
-
-    let result = utils::check_bit(reg.get_register_rb(), bit);
-    utils::set_zf(!result, af); utils::set_nf(false, af);
-    utils::set_hf(true, af);
-    (2, 8)
-}
-
-fn bit_hl(bit: u8, af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let result = utils::check_bit(cpu::memory_read_u8(&hl.get_register(), memory), bit);
-    utils::set_zf(!result, af); utils::set_nf(false, af);
-    utils::set_hf(true, af);
-    (2, 16)
-}
-
-fn res_lb(reg: &mut CpuReg, bit: u8) -> (u16, u32) {
-
-    let result = utils::reset_bit_u8(reg.get_register_lb(), bit);
-    reg.set_register_lb(result);
-    (2, 8)
-}
-
-fn res_rb(reg: &mut CpuReg, bit: u8) -> (u16, u32) {
-
-    let result = utils::reset_bit_u8(reg.get_register_rb(), bit);
-    reg.set_register_rb(result);
-    (2, 8)
-}
-
-fn res_hl(bit: u8, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let result = utils::reset_bit_u8(cpu::memory_read_u8(&hl.get_register(), memory), bit);
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
-    (2, 16)
-}
-
-fn set_lb(reg: &mut CpuReg, bit: u8) -> (u16, u32) {
+    utils::set_zf(result == 0, af);
     
-    let result = utils::set_bit_u8(reg.get_register_lb(), bit);
+    result
+}
+
+fn rr_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
+
+    let result = rr(af, reg.get_register_lb());
     reg.set_register_lb(result);
-    (2, 8)
-}
-
-fn set_rb(reg: &mut CpuReg, bit: u8) -> (u16, u32) {
     
-    let result = utils::set_bit_u8(reg.get_register_rb(), bit);
-    reg.set_register_rb(result);
     (2, 8)
 }
 
-fn set_hl(bit: u8, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+fn rr_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 
-    let result = utils::set_bit_u8(cpu::memory_read_u8(&hl.get_register(), memory), bit);
+    let result = rr(af, reg.get_register_rb());
+    reg.set_register_rb(result);
+
+    (2, 8)
+}
+
+fn rr_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let reg_value = af.get_register_lb();
+    let result = rr(af, reg_value);
+    af.set_register_lb(result);
+
+    (2, 8)
+}
+
+fn rr_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = rr(af, value);
     cpu::memory_write(&hl.get_register(), result, &memory.0);
+
     (2, 16)
+}
+
+
+// SLA opcodes
+
+fn sla(af: &mut CpuReg, value: u8) -> u8 {
+    
+    let shifted_bit = utils::check_bit(value, 7);
+    let result = value << 1;
+
+    utils::set_zf(result == 0, af);
+    utils::set_cf(shifted_bit, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+
+    result
 }
 
 fn sla_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
-    let shifted_bit = utils::check_bit(reg.get_register_lb(), 7);
-    let result = reg.get_register_lb() << 1;
-
+    let result = sla(af, reg.get_register_lb());
     reg.set_register_lb(result);
-
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
-    
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
-
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
 
     (2, 8)
 }
 
 fn sla_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
-    let shifted_bit = utils::check_bit(reg.get_register_rb(), 7);
-    let result = reg.get_register_rb() << 1;
-
+    let result = sla(af, reg.get_register_rb());
     reg.set_register_rb(result);
-
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
-    
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
-
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
 
     (2, 8)
 }
 
 fn sla_a(af: &mut CpuReg) -> (u16, u32) {
 
-    let shifted_bit = utils::check_bit(af.get_register_lb(), 7);
-    let result = af.get_register_lb() << 1;
-
+    let reg_value = af.get_register_lb();
+    let result = sla(af, reg_value);
     af.set_register_lb(result);
-
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
-    
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
-
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
 
     (2, 8)
 }
@@ -660,88 +548,52 @@ fn sla_a(af: &mut CpuReg) -> (u16, u32) {
 fn sla_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let shifted_bit = utils::check_bit(value, 7);
-    let result = value << 1;
-
+    let result = sla(af, value);
     cpu::memory_write(&hl.get_register(), result, &memory.0);
-
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
-    
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
-
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
 
     (2, 16)
 }
 
-fn sra_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
-    let shifted_bit = utils::check_bit(reg.get_register_lb(), 0);
-    let result = reg.get_register_lb() >> 1;
-    let msb = utils::check_bit(reg.get_register_lb(), 7);
+// SRA opcodes
 
-    if msb { utils::set_bit_u8(result, 7); }
-    else { utils::reset_bit_u8(result, 7); }
+fn sra(af: &mut CpuReg, value: u8) -> u8 {
 
-    reg.set_register_lb(result);
-
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
+    let shifted_bit = utils::check_bit(value, 0);
+    let msb = utils::check_bit(value, 7);
+    let mut result = value >> 1;
+    if msb {result = utils::set_bit_u8(result, 7)}
+    else {result = utils::reset_bit_u8(result, 7)}
     
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
-
+    utils::set_zf(result == 0, af);
     utils::set_nf(false, af);
     utils::set_hf(false, af);
+    utils::set_cf(shifted_bit, af);
+
+    result
+}
+
+fn sra_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let result = sra(af, reg.get_register_lb());
+    reg.set_register_lb(result);
 
     (2, 8)
 }
 
 fn sra_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
-    let shifted_bit = utils::check_bit(reg.get_register_rb(), 0);
-    let result = reg.get_register_rb() >> 1;
-    let msb = utils::check_bit(reg.get_register_rb(), 7);
-
-    if msb { utils::set_bit_u8(result, 7); }
-    else { utils::reset_bit_u8(result, 7); }
-
+    let result = sra(af, reg.get_register_rb());
     reg.set_register_rb(result);
-
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
-    
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
-
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
 
     (2, 8)
 }
 
 fn sra_a(af: &mut CpuReg) -> (u16, u32) {
 
-    let shifted_bit = utils::check_bit(af.get_register_lb(), 0);
-    let result = af.get_register_lb() >> 1;
-    let msb = utils::check_bit(af.get_register_lb(), 7);
-
-    if msb { utils::set_bit_u8(result, 7); }
-    else { utils::reset_bit_u8(result, 7); }
-
+    let reg_value = af.get_register_lb();
+    let result = sra(af, reg_value);
     af.set_register_lb(result);
-
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
-    
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
-
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
 
     (2, 8)
 }
@@ -749,146 +601,202 @@ fn sra_a(af: &mut CpuReg) -> (u16, u32) {
 fn sra_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let shifted_bit = utils::check_bit(value, 0);
-    let result = value >> 1;
-    let msb = utils::check_bit(value, 7);
-
-    if msb { utils::set_bit_u8(result, 7); }
-    else { utils::reset_bit_u8(result, 7); }
-
+    let result = sra(af, value);
     cpu::memory_write(&hl.get_register(), result, &memory.0);
-
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
-    
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
-
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
 
     (2, 16)
 }
 
-fn srl_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
-    let shifted_bit = utils::check_bit(reg.get_register_lb(), 0);
-    let result = reg.get_register_lb() >> 1;
+// SWAP opcodes
 
-    reg.set_register_lb(result);
+fn swap(af: &mut CpuReg, value: u8) -> u8 {
 
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
-    
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
+    let result = utils::swap_nibbles(value);
 
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-
-    (2, 8)
-}
-
-fn srl_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
-
-    let shifted_bit = utils::check_bit(reg.get_register_rb(), 0);
-    let result = reg.get_register_rb() >> 1;
-
-    reg.set_register_rb(result);
-
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
-    
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
-
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-
-    (2, 8)
-}
-
-fn srl_a(af: &mut CpuReg) -> (u16, u32) {
-
-    let shifted_bit = utils::check_bit(af.get_register_lb(), 0);
-    let result = af.get_register_lb() >> 1;
-
-    af.set_register_lb(result);
-
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
-    
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
-
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-
-    (2, 8)
-}
-
-fn srl_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let shifted_bit = utils::check_bit(value, 0);
-    let result = value >> 1;
-
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
-
-    if result == 0 { utils::set_zf(true, af); }
-    else { utils::set_zf(false, af); }
-    
-    if shifted_bit { utils::set_cf(true, af); }
-    else { utils::set_cf(false, af); }
-
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-
-    (2, 16)
-}
-
-fn swap_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
-
-    let result = utils::swap_nibbles(reg.get_register_lb());
-    reg.set_register_lb(result);
     utils::set_zf(result == 0, af);
     utils::set_nf(false, af);
     utils::set_hf(false, af);
     utils::set_cf(false, af);
+    
+    result
+}
+
+fn swap_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let result = swap(af, reg.get_register_lb());
+    reg.set_register_lb(result);
+
     (2, 8)
 }
 
 fn swap_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
 
-    let result = utils::swap_nibbles(reg.get_register_rb());
+    let result = swap(af, reg.get_register_rb());
     reg.set_register_rb(result);
-    utils::set_zf(result == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-    utils::set_cf(false, af);
+
     (2, 8)
 }
 
 fn swap_a(af: &mut CpuReg) -> (u16, u32) {
 
-    let result = utils::swap_nibbles(af.get_register_lb());
+    let reg_value = af.get_register_lb();
+    let result = swap(af, reg_value);
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-    utils::set_cf(false, af);
+
     (2, 8)
 }
 
 fn swap_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let result = utils::swap_nibbles(value);
-    
-    cpu::memory_write(&hl.get_register(), value, &memory.0);
+    let result = swap(af, value);
+    cpu::memory_write(&hl.get_register(), result, &memory.0);
+
+    (2, 16)
+}
+
+
+// SRL opcodes
+
+fn srl(af: &mut CpuReg, value: u8) -> u8 {
+
+    let shifted_bit = utils::check_bit(value, 0);
+    let result = value >> 1;
+
     utils::set_zf(result == 0, af);
+    utils::set_cf(shifted_bit, af);
     utils::set_nf(false, af);
     utils::set_hf(false, af);
-    utils::set_cf(false, af);
+
+    result
+}
+
+fn srl_lb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let result = srl(af, reg.get_register_lb());
+    reg.set_register_lb(result);
+
+    (2, 8)
+}
+
+fn srl_rb(af: &mut CpuReg, reg: &mut CpuReg) -> (u16, u32) {
+
+    let result = srl(af, reg.get_register_rb());
+    reg.set_register_rb(result);
+
+    (2, 8)
+}
+
+fn srl_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let reg_value = af.get_register_lb();
+    let result = srl(af, reg_value);
+    af.set_register_lb(result);
+    
+    (2, 8)
+}
+
+fn srl_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = srl(af, value);
+    cpu::memory_write(&hl.get_register(), result, &memory.0);
+
+    (2, 16)
+}
+
+
+// BIT opcodes
+
+fn bit(af: &mut CpuReg, value: u8, bit: u8) {
+    let result = utils::check_bit(value, bit);
+
+    utils::set_zf(!result, af);
+    utils::set_nf(false, af);
+    utils::set_hf(true, af);
+}
+
+fn bit_a(af: &mut CpuReg, checked_bit: u8) -> (u16, u32) {
+
+    let reg_value = af.get_register_lb();
+    bit(af, reg_value, checked_bit);
+    (2, 8)
+}
+
+fn bit_lb(reg: &mut CpuReg, checked_bit: u8, af: &mut CpuReg) -> (u16, u32) {
+
+    bit(af, reg.get_register_lb(), checked_bit);
+    (2, 8)
+}
+
+fn bit_rb(reg: &mut CpuReg, checked_bit: u8, af: &mut CpuReg) -> (u16, u32) {
+
+    bit(af, reg.get_register_rb(), checked_bit);
+    (2, 8)
+}
+
+fn bit_hl(checked_bit: u8, af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    bit(af, value, checked_bit);
+    (2, 16)
+}
+
+
+// RES opcodes
+
+fn res(value: u8, bit: u8) -> u8 {
+    utils::reset_bit_u8(value, bit)
+}
+
+fn res_lb(reg: &mut CpuReg, bit: u8) -> (u16, u32) {
+
+    let result = res(reg.get_register_lb(), bit);
+    reg.set_register_lb(result);
+    (2, 8)
+}
+
+fn res_rb(reg: &mut CpuReg, bit: u8) -> (u16, u32) {
+
+    let result = res(reg.get_register_rb(), bit);
+    reg.set_register_rb(result);
+    (2, 8)
+}
+
+fn res_hl(bit: u8, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = res(value, bit);
+    cpu::memory_write(&hl.get_register(), result, &memory.0);
+    (2, 16)
+}
+
+
+// SET opcodes
+
+fn set(value: u8, bit: u8) -> u8 {
+    utils::set_bit_u8(value, bit)
+}
+
+fn set_lb(reg: &mut CpuReg, bit: u8) -> (u16, u32) {
+    
+    let result = set(reg.get_register_lb(), bit);
+    reg.set_register_lb(result);
+    (2, 8)
+}
+
+fn set_rb(reg: &mut CpuReg, bit: u8) -> (u16, u32) {
+    
+    let result = set(reg.get_register_rb(), bit);
+    reg.set_register_rb(result);
+    (2, 8)
+}
+
+fn set_hl(bit: u8, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = set(value, bit);
+    cpu::memory_write(&hl.get_register(), result, &memory.0);
     (2, 16)
 }
