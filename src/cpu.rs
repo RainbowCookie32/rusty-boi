@@ -141,10 +141,6 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
                         current_state.halted = false;
                         current_state.interrupts.can_interrupt = false;
                         current_state.pc.set(0x0040);
-                        if current_state.stopped {
-                            memory_write(&0xFF40, 1, &current_memory.0);
-                            current_state.stopped = false;
-                        }
                     }
                 },
                 InterruptType::LcdcStat => {
@@ -153,10 +149,6 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
                         current_state.halted = false;
                         current_state.interrupts.can_interrupt = false;
                         current_state.pc.set(0x0048);
-                        if current_state.stopped {
-                            memory_write(&0xFF40, 1, &current_memory.0);
-                            current_state.stopped = false;
-                        }
                     }
                 },
                 InterruptType::Timer => {
@@ -165,10 +157,6 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
                         current_state.halted = false;
                         current_state.interrupts.can_interrupt = false;
                         current_state.pc.set(0x0050);
-                        if current_state.stopped {
-                            memory_write(&0xFF40, 1, &current_memory.0);
-                            current_state.stopped = false;
-                        }
                     }
                 },
                 InterruptType::Serial => {
@@ -177,10 +165,6 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
                         current_state.halted = false;
                         current_state.interrupts.can_interrupt = false;
                         current_state.pc.set(0x0058);
-                        if current_state.stopped {
-                            memory_write(&0xFF40, 1, &current_memory.0);
-                            current_state.stopped = false;
-                        }
                     }
                 },
                 InterruptType::ButtonPress => {
