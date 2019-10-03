@@ -267,7 +267,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
 
         0xE0 => instruction_finished(save_a_to_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
         0xE1 => instruction_finished(pop(&mut current_state.hl, &mut current_state.sp, memory), current_state),
-        0xE2 => instruction_finished(save_a_to_c_imm(&mut current_state.af, &mut current_state.bc, memory), current_state),
+        0xE2 => instruction_finished(save_a_to_ff_c(&mut current_state.af, &mut current_state.bc, memory), current_state),
         0xE3 => result = CycleResult::InvalidOp,
         0xE4 => result = CycleResult::InvalidOp,
         0xE5 => instruction_finished(push(&mut current_state.hl, &mut current_state.sp, memory), current_state),
@@ -306,7 +306,6 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
     }
 
     result
-    
 }
 
 fn instruction_finished(values: (u16, u32), state: &mut CpuState) {
@@ -508,6 +507,7 @@ fn add_imm_to_sp_ld_to_hl(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAcc
     (2, 12)
 }
 
+
 // Load register from immediate
 
 fn ld_imm_into_hi(target: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), pc: &u16) -> (u16, u32) {
@@ -562,8 +562,9 @@ fn ld_low_from_hl(reg: &mut CpuReg, full: &mut CpuReg, memory: &(mpsc::Sender<Me
 
 fn ld_h_from_hl(hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
-    let addr = hl.get_register();
-    hl.set_register_lb(cpu::memory_read_u8(&addr, memory));
+    let hl_value = hl.get_register();
+    let value = cpu::memory_read_u8(&hl_value, memory);
+    hl.set_register_lb(value);
     (1, 8)
 }
 
@@ -657,7 +658,7 @@ fn save_a_to_ff_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAcce
     (2, 12)
 }
 
-fn save_a_to_c_imm(af: &mut CpuReg, bc: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+fn save_a_to_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let target_addr = 0xFF00 + (bc.get_register_rb() as u16);
     cpu::memory_write(&target_addr, af.get_register_lb(), &memory.0);
@@ -676,7 +677,7 @@ fn save_a_to_nn(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>,
 
 fn save_imm_to_hl(hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), pc: &u16) -> (u16, u32) {
 
-    let value = cpu::memory_read_u8(pc, memory);
+    let value = cpu::memory_read_u8(&(pc + 1), memory);
     cpu::memory_write(&hl.get_register(), value, &memory.0);
     (2, 12)
 }
@@ -795,6 +796,17 @@ fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<Memo
 
 // Add value to Registers
 
+fn add_full(target: &mut CpuReg, source: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
+
+    let value = source.get_register();
+    let half_carry = utils::check_half_carry_u16((&target.get_register(), &source.get_register()));
+    let overflow = target.add_to_reg(value);
+    utils::set_nf(false, af);
+    utils::set_hf(half_carry, af);
+    utils::set_cf(overflow, af);
+    (1, 8)
+}
+
 fn add_hl_to_hl(hl: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
 
     let hl_value = hl.get_register();
@@ -803,68 +815,6 @@ fn add_hl_to_hl(hl: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
     utils::set_nf(false, af); utils::set_cf(overflow, af);
     utils::set_hf(half_carry, af);
     (1, 8)
-}
-
-fn add_full(target: &mut CpuReg, source: &mut CpuReg, af: &mut CpuReg) -> (u16, u32) {
-
-    let half_carry = utils::check_half_carry_u16((&target.get_register(), &source.get_register()));
-    let overflow = target.add_to_reg(source.get_register());
-    utils::set_nf(false, af); utils::set_cf(overflow, af);
-    utils::set_hf(half_carry, af);
-    (1, 8)
-}
-
-fn add_hi_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
-
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &source.get_register_lb()));
-    let overflow = af.add_to_lb(source.get_register_lb());
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(overflow, af);
-    utils::set_hf(half_carry, af);
-    (1, 4)
-}
-
-fn add_low_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
-
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &source.get_register_rb()));
-    let overflow = af.add_to_lb(source.get_register_rb());
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(overflow, af);
-    utils::set_hf(half_carry, af);
-    (1, 4)
-}
-
-fn add_val_to_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &value));
-    let overflow = af.add_to_lb(value);
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(overflow, af);
-    utils::set_hf(half_carry, af);
-    (1, 4)
-}
-
-fn add_a_to_a(af: &mut CpuReg) -> (u16, u32) {
-
-    let value = af.get_register_lb();
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &value));
-    let overflow = af.add_to_lb(value);
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(overflow, af);
-    utils::set_hf(half_carry, af);
-    (1, 4)
-}
-
-fn add_imm_to_a(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let value = cpu::memory_read_u8(&(pc + 1), memory);
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &value));
-    let overflow = af.add_to_lb(value);
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(overflow, af);
-    utils::set_hf(half_carry, af);
-    (2, 8)
 }
 
 fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
@@ -879,349 +829,361 @@ fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: &u16, memory: &(mpsc::Sen
     (2, 16)
 }
 
+fn add(af: &mut CpuReg, value: u8) -> u8 {
+
+    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &value));
+    let result = af.get_register_lb().overflowing_add(value);
+
+    utils::set_zf(result.0 == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(half_carry, af);
+    utils::set_cf(result.1, af);
+
+    result.0
+}
+
+fn add_hi_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
+
+    let result = add(af, source.get_register_lb());
+    af.set_register_lb(result);
+    (1, 4)
+}
+
+fn add_low_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
+
+    let result = add(af, source.get_register_lb());
+    af.set_register_lb(result);
+    (1, 4)
+}
+
+fn add_a_to_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let value = af.get_register_lb();
+    let result = add(af, value);
+    af.set_register_lb(result);
+    (1, 4)
+}
+
+fn add_val_to_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = add(af, value);
+    af.set_register_lb(result);
+    (1, 4)
+}
+
+fn add_imm_to_a(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&(pc + 1), memory);
+    let result = add(af, value);
+    af.set_register_lb(result);
+    (2, 8)
+}
+
 
 // ADC opcodes
 
+fn adc(af: &mut CpuReg, value: u8) -> u8 {
+
+    let carry = utils::get_carry(af);
+    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &value));
+    let mut carry_results = (false, false);
+    let mut result = af.get_register_lb().overflowing_add(value);
+    carry_results.0 = result.1;
+    result = result.0.overflowing_add(carry);
+    carry_results.1 = result.1;
+
+    utils::set_zf(result.0 == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(half_carry, af);
+    utils::set_cf(carry_results.0 || carry_results.1, af);
+
+    result.0
+}
+
 fn adc_hi_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &source.get_register_lb()));
-    let old_carry = utils::get_carry(af);
-    let mut carry_results = (false, false);
-
-    carry_results.0 = af.add_to_lb(source.get_register_lb());
-    carry_results.1 = af.add_to_lb(old_carry);
-
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(carry_results.0 || carry_results.1, af);
-    utils::set_hf(half_carry, af);
+    let result = adc(af, source.get_register_lb());
+    af.set_register_lb(result);
     (1, 4)
 }
 
 fn adc_low_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &source.get_register_rb()));
-    let old_carry = utils::get_carry(af);
-    let mut carry_results = (false, false);
-
-    carry_results.0 = af.add_to_lb(source.get_register_rb());
-    carry_results.1 = af.add_to_lb(old_carry);
-
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(carry_results.0 || carry_results.1, af);
-    utils::set_hf(half_carry, af);
-    (1, 4)
-}
-
-fn adc_val_to_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &value));
-    let old_carry = utils::get_carry(af);
-    let mut carry_results = (false, false);
-
-    carry_results.0 = af.add_to_lb(value);
-    carry_results.1 = af.add_to_lb(old_carry);
-
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(carry_results.0 || carry_results.1, af);
-    utils::set_hf(half_carry, af);
+    let result = adc(af, source.get_register_rb());
+    af.set_register_lb(result);
     (1, 4)
 }
 
 fn adc_a_to_a(af: &mut CpuReg) -> (u16, u32) {
 
     let value = af.get_register_lb();
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &value));
-    let old_carry = utils::get_carry(af);
-    let mut carry_results = (false, false);
+    let result = adc(af, value);
+    af.set_register_lb(result);
+    (1, 4)
+}
 
-    carry_results.0 = af.add_to_lb(value);
-    carry_results.1 = af.add_to_lb(old_carry);
+fn adc_val_to_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(carry_results.0 || carry_results.1, af);
-    utils::set_hf(half_carry, af);
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = adc(af, value);
+    af.set_register_lb(result);
     (1, 4)
 }
 
 fn adc_imm_to_a(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&(pc + 1), memory);
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &value));
-    let old_carry = utils::get_carry(af);
-    let mut carry_results = (false, false);
-
-    carry_results.0 = af.add_to_lb(value);
-    carry_results.1 = af.add_to_lb(old_carry);
-
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_cf(carry_results.0 || carry_results.1, af);
-    utils::set_hf(half_carry, af);
+    let result = adc(af, value);
+    af.set_register_lb(result);
     (2, 8)
 }
 
 
 // Substract value from registers
 
+fn sub(af: &mut CpuReg, value: u8) -> u8 {
+
+    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
+    let result = af.get_register_lb().overflowing_sub(value);
+
+    utils::set_zf(result.0 == 0, af);
+    utils::set_nf(true, af);
+    utils::set_hf(half_carry, af);
+    utils::set_cf(result.1, af);
+
+    result.0
+}
+
 fn sub_hi_from_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), source.get_register_lb()));
-    let overflow = af.sub_from_lb(source.get_register_lb());
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(overflow, af);
-    utils::set_hf(half_carry, af);
+    let result = sub(af, source.get_register_lb());
+    af.set_register_lb(result);
     (1, 4)
 }
 
 fn sub_low_from_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), source.get_register_rb()));
-    let overflow = af.sub_from_lb(source.get_register_rb());
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(overflow, af);
-    utils::set_hf(half_carry, af);
-    (1, 4)
-}
-
-fn sub_val_from_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    let overflow = af.sub_from_lb(value);
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(overflow, af);
-    utils::set_hf(half_carry, af);
+    let result = sub(af, source.get_register_rb());
+    af.set_register_lb(result);
     (1, 4)
 }
 
 fn sub_a_from_a(af: &mut CpuReg) -> (u16, u32) {
 
     let value = af.get_register_lb();
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    let overflow = af.sub_from_lb(value);
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(overflow, af);
-    utils::set_hf(half_carry, af);
+    let result = sub(af, value);
+    af.set_register_lb(result);
+    (1, 4)
+}
+
+fn sub_val_from_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = sub(af, value);
+    af.set_register_lb(result);
     (1, 4)
 }
 
 fn sub_imm_from_a(af: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), pc: &u16) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&(pc + 1), memory);
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    let overflow = af.sub_from_lb(value);
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(overflow, af);
-    utils::set_hf(half_carry, af);
+    let result = sub(af, value);
+    af.set_register_lb(result);
     (2, 8)
 }
 
 
 // SBC opcodes
 
+fn sbc(af: &mut CpuReg, value: u8) -> u8 {
+
+    let carry = utils::get_carry(af);
+    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
+    let mut borrow_results = (false, false);
+    let mut result = af.get_register_lb().overflowing_sub(value);
+    borrow_results.0 = result.1;
+    result = result.0.overflowing_sub(carry);
+    borrow_results.1 = result.1;
+
+    utils::set_zf(result.0 == 0, af);
+    utils::set_nf(true, af);
+    utils::set_hf(half_carry, af);
+    utils::set_cf(borrow_results.0 || borrow_results.1, af);
+
+    result.0
+}
+
 fn sbc_hi_from_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), source.get_register_lb()));
-    let old_carry = utils::get_carry(af);
-    let mut carry_results = (false, false);
-
-    carry_results.0 = af.sub_from_lb(source.get_register_lb());
-    carry_results.1 = af.sub_from_lb(old_carry);
-
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(carry_results.0 || carry_results.1, af);
-    utils::set_hf(half_carry, af);
+    let result = sbc(af, source.get_register_lb());
+    af.set_register_lb(result);
     (1, 4)
 }
 
 fn sbc_low_from_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), source.get_register_rb()));
-    let old_carry = utils::get_carry(af);
-    let mut carry_results = (false, false);
-
-    carry_results.0 = af.sub_from_lb(source.get_register_rb());
-    carry_results.1 = af.sub_from_lb(old_carry);
-
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(carry_results.0 || carry_results.1, af);
-    utils::set_hf(half_carry, af);
-    (1, 4)
-}
-
-fn sbc_val_from_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    let old_carry = utils::get_carry(af);
-    let mut carry_results = (false, false);
-
-    carry_results.0 = af.sub_from_lb(value);
-    carry_results.1 = af.sub_from_lb(old_carry);
-
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(carry_results.0 || carry_results.1, af);
-    utils::set_hf(half_carry, af);
+    let result = sbc(af, source.get_register_rb());
+    af.set_register_lb(result);
     (1, 4)
 }
 
 fn sbc_a_from_a(af: &mut CpuReg) -> (u16, u32) {
 
     let value = af.get_register_lb();
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    let old_carry = utils::get_carry(af);
-    let mut carry_results = (false, false);
+    let result = sbc(af, value);
+    af.set_register_lb(result);
+    (1, 4)
+}
 
-    carry_results.0 = af.sub_from_lb(value);
-    carry_results.1 = af.sub_from_lb(old_carry);
+fn sbc_val_from_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(carry_results.0 || carry_results.1, af);
-    utils::set_hf(half_carry, af);
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = sbc(af, value);
+    af.set_register_lb(result);
     (1, 4)
 }
 
 fn sbc_imm_from_a(af: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), pc: &u16) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&(pc + 1), memory);
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    let old_carry = utils::get_carry(af);
-    let mut carry_results = (false, false);
-
-    carry_results.0 = af.sub_from_lb(value);
-    carry_results.1 = af.sub_from_lb(old_carry);
-
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
-    utils::set_cf(carry_results.0 || carry_results.1, af);
-    utils::set_hf(half_carry, af);
+    let result = sbc(af, value);
+    af.set_register_lb(result);
     (2, 8)
 }
 
 
 // AND opcodes
 
+fn and(af: &mut CpuReg, value: u8) -> u8 {
+
+    let result = af.get_register_lb() & value;
+
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(true, af);
+    utils::set_cf(false, af);
+    
+    result
+}
+
 fn and_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let result = af.get_register_lb() & source.get_register_lb();
+    let result = and(af, source.get_register_lb());
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(true, af); utils::set_cf(false, af);
     (1, 4)
 }
 
 fn and_a_with_low(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let result = af.get_register_lb() & source.get_register_rb();
+    let result = and(af, source.get_register_rb());
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(true, af); utils::set_cf(false, af);
-    (1, 4)
-}
-
-fn and_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let result = af.get_register_lb() & cpu::memory_read_u8(&hl.get_register(), memory);
-    af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(true, af); utils::set_cf(false, af);
     (1, 4)
 }
 
 fn and_a_with_a(af: &mut CpuReg) -> (u16, u32) {
 
-    let result = af.get_register_lb() & af.get_register_lb();
+    let reg_value = af.get_register_lb();
+    let result = and(af, reg_value);
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(true, af); utils::set_cf(false, af);
+    (1, 4)
+}
+
+fn and_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = and(af, value);
+    af.set_register_lb(result);
     (1, 4)
 }
 
 fn and_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&(pc + 1), memory);
-    let result = af.get_register_lb() & value;
+    let result = and(af, value);
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(true, af); utils::set_cf(false, af);
     (2, 8)
 }
 
 
 // OR opcodes
 
+fn or(af: &mut CpuReg, value: u8) -> u8 {
+
+    let result = af.get_register_lb() | value;
+
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(false, af);
+
+    result
+}
+
 fn or_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let result = af.get_register_lb() | source.get_register_lb();
+    let result = or(af, source.get_register_lb());
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(false, af); utils::set_cf(false, af);
     (1, 4)
 }
 
 fn or_a_with_low(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let result = af.get_register_lb() | source.get_register_rb();
+    let result = or(af, source.get_register_rb());
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(false, af); utils::set_cf(false, af);
-    (1, 4)
-}
-
-fn or_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let result = af.get_register_lb() | cpu::memory_read_u8(&hl.get_register(), memory);
-    af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(false, af); utils::set_cf(false, af);
     (1, 4)
 }
 
 fn or_a_with_a(af: &mut CpuReg) -> (u16, u32) {
 
-    let result = af.get_register_lb() | af.get_register_lb();
+    let reg_value = af.get_register_lb();
+    let result = or(af, reg_value);
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(false, af); utils::set_cf(false, af);
+    (1, 4)
+}
+
+fn or_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = or(af, value);
+    af.set_register_lb(result);
     (1, 4)
 }
 
 fn or_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&(pc + 1), memory);
-    let result = af.get_register_lb() | value;
+    let result = or(af, value);
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(false, af); utils::set_cf(false, af);
     (2, 8)
 }
 
 
 // XOR opcodes
 
+fn xor(af: &mut CpuReg, value: u8) -> u8 {
+
+    let result = af.get_register_lb() ^ value;
+
+    utils::set_zf(result == 0, af);
+    utils::set_nf(false, af);
+    utils::set_hf(false, af);
+    utils::set_cf(false, af);
+
+    result
+}
+
 fn xor_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let result = af.get_register_lb() ^ source.get_register_lb();
+    let result = xor(af, source.get_register_lb());
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(false, af); utils::set_cf(false, af);
     (1, 4)
 }
 
 fn xor_a_with_low(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let result = af.get_register_lb() ^ source.get_register_rb();
+    let result = xor(af, source.get_register_rb());
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(false, af); utils::set_cf(false, af);
-    (1, 4)
-}
-
-fn xor_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
-
-    let result = af.get_register_lb() ^ cpu::memory_read_u8(&hl.get_register(), memory);
-    af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(false, af); utils::set_cf(false, af);
     (1, 4)
 }
 
@@ -1234,18 +1196,24 @@ fn xor_a_with_a(af: &mut CpuReg) -> (u16, u32) {
     (1, 4)
 }
 
+fn xor_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let value = cpu::memory_read_u8(&hl.get_register(), memory);
+    let result = xor(af, value);
+    af.set_register_lb(result);
+    (1, 4)
+}
+
 fn xor_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&(pc + 1), memory);
-    let result = af.get_register_lb() ^ value;
+    let result = xor(af, value);
     af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(false, af); utils::set_cf(false, af);
     (2, 8)
 }
 
 
-// Compliment (logical NOT) A
+// Complement (logical NOT) A
 
 fn cpl(af: &mut CpuReg) -> (u16, u32) {
 
@@ -1259,54 +1227,48 @@ fn cpl(af: &mut CpuReg) -> (u16, u32) {
 
 // CP opcodes
 
+fn cp(af: &mut CpuReg, value: u8) {
+
+    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
+    let result = af.get_register_lb().overflowing_sub(value);
+
+    utils::set_zf(result.0 == 0, af);
+    utils::set_nf(true, af);
+    utils::set_hf(half_carry, af);
+    utils::set_cf(result.1, af);
+}
+
 fn cp_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let value = source.get_register_lb();
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    utils::set_zf(af.get_register_lb() == value, af); utils::set_nf(true, af);
-    utils::set_cf(af.get_register_lb() < value, af);
-    utils::set_hf(half_carry, af);
+    cp(af, source.get_register_lb());
     (1, 4)
 }
 
 fn cp_a_with_low(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
     
-    let value = source.get_register_rb();
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    utils::set_zf(af.get_register_lb() == value, af); utils::set_nf(true, af);
-    utils::set_cf(af.get_register_lb() < value, af);
-    utils::set_hf(half_carry, af);
+    cp(af, source.get_register_rb());
+    (1, 4)
+}
+
+fn cp_a_with_a(af: &mut CpuReg) -> (u16, u32) {
+
+    let value = af.get_register_lb();
+    cp(af, value);
     (1, 4)
 }
 
 fn cp_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&hl.get_register(), memory);
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    utils::set_zf(af.get_register_lb() == value, af); utils::set_nf(true, af);
-    utils::set_cf(af.get_register_lb() < value, af);
-    utils::set_hf(half_carry, af);
+    cp(af, value);
     (1, 8)
 }
 
 fn cp_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
     let value = cpu::memory_read_u8(&(pc + 1), memory);
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    utils::set_zf(af.get_register_lb() == value, af); utils::set_nf(true, af);
-    utils::set_cf(af.get_register_lb() < value, af);
-    utils::set_hf(half_carry, af);
+    cp(af, value);
     (2, 8)
-}
-
-fn cp_a_with_a(af: &mut CpuReg) -> (u16, u32) {
-
-    let value = af.get_register_lb();
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    utils::set_zf(value == value, af); utils::set_nf(true, af);
-    utils::set_cf(value < value, af);
-    utils::set_hf(half_carry, af);
-    (1, 4)
 }
 
 
@@ -1358,16 +1320,17 @@ fn rlc_a(af: &mut CpuReg) -> (u16, u32) {
 
 fn rr_a(af: &mut CpuReg) -> (u16, u32) {
 
-    let mut value = af.get_register_lb();
+    let will_carry = utils::check_bit(af.get_register_lb(), 0);
     let old_carry = utils::get_carry(af);
+    let mut result = af.get_register_lb() >> 1;
+    result = result | (old_carry << 7);
+    af.set_register_lb(result);
 
-    utils::set_cf(utils::check_bit(value, 0), af);
+    utils::set_cf(will_carry, af);
     utils::set_hf(false, af);
     utils::set_nf(false, af);
-
-    value = value >> 1;
-    af.set_register_lb(value | (old_carry << 7));
-    utils::set_zf(value == 0, af);
+    utils::set_zf(result == 0, af);
+    
     (1, 4)
 }
 
@@ -1384,6 +1347,7 @@ fn rrc_a(af: &mut CpuReg) -> (u16, u32) {
     (2, 8)
 }
 
+
 // Enable/Disable interrupts
 
 fn ei(state: &mut CpuState) -> (u16, u32) {
@@ -1399,7 +1363,7 @@ fn di(state: &mut CpuState) -> (u16, u32) {
 }
 
 
-// Set/clear flags
+// Set/complement flags
 
 fn scf(af: &mut CpuReg) -> (u16, u32) {
 
@@ -1411,9 +1375,10 @@ fn scf(af: &mut CpuReg) -> (u16, u32) {
 
 fn ccf(af: &mut CpuReg) -> (u16, u32) {
     
+    let carry = utils::get_carry(af) == 1;
     utils::set_nf(false, af);
     utils::set_hf(false, af);
-    utils::set_cf(false, af);
+    utils::set_cf(!carry, af);
     (1, 4)
 }
 
