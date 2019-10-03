@@ -69,6 +69,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x24 => instruction_finished(increment_lb(&mut current_state.hl, &mut current_state.af), current_state),
         0x25 => instruction_finished(decrement_lb(&mut current_state.hl, &mut current_state.af), current_state),
         0x26 => instruction_finished(ld_imm_into_hi(&mut current_state.hl, memory, &current_state.pc.get()), current_state),
+        0x27 => instruction_finished(daa(&mut current_state.af), current_state),
         0x28 => conditional_relative_jump(JumpCondition::ZSet, memory, current_state),
         0x29 => instruction_finished(add_hl_to_hl(&mut current_state.hl, &mut current_state.af), current_state),
         0x2A => instruction_finished(ld_a_from_hl_inc(&mut current_state.af, &mut current_state.hl, memory), current_state),
@@ -321,6 +322,48 @@ fn nop(current_state: &mut CpuState) {
 
     current_state.pc.add(1);
     current_state.cycles.add(1);
+}
+
+// DAA
+
+fn daa(af: &mut CpuReg) -> (u16, u32) {
+
+    let value = af.get_register_lb();
+
+    if !utils::get_nf(af) {
+        
+        if utils::get_cf(af) || value > 0x99 {
+            let old_bit4 = utils::check_bit(value, 4);
+            af.set_register_lb(value - 0x60);
+            utils::set_zf(af.get_register_lb() == 0, af);
+            utils::set_hf(old_bit4 == utils::check_bit(af.get_register_lb(), 4), af);
+            utils::set_cf(true, af);
+        }
+        else if utils::get_hf(af) || (value & 0xF) > 9 {
+            let old_bit4 = utils::check_bit(value, 4);
+            af.set_register_lb(value - 6);
+            utils::set_zf(af.get_register_lb() == 0, af);
+            utils::set_hf(old_bit4 == utils::check_bit(af.get_register_lb(), 4), af);
+            utils::set_cf(true, af);
+        }
+    }
+    else {
+
+        if utils::get_cf(af) {
+            af.set_register_lb(value - 0x60);
+            utils::set_zf(af.get_register_lb() == 0, af);
+            utils::set_hf(false, af);
+            utils::set_cf(true, af);
+        }
+        else if utils::get_hf(af) {
+            af.set_register_lb(value - 6);
+            utils::set_zf(af.get_register_lb() == 0, af);
+            utils::set_hf(false, af);
+            utils::set_cf(true, af);
+        }
+    }
+
+    (1, 4)
 }
 
 // HALT (and STOP eventually)

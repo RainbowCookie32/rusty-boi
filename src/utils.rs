@@ -46,6 +46,17 @@ pub fn set_cf(value: bool, af: &mut CpuReg) {
     }
 }
 
+pub fn get_nf(af: &mut CpuReg) -> bool {
+    check_bit(af.get_register_rb(), 6)
+}
+
+pub fn get_hf(af: &mut CpuReg) -> bool {
+    check_bit(af.get_register_rb(), 5)
+}
+
+pub fn get_cf(af: &mut CpuReg) -> bool {
+    check_bit(af.get_register_rb(), 4)
+}
 
 pub fn get_carry(af: &mut CpuReg) -> u8 {
 
