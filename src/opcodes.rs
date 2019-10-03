@@ -285,7 +285,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
 
         0xF0 => instruction_finished(ld_a_from_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
         0xF1 => instruction_finished(pop(&mut current_state.af, &mut current_state.sp, memory), current_state),
-        0xF2 => result = CycleResult::InvalidOp,
+        0xF2 => instruction_finished(ld_a_from_ff_c(&mut current_state.af, &mut current_state.bc, memory), current_state),
         0xF3 => instruction_finished(di(current_state), current_state),
         0xF4 => result = CycleResult::InvalidOp,
         0xF5 => instruction_finished(push(&mut current_state.af, &mut current_state.sp, memory), current_state),
@@ -592,6 +592,15 @@ fn ld_a_from_ff_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAcce
     (2, 12)
 }
 
+fn ld_a_from_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
+
+    let address = 0xFF00 + bc.get_register_rb() as u16;
+    let value = cpu::memory_read_u8(&address, memory);
+
+    af.set_register_lb(value);
+
+    (1, 8)
+}
 
 // Load register from HL
 
@@ -1323,7 +1332,8 @@ fn cp_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>
 
 fn pop(reg: &mut CpuReg, sp: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u32) {
 
-    reg.set_register(cpu::stack_read(sp, memory));
+    let value = cpu::stack_read(sp, memory);
+    reg.set_register(value);
     (1, 12)
 }
 
