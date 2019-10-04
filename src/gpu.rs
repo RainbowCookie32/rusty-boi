@@ -102,7 +102,11 @@ pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptSt
             let mut generated_interrupt = (false, InterruptType::Vblank);
             let interrupts_state = emu_state.1.recv().unwrap();
             let display_enabled: bool;
-            let mut mem_request = MemoryAccess {
+
+            // This one isn't using memory_read in purpose.
+            // Having one full request on the beginning of the loop is useful so
+            // we can get the status of caches.
+            let mem_request = MemoryAccess {
                 operation: MemoryOp::Read,
                 address: 0xFF40,
                 value: 0,
@@ -153,14 +157,7 @@ pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptSt
                 
                             current_state.mode_clock = 0;
                             current_state.line += 1;
-
-                            mem_request = MemoryAccess {
-                                operation: MemoryOp::Write,
-                                address: 0xFF44,
-                                value: current_state.line,
-                            };
-
-                            memory.0.send(mem_request).unwrap();
+                            memory_write(current_state.line, 0xFF44, (&memory.0, &memory.1));
 
                             if interrupts_state.can_interrupt && interrupts_state.lcdc_enabled {
                                 generated_interrupt.0 = true;
@@ -187,14 +184,8 @@ pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptSt
 
                             current_state.mode_clock = 0;
                             current_state.line += 1;
-
-                            mem_request = MemoryAccess {
-                                operation: MemoryOp::Write,
-                                address: 0xFF44,
-                                value: current_state.line,
-                            };
-                            memory.0.send(mem_request).unwrap();
-
+                            memory_write(current_state.line, 0xFF44, (&memory.0, &memory.1));
+                            
                             if interrupts_state.can_interrupt && interrupts_state.vblank_enabled {
                                 generated_interrupt.0 = true;
                                 generated_interrupt.1 = InterruptType::Vblank;
@@ -205,13 +196,7 @@ pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptSt
                                 current_state.mode = 2;
                                 current_state.line = 1;
                                 
-                                mem_request = MemoryAccess {
-                                    operation: MemoryOp::Write,
-                                    address: 0xFF44,
-                                    value: current_state.line,
-                                };
-                                memory.0.send(mem_request).unwrap();
-
+                                memory_write(current_state.line, 0xFF44, (&memory.0, &memory.1));
                                 emu_canvas.clear();
                             }
                         }
@@ -222,6 +207,17 @@ pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptSt
             }
 
             if generated_interrupt.0 && interrupts_state.can_interrupt {
+
+                let mut if_value = memory_read(0xFF0F, (&memory.0 , &memory.1));
+                
+                if generated_interrupt.1 == InterruptType::Vblank {
+                    if_value = utils::set_bit_u8(if_value, 0);
+                }
+                else if generated_interrupt.1 == InterruptType::LcdcStat {
+                    if_value = utils::set_bit_u8(if_value, 1);
+                }
+
+                memory_write(if_value, 0xFF0F, (&memory.0, &memory.1));
                 emu_state.0.send(generated_interrupt).unwrap();
             }
 
@@ -232,26 +228,8 @@ pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptSt
 
 fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>)) {
 
-    let mut response: GpuResponse;
-    let mut mem_request = MemoryAccess {
-        operation: MemoryOp::Read,
-        address: 0xFF43,
-        value: 0,
-    };
-    memory.0.send(mem_request).unwrap();
-    response = memory.1.recv().unwrap();
-
-    let scroll_x = response.read_value as i32;
-
-    mem_request = MemoryAccess {
-        operation: MemoryOp::Read,
-        address: 0xFF42,
-        value: 0,
-    };
-    memory.0.send(mem_request).unwrap();
-    response = memory.1.recv().unwrap();
-
-    let scroll_y = response.read_value as i32;
+    let scroll_x = memory_read(0xFF43, memory) as i32;
+    let scroll_y = memory_read(0xFF42, memory) as i32;
     let mut point_idx: u16 = 0;
     let mut drawn_pixels: u16 = 0;
 
@@ -294,8 +272,6 @@ fn make_tiles(memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>), state: &m
     let mut tiles_position = 0;
     let mut new_tiles:Vec<Tile> = Vec::new();
 
-    let mut response: GpuResponse;
-
     info!("GPU: Regenerating tile cache");
 
     while memory_position < 0x9000 {
@@ -305,15 +281,7 @@ fn make_tiles(memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>), state: &m
 
         while loaded_bytes < tile_bytes.len() {
 
-            let mem_request = MemoryAccess {
-                operation: MemoryOp::Read,
-                address: memory_position,
-                value: 0,
-            };
-            
-            memory.0.send(mem_request).unwrap();
-            response = memory.1.recv().unwrap();
-            tile_bytes[loaded_bytes] = response.read_value;
+            tile_bytes[loaded_bytes] = memory_read(memory_position, memory);
             memory_position += 1;
             loaded_bytes += 1;
         }
@@ -367,8 +335,6 @@ fn make_background(memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>), stat
     let mut current_background = 0x9800;
     let mut generated_lines: u16 = 0;
 
-    let mut response: GpuResponse;
-
     info!("GPU: Regenerating background cache");
     
     while generated_lines < 256 {
@@ -380,16 +346,7 @@ fn make_background(memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>), stat
         // 32 tiles is the maximum amount of tiles per line in the background.
         while tiles.len() < 32 {
 
-            let mem_request = MemoryAccess {
-                operation: MemoryOp::Read,
-                address: current_background,
-                value: 0,
-            };
-            
-            memory.0.send(mem_request).unwrap();
-            response = memory.1.recv().unwrap();
-
-            let target_tile = response.read_value;
+            let target_tile = memory_read(current_background, memory);
 
             tiles.insert(tile_idx, &state.all_tiles[target_tile as usize]);
             tile_idx += 1;
@@ -468,4 +425,27 @@ fn get_color(bytes: &Vec<u8>, bit: u8) -> Color {
     else {
         color_off
     }
+}
+
+fn memory_read(addr: u16, memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>)) -> u8 {
+    
+    let mem_request = MemoryAccess {
+        operation: MemoryOp::Read,
+        address: addr,
+        value: 0,
+    };
+            
+    memory.0.send(mem_request).unwrap();
+    memory.1.recv().unwrap().read_value
+}
+
+fn memory_write(value: u8, addr: u16, memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>)) {
+
+    let mem_request = MemoryAccess {
+        operation: MemoryOp::Write,
+        address: addr,
+        value: value,
+    };
+            
+    memory.0.send(mem_request).unwrap();
 }
