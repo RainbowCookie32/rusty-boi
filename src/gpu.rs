@@ -11,10 +11,8 @@ use sdl2::pixels::Color;
 use sdl2::render::Canvas;
 use sdl2::keyboard::Keycode;
 
-
 use super::utils;
 use super::emulator::InputEvent;
-use super::cpu::{InterruptType, InterruptState};
 use super::memory::{MemoryOp, GpuResponse, MemoryAccess};
 
 
@@ -42,7 +40,7 @@ pub struct GpuState {
 }
 
 // This is getting too long
-pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptState>, Receiver<u32>), memory: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>), input: Sender<InputEvent>) {
+pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>), input: Sender<InputEvent>) {
 
     let initial_state = GpuState {
         mode: 0,
@@ -99,9 +97,8 @@ pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptSt
                 }
             }
 
-            let mut generated_interrupt = (false, InterruptType::Vblank);
-            let interrupts_state = emu_state.1.recv().unwrap();
             let display_enabled: bool;
+            let mut if_value = memory_read(0xFF0F, (&memory.0, &memory.1));
 
             // This one isn't using memory_read in purpose.
             // Having one full request on the beginning of the loop is useful so
@@ -122,7 +119,7 @@ pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptSt
 
             if display_enabled {
 
-                current_state.mode_clock += emu_state.2.recv().unwrap();
+                current_state.mode_clock += cpu_cycles.recv().unwrap();
 
                 match current_state.mode {
 
@@ -158,11 +155,8 @@ pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptSt
                             current_state.mode_clock = 0;
                             current_state.line += 1;
                             memory_write(current_state.line, 0xFF44, (&memory.0, &memory.1));
-
-                            if interrupts_state.can_interrupt && interrupts_state.lcdc_enabled {
-                                generated_interrupt.0 = true;
-                                generated_interrupt.1 = InterruptType::LcdcStat;
-                            }
+                            if_value = utils::set_bit_u8(if_value, 2);
+                            memory_write(if_value, 0xFF0F, (&memory.0, &memory.1));
 
                             if current_state.all_tiles.len() >= 128 && current_state.background_points.len() >= 65536
                             {
@@ -186,10 +180,8 @@ pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptSt
                             current_state.line += 1;
                             memory_write(current_state.line, 0xFF44, (&memory.0, &memory.1));
                             
-                            if interrupts_state.can_interrupt && interrupts_state.vblank_enabled {
-                                generated_interrupt.0 = true;
-                                generated_interrupt.1 = InterruptType::Vblank;
-                            }
+                            if_value = utils::set_bit_u8(if_value, 1);
+                            memory_write(if_value, 0xFF0F, (&memory.0, &memory.1));
 
                             if current_state.line == 154 {
                             // End of the screen, restart.
@@ -204,21 +196,6 @@ pub fn start_gpu(emu_state: (Sender<(bool, InterruptType)>, Receiver<InterruptSt
 
                     _ => panic!("Invalid GPU Mode"),
                 }
-            }
-
-            if generated_interrupt.0 && interrupts_state.can_interrupt {
-
-                let mut if_value = memory_read(0xFF0F, (&memory.0 , &memory.1));
-                
-                if generated_interrupt.1 == InterruptType::Vblank {
-                    if_value = utils::set_bit_u8(if_value, 0);
-                }
-                else if generated_interrupt.1 == InterruptType::LcdcStat {
-                    if_value = utils::set_bit_u8(if_value, 1);
-                }
-
-                memory_write(if_value, 0xFF0F, (&memory.0, &memory.1));
-                emu_state.0.send(generated_interrupt).unwrap();
             }
 
             //thread::sleep(Duration::from_micros(50));

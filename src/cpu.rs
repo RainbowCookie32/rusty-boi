@@ -27,16 +27,6 @@ pub struct CpuState {
     pub nops: u8,
 }
 
-#[derive(PartialEq, Debug)]
-pub enum InterruptType {
-
-    Vblank,
-    LcdcStat,
-    Timer,
-    Serial,
-    ButtonPress,
-}
-
 #[derive(Copy, Clone)]
 pub struct InterruptState {
 
@@ -92,86 +82,56 @@ pub fn init_cpu() -> CpuState {
     initial_state
 }
 
-pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptState>), cycles_tx: Sender<u32>, memory: (Sender<MemoryAccess>, Receiver<u8>, Receiver<u8>)) {
+pub fn exec_loop(cycles_tx: Sender<u32>, memory: (Sender<MemoryAccess>, Receiver<u8>, Receiver<u8>)) {
 
     let current_memory = (memory.0, memory.1);
     let mut current_state = init_cpu();
 
     loop {
 
-        let updated_interrupts = memory.2.try_recv();
+        let ie_value = memory_read_u8(&0xFFFF, &current_memory);
+        update_interrupts(ie_value, &mut current_state.interrupts);
 
-        match updated_interrupts {
-            Ok(value) => update_interrupts(value, &mut current_state.interrupts),
-            Err(_error) => {},
-        };
-
-        interrupts.1.send(current_state.interrupts).unwrap();
-
-        let received_interrupt = interrupts.0.try_recv();
-        let current_interrupt = match received_interrupt {
-            Ok(message) => message,
-            Err(_err) => { (false, InterruptType::Vblank) },
-        };
-
-        if current_state.interrupts.can_interrupt && current_interrupt.0 {
+        if current_state.interrupts.can_interrupt {
 
             let mut if_value = memory_read_u8(&0xFF0F, &current_memory);
-            match current_interrupt.1 {
-                InterruptType::Vblank => {
-                    if current_state.interrupts.vblank_enabled {
-                        stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
-                        current_state.halted = false;
-                        current_state.interrupts.can_interrupt = false;
-                        current_state.pc.set(0x0040);
-                        if_value = utils::reset_bit_u8(if_value, 0);
-                        memory_write(&0xFF0F, if_value, &current_memory.0);
-                    }
-                },
-                InterruptType::LcdcStat => {
-                    if current_state.interrupts.lcdc_enabled {
-                        stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
-                        current_state.halted = false;
-                        current_state.interrupts.can_interrupt = false;
-                        current_state.pc.set(0x0048);
-                        if_value = utils::reset_bit_u8(if_value, 1);
-                        memory_write(&0xFF0F, if_value, &current_memory.0);
-                    }
-                },
-                InterruptType::Timer => {
-                    if current_state.interrupts.timer_enabled {
-                        stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
-                        current_state.halted = false;
-                        current_state.interrupts.can_interrupt = false;
-                        current_state.pc.set(0x0050);
-                        if_value = utils::reset_bit_u8(if_value, 2);
-                        memory_write(&0xFF0F, if_value, &current_memory.0);
-                    }
-                },
-                InterruptType::Serial => {
-                    if current_state.interrupts.serial_enabled {
-                        stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
-                        current_state.halted = false;
-                        current_state.interrupts.can_interrupt = false;
-                        current_state.pc.set(0x0058);
-                        if_value = utils::reset_bit_u8(if_value, 3);
-                        memory_write(&0xFF0F, if_value, &current_memory.0);
-                    }
-                },
-                InterruptType::ButtonPress => {
-                    if current_state.interrupts.input_enabled {
-                        stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
-                        current_state.halted = false;
-                        current_state.interrupts.can_interrupt = false;
-                        current_state.pc.set(0x0060);
-                        if current_state.stopped {
-                            memory_write(&0xFF40, 1, &current_memory.0);
-                            current_state.stopped = false;
-                        }
-                        if_value = utils::reset_bit_u8(if_value, 4);
-                        memory_write(&0xFF0F, if_value, &current_memory.0);
-                    }
-                },
+
+            let vblank_interrupt = utils::check_bit(if_value, 0);
+            let lcdc_interrupt = utils::check_bit(if_value, 1);
+            let timer_interrupt = utils::check_bit(if_value, 2);
+            let serial_interrupt = utils::check_bit(if_value, 3);
+            let input_interrupt = utils::check_bit(if_value, 4);
+
+            if vblank_interrupt {
+
+                if_value = utils::reset_bit_u8(if_value, 0);
+                memory_write(&0xFF0F, if_value, &current_memory.0);
+                stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
+                current_state.pc.set(0x0040);
+            }
+            else if lcdc_interrupt {
+                if_value = utils::reset_bit_u8(if_value, 1);
+                memory_write(&0xFF0F, if_value, &current_memory.0);
+                stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
+                current_state.pc.set(0x0048);
+            }
+            else if timer_interrupt {
+                if_value = utils::reset_bit_u8(if_value, 2);
+                memory_write(&0xFF0F, if_value, &current_memory.0);
+                stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
+                current_state.pc.set(0x0050);
+            }
+            else if serial_interrupt {
+                if_value = utils::reset_bit_u8(if_value, 3);
+                memory_write(&0xFF0F, if_value, &current_memory.0);
+                stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
+                current_state.pc.set(0x0058);
+            }
+            else if input_interrupt {
+                if_value = utils::reset_bit_u8(if_value, 4);
+                memory_write(&0xFF0F, if_value, &current_memory.0);
+                stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
+                current_state.pc.set(0x0060);
             }
         }
 
