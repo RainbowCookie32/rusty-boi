@@ -473,7 +473,7 @@ fn ret(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receive
 
 fn reti(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) {
 
-    cpu::toggle_interrupts(state, 1);
+    cpu::toggle_interrupts(state, true);
     ret(state, memory);
 }
 
@@ -900,7 +900,7 @@ fn add_hi_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
 fn add_low_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u32) {
 
-    let result = add(af, source.get_register_lb());
+    let result = add(af, source.get_register_rb());
     af.set_register_lb(result);
     (1, 4)
 }
@@ -1401,13 +1401,13 @@ fn rrc_a(af: &mut CpuReg) -> (u16, u32) {
 
 fn ei(state: &mut CpuState) -> (u16, u32) {
 
-    cpu::toggle_interrupts(state, 1);
+    cpu::toggle_interrupts(state, true);
     (1, 4)
 }
 
 fn di(state: &mut CpuState) -> (u16, u32) {
 
-    cpu::toggle_interrupts(state, 0);
+    cpu::toggle_interrupts(state, false);
     (1, 4)
 }
 

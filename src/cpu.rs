@@ -23,9 +23,6 @@ pub struct CpuState {
     pub last_result: CycleResult,
 
     pub interrupts: InterruptState,
-    pub interrupts_toggled: bool,
-    pub new_interrupts_value: bool,
-    pub instructions_since_toggle: u8,
         
     pub nops: u8,
 }
@@ -86,9 +83,6 @@ pub fn init_cpu() -> CpuState {
             serial_enabled: false,
             input_enabled: false,
         },
-        interrupts_toggled: false,
-        new_interrupts_value: false,
-        instructions_since_toggle: 0,
 
         nops: 0,
     };
@@ -120,20 +114,9 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
             Err(_err) => { (false, InterruptType::Vblank) },
         };
 
-        if current_state.interrupts_toggled {
-
-            if current_state.instructions_since_toggle == 2 {
-                current_state.interrupts.can_interrupt = true;
-                current_state.interrupts_toggled = false;
-                current_state.instructions_since_toggle = 0;
-            }
-            else {
-                current_state.instructions_since_toggle += 1;
-            }
-        }
-
         if current_state.interrupts.can_interrupt && current_interrupt.0 {
 
+            let mut if_value = memory_read_u8(&0xFF0F, &current_memory);
             match current_interrupt.1 {
                 InterruptType::Vblank => {
                     if current_state.interrupts.vblank_enabled {
@@ -141,6 +124,8 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
                         current_state.halted = false;
                         current_state.interrupts.can_interrupt = false;
                         current_state.pc.set(0x0040);
+                        if_value = utils::reset_bit_u8(if_value, 0);
+                        memory_write(&0xFF0F, if_value, &current_memory.0);
                     }
                 },
                 InterruptType::LcdcStat => {
@@ -149,6 +134,8 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
                         current_state.halted = false;
                         current_state.interrupts.can_interrupt = false;
                         current_state.pc.set(0x0048);
+                        if_value = utils::reset_bit_u8(if_value, 1);
+                        memory_write(&0xFF0F, if_value, &current_memory.0);
                     }
                 },
                 InterruptType::Timer => {
@@ -157,6 +144,8 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
                         current_state.halted = false;
                         current_state.interrupts.can_interrupt = false;
                         current_state.pc.set(0x0050);
+                        if_value = utils::reset_bit_u8(if_value, 2);
+                        memory_write(&0xFF0F, if_value, &current_memory.0);
                     }
                 },
                 InterruptType::Serial => {
@@ -165,6 +154,8 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
                         current_state.halted = false;
                         current_state.interrupts.can_interrupt = false;
                         current_state.pc.set(0x0058);
+                        if_value = utils::reset_bit_u8(if_value, 3);
+                        memory_write(&0xFF0F, if_value, &current_memory.0);
                     }
                 },
                 InterruptType::ButtonPress => {
@@ -177,6 +168,8 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
                             memory_write(&0xFF40, 1, &current_memory.0);
                             current_state.stopped = false;
                         }
+                        if_value = utils::reset_bit_u8(if_value, 4);
+                        memory_write(&0xFF0F, if_value, &current_memory.0);
                     }
                 },
             }
@@ -208,9 +201,9 @@ pub fn exec_loop(interrupts: (Receiver<(bool, InterruptType)>, Sender<InterruptS
             else if current_state.last_result == CycleResult::Stop {
                 current_state.stopped = true;
                 // Ugly, hacky, everything qualifies here probably.
-                // Since the GPU implementation depends on the display to be enabled
+                // TODO: Since the GPU implementation depends on the display to be enabled
                 // to work, disabling it should do the job as well. Should get a more
-                // elegant solution eventually. TODO
+                // elegant solution eventually.
                 memory_write(&0xFF40, 0, &current_memory.0);
             }
         }
@@ -329,11 +322,9 @@ pub fn stack_write(sp: &mut CpuReg, value: u16, memory: &Sender<MemoryAccess>) {
     memory.send(mem_request).unwrap();
 }
 
-pub fn toggle_interrupts(state: &mut CpuState, value: u8) {
+pub fn toggle_interrupts(state: &mut CpuState, value: bool) {
 
-    state.interrupts_toggled = true;
-    state.new_interrupts_value = if value == 1 {true} else {false};
-    state.instructions_since_toggle = 0;
+    state.interrupts.can_interrupt = value;
 }
 
 fn update_interrupts(new_value: u8, interrupts: &mut InterruptState) {
