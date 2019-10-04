@@ -110,15 +110,15 @@ pub fn check_bit(value: u8, bit: u8) -> bool {
 }
 
 pub fn check_half_carry_u8(values: (&u8, &u8)) -> bool {
-    ((values.0 & 0x10) & (values.1 & 0x10)) == 0x10
+    ((values.0 & 0xF) + (values.1 & 0xF)) > 0xF
 }
 
 pub fn check_half_carry_u16(values: (&u16, &u16)) -> bool {
-    ((values.0 & 0x800) & (values.1 & 0x800)) == 0x800
+    ((values.0 & 0xFFF) + (values.1 & 0xFFF)) > 0xFFF
 }
 
 pub fn check_half_borrow(values: (u8, u8)) -> bool {
-    ((values.0 & 0x10) & (values.1 & 0x10)) == 0
+    (values.0 & 0xF).overflowing_sub(values.1 & 0xF).1
 }
 
 pub fn swap_nibbles(value: u8) -> u8 {
