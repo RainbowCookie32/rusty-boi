@@ -18,8 +18,7 @@ load_loop:
  jp nz, load_loop
  ld hl, $9800
  ld [hl], 1
-infinite_loop:
- jp, infinite_loop
+ stop
 
 tile: db $00, $00, $00, $00, $24, $24, $00, $00, $81, $81, $7e, $7e, $00, $00, $00, $00
 
