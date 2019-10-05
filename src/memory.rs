@@ -2,7 +2,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::convert::TryInto;
 
-use log::{error};
+use log::{info, warn};
 
 pub struct Memory {
 
@@ -21,6 +21,8 @@ pub struct Memory {
     pub tiles_dirty: bool,
     pub background_dirty: bool,
     pub bootrom_finished: bool,
+
+    pub serial_buffer: Vec<u8>,
 }
 
 pub enum MemoryOp {
@@ -48,23 +50,27 @@ pub struct GpuResponse {
 // approach when passing around all the receiver and transmitters.
 pub struct ThreadComms {
 
-    pub cpu: ((Sender<MemoryAccess>, Receiver<u8>, Receiver<u8>)),
+    pub cpu: ((Sender<MemoryAccess>, Receiver<u8>)),
     pub gpu: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>),
+    pub timer: ((Sender<MemoryAccess>, Receiver<u8>)),
 }
 
 pub fn start_memory(data: (Vec<u8>, Vec<u8>), sender: Sender<ThreadComms>) {
 
     let (cpu_req_tx, cpu_req_rx) = mpsc::channel();
     let (cpu_res_tx, cpu_res_rx) = mpsc::channel();
-    let (ie_changed_tx, ie_changed_rx) = mpsc::channel();
+    
+    let (timer_req_tx, timer_req_rx) = mpsc::channel();
+    let (timer_res_tx, timer_res_rx) = mpsc::channel();
 
     let (gpu_req_tx, gpu_req_rx) = mpsc::channel();
     let (gpu_res_tx, gpu_res_rx) = mpsc::channel();
     let (gpu_cache_tx, gpu_cache_rx) = mpsc::channel();
 
     let care_package = ThreadComms {
-        cpu: (cpu_req_tx, cpu_res_rx, ie_changed_rx),
-        gpu: (gpu_req_tx, gpu_res_rx, gpu_cache_tx)
+        cpu: (cpu_req_tx, cpu_res_rx),
+        gpu: (gpu_req_tx, gpu_res_rx, gpu_cache_tx),
+        timer: (timer_req_tx, timer_res_rx),
     };
 
     let initial_memory = Memory {
@@ -84,6 +90,8 @@ pub fn start_memory(data: (Vec<u8>, Vec<u8>), sender: Sender<ThreadComms>) {
         tiles_dirty: false,
         background_dirty: false,
         bootrom_finished: false,
+
+        serial_buffer: Vec::new(),
     };
 
     let mut current_memory = initial_memory;
@@ -95,13 +103,20 @@ pub fn start_memory(data: (Vec<u8>, Vec<u8>), sender: Sender<ThreadComms>) {
         let gpu_request = gpu_req_rx.try_recv();
         let gpu_cache = gpu_cache_rx.try_recv();
 
+        let timer_request = timer_req_rx.try_recv();
+
         match cpu_request {
-            Ok(request) => handle_cpu_request(&request, (&cpu_res_tx, &ie_changed_tx), &mut current_memory),
+            Ok(request) => handle_cpu_request(&request, &cpu_res_tx, &mut current_memory),
             Err(_error) => {},
         };
 
         match gpu_request {
             Ok(request) => handle_gpu_request(&request, &gpu_res_tx, &mut current_memory),
+            Err(_error) => {},
+        };
+
+        match timer_request {
+            Ok(request) => handle_timer_request(&request, &timer_res_tx, &mut current_memory),
             Err(_error) => {},
         };
 
@@ -115,21 +130,18 @@ pub fn start_memory(data: (Vec<u8>, Vec<u8>), sender: Sender<ThreadComms>) {
     }
 }
 
-fn handle_cpu_request(request: &MemoryAccess, tx: (&Sender<u8>, &Sender<u8>), current_memory: &mut Memory) {
+fn handle_cpu_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &mut Memory) {
 
     let result_value: u8;
     
     match request.operation {
         MemoryOp::Read => {
             result_value = memory_read(&request.address, current_memory);
-            tx.0.send(result_value).unwrap();
+            tx.send(result_value).unwrap();
         },
         MemoryOp::Write => {
 
-            if request.address == 0xFFFF {
-                tx.1.send(request.value).unwrap();
-            }
-            if request.address == 0xFF44 { 
+            if request.address == 0xFF04 || request.address == 0xFF44 { 
                 memory_write(request.address, 0, current_memory);
             }
             else {
@@ -161,7 +173,25 @@ fn handle_gpu_request(request: &MemoryAccess, tx: &Sender<GpuResponse>, current_
         },
         MemoryOp::Write => memory_write(request.address, request.value, current_memory),
         MemoryOp::BootromFinished => {
-            error!("Memory: GPU triggered a BootromFinished event for some reason");
+            warn!("Memory: GPU triggered a BootromFinished event for some reason");
+        },
+    }
+}
+
+fn handle_timer_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &mut Memory) {
+
+    let result_value: u8;
+    
+    match request.operation {
+        MemoryOp::Read => {
+            result_value = memory_read(&request.address, current_memory);
+            tx.send(result_value).unwrap();
+        },
+        MemoryOp::Write => {
+            memory_write(request.address, request.value, current_memory);
+        },
+        MemoryOp::BootromFinished => {
+            warn!("Memory: Timer triggered a BootromFinished event");
         },
     }
 }
@@ -202,7 +232,7 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else if address >= 0xA000 && address <= 0xBFFF 
     {
-        error!("Memory: Unimplemented read at {}, returning 0", format!("{:#X}", address));
+        warn!("Memory: Unimplemented read at {}, returning 0", format!("{:#X}", address));
         0
     }
     else if address >= 0xC000 && address <= 0xDFFF
@@ -212,7 +242,7 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
-        error!("Memory: Unimplemented read at {}, returning 0", format!("{:#X}", address));
+        warn!("Memory: Unimplemented read at {}, returning 0", format!("{:#X}", address));
         0
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
@@ -222,7 +252,7 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else if address >= 0xFEA0 && address <= 0xFEFF
     {
-        error!("Memory: Read to unusable memory at address {}. Returning 0", format!("{:#X}", address));
+        warn!("Memory: Read to unusable memory at address {}. Returning 0", format!("{:#X}", address));
         0
     }
     else if address >= 0xFF00 && address <= 0xFF7F
@@ -249,7 +279,7 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
 
     if address <= 0x7FFF
     {
-        error!("Memory: Tried to write to cart, illegal write");
+        warn!("Memory: Tried to write ({}) to cart, illegal write", format!("{:#X}", value));
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
@@ -269,7 +299,7 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     }
     else if address >= 0xA000 && address <= 0xBFFF 
     {
-        error!("Memory: Write to unimplemented area at address {}. Ignoring...", format!("{:#X}", address));
+        warn!("Memory: Write to unimplemented memory at address {}, value {}. Ignoring...", format!("{:#X}", address), format!("{:#X}", value));
     }
     else if address >= 0xC000 && address <= 0xDFFF
     {
@@ -278,7 +308,7 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
-        error!("Memory: Write to unimplemented area at address {}. Ignoring...", format!("{:#X}", address));
+        warn!("Memory: Write to unimplemented memory at address {}, value {}. Ignoring...", format!("{:#X}", address), format!("{:#X}", value));
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
@@ -287,11 +317,28 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     }
     else if address >= 0xFEA0 && address <= 0xFEFF
     {
-        error!("Memory: Write to unusable memory at address {}. Ignoring...", format!("{:#X}", address));
+        warn!("Memory: Write to unusable memory at address {}, value {}. Ignoring...", format!("{:#X}", address), format!("{:#X}", value));
     }
     else if address >= 0xFF00 && address <= 0xFF7F
     {
         let memory_addr: usize = (address - 0xFF00).try_into().unwrap();
+        if address == 0xFF01 {
+            if value == 0xA {
+
+                let mut idx: usize = 0;
+                let mut new_string = String::from("");
+                while idx < memory.serial_buffer.len() {
+                    new_string.push(memory.serial_buffer[idx] as char);
+                    idx += 1;
+                }
+
+                info!("Serial:  {} ", new_string);
+                memory.serial_buffer = Vec::new();
+            }
+            else {
+                memory.serial_buffer.push(value);
+            }
+        }
         memory.io_regs[memory_addr] = value;
     }
     else if address >= 0xFF80 && address <= 0xFFFE 
