@@ -305,7 +305,12 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
 
 fn instruction_finished(values: (u16, u32), state: &mut CpuState) {
 
-    state.pc.add(values.0); state.cycles.add(values.1);
+    if state.halt_bug {
+        state.cycles.add(values.1);
+    }
+    else {
+        state.pc.add(values.0); state.cycles.add(values.1);
+    }
 }
 
 
@@ -354,20 +359,11 @@ fn daa(af: &mut CpuReg) -> (u16, u32) {
     (1, 4)
 }
 
-// HALT (and STOP eventually)
+// HALT and STOP
 
 fn halt(current_state: &mut CpuState) -> CycleResult {
 
-    // Apparently, HALT skips the instruction right after it if interrupts are enabled.
-    // The opcode is 1 byte long, so add 2 to PC if they are enabled.
-    if current_state.interrupts.can_interrupt {
-        current_state.pc.add(2);
-        current_state.cycles.add(4);
-    }
-    else {
-        current_state.pc.add(1);
-    }
-    current_state.cycles.add(4);
+    current_state.pc.add(1);
     current_state.cycles.add(4);
     CycleResult::Halt
 }

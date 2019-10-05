@@ -20,6 +20,7 @@ pub struct CpuState {
 
     pub halted: bool,
     pub stopped: bool,
+    pub halt_bug: bool,
     pub last_result: CycleResult,
 
     pub interrupts: InterruptState,
@@ -63,6 +64,7 @@ pub fn init_cpu() -> CpuState {
 
         halted: false,
         stopped: false,
+        halt_bug: false,
         last_result: CycleResult::Success,
 
         interrupts: InterruptState {
@@ -82,63 +84,18 @@ pub fn init_cpu() -> CpuState {
     initial_state
 }
 
-pub fn exec_loop(cycles_tx: Sender<u32>, memory: (Sender<MemoryAccess>, Receiver<u8>, Receiver<u8>)) {
+pub fn exec_loop(cycles_tx: Sender<u32>, timer_tx: Sender<u32>, memory: (Sender<MemoryAccess>, Receiver<u8>)) {
 
     let current_memory = (memory.0, memory.1);
     let mut current_state = init_cpu();
 
     loop {
 
-        let ie_value = memory_read_u8(&0xFFFF, &current_memory);
-        update_interrupts(ie_value, &mut current_state.interrupts);
-
-        if current_state.interrupts.can_interrupt {
-
-            let mut if_value = memory_read_u8(&0xFF0F, &current_memory);
-
-            let vblank_interrupt = utils::check_bit(if_value, 0);
-            let lcdc_interrupt = utils::check_bit(if_value, 1);
-            let timer_interrupt = utils::check_bit(if_value, 2);
-            let serial_interrupt = utils::check_bit(if_value, 3);
-            let input_interrupt = utils::check_bit(if_value, 4);
-
-            if vblank_interrupt {
-
-                if_value = utils::reset_bit_u8(if_value, 0);
-                memory_write(&0xFF0F, if_value, &current_memory.0);
-                stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
-                current_state.pc.set(0x0040);
-            }
-            else if lcdc_interrupt {
-                if_value = utils::reset_bit_u8(if_value, 1);
-                memory_write(&0xFF0F, if_value, &current_memory.0);
-                stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
-                current_state.pc.set(0x0048);
-            }
-            else if timer_interrupt {
-                if_value = utils::reset_bit_u8(if_value, 2);
-                memory_write(&0xFF0F, if_value, &current_memory.0);
-                stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
-                current_state.pc.set(0x0050);
-            }
-            else if serial_interrupt {
-                if_value = utils::reset_bit_u8(if_value, 3);
-                memory_write(&0xFF0F, if_value, &current_memory.0);
-                stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
-                current_state.pc.set(0x0058);
-            }
-            else if input_interrupt {
-                if_value = utils::reset_bit_u8(if_value, 4);
-                memory_write(&0xFF0F, if_value, &current_memory.0);
-                stack_write(&mut current_state.sp, current_state.pc.get(), &current_memory.0);
-                current_state.pc.set(0x0060);
-            }
-        }
-
+        handle_interrupts(&mut current_state, &current_memory);
         let mut opcode = memory_read_u8(&current_state.pc.get(), &current_memory);
 
         if !current_state.halted {
-
+            
             if current_state.pc.get() == 0x0100 {
                 info!("CPU: Bootrom execution finished, starting loaded ROM.");
                 current_memory.0.send(MemoryAccess{ operation: MemoryOp::BootromFinished, address: 0, value: 0 }).unwrap();
@@ -166,6 +123,10 @@ pub fn exec_loop(cycles_tx: Sender<u32>, memory: (Sender<MemoryAccess>, Receiver
                 // elegant solution eventually.
                 memory_write(&0xFF40, 0, &current_memory.0);
             }
+            current_state.halt_bug = false;
+        }
+        else {
+            current_state.halt_bug = true;
         }
 
         if current_state.last_result == CycleResult::InvalidOp || current_state.last_result == CycleResult::UnimplementedOp {
@@ -174,6 +135,72 @@ pub fn exec_loop(cycles_tx: Sender<u32>, memory: (Sender<MemoryAccess>, Receiver
         }
 
         cycles_tx.send(current_state.cycles.get()).unwrap();
+        timer_tx.send(current_state.cycles.get()).unwrap();
+    }
+}
+
+fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess>, Receiver<u8>)) {
+
+    let ie_value = memory_read_u8(&0xFFFF, memory);
+    update_interrupts(ie_value, &mut current_state.interrupts);
+
+    let mut if_value = memory_read_u8(&0xFF0F, memory);
+
+    let vblank_interrupt = utils::check_bit(if_value, 0) && current_state.interrupts.vblank_enabled;
+    let lcdc_interrupt = utils::check_bit(if_value, 1) && current_state.interrupts.lcdc_enabled;
+    let timer_interrupt = utils::check_bit(if_value, 2) && current_state.interrupts.timer_enabled;
+    let serial_interrupt = utils::check_bit(if_value, 3) && current_state.interrupts.serial_enabled;
+    let input_interrupt = utils::check_bit(if_value, 4) && current_state.interrupts.input_enabled;
+
+    if vblank_interrupt {
+
+        if current_state.interrupts.can_interrupt {
+            if_value = utils::reset_bit_u8(if_value, 0);
+            memory_write(&0xFF0F, if_value, &memory.0);
+            stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
+            current_state.pc.set(0x0040);
+        }
+        current_state.halted = false;
+    }
+    else if lcdc_interrupt {
+        
+        if current_state.interrupts.can_interrupt {
+            if_value = utils::reset_bit_u8(if_value, 1);
+            memory_write(&0xFF0F, if_value, &memory.0);
+            stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
+            current_state.pc.set(0x0048);
+        }
+        current_state.halted = false;
+    }
+    else if timer_interrupt {
+        
+        if current_state.interrupts.can_interrupt {
+            if_value = utils::reset_bit_u8(if_value, 2);
+            memory_write(&0xFF0F, if_value, &memory.0);
+            stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
+            current_state.pc.set(0x0050);
+        }
+        current_state.halted = false;
+    }
+    else if serial_interrupt {
+        
+        if current_state.interrupts.can_interrupt {
+            if_value = utils::reset_bit_u8(if_value, 3);
+            memory_write(&0xFF0F, if_value, &memory.0);
+            stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
+            current_state.pc.set(0x0058);
+        }
+        current_state.halted = false;
+    }
+    else if input_interrupt {
+        
+        if current_state.interrupts.can_interrupt {
+            if_value = utils::reset_bit_u8(if_value, 4);
+            memory_write(&0xFF0F, if_value, &memory.0);
+            stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
+            current_state.pc.set(0x0060);
+        }
+        current_state.halted = false;
     }
 }
 
