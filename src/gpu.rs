@@ -1,5 +1,4 @@
 use std::thread;
-use std::time::Duration;
 use std::sync::mpsc::{Sender, Receiver};
 
 use log::{info};
@@ -39,7 +38,6 @@ pub struct GpuState {
     pub tiles_dirty: bool,
 }
 
-// This is getting too long
 pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>), input: Sender<InputEvent>) {
 
     let initial_state = GpuState {
@@ -56,6 +54,7 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
     thread::spawn(move || {
         
         let mut current_state = initial_state;
+        let current_memory = (memory.0, memory.1);
         
         let sdl_ctx = sdl2::init().unwrap();
         let sdl_video = sdl_ctx.video().unwrap();
@@ -98,7 +97,7 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
             }
 
             let display_enabled: bool;
-            let mut if_value = memory_read(0xFF0F, (&memory.0, &memory.1));
+            let mut if_value = memory_read(0xFF0F, &current_memory);
 
             // This one isn't using memory_read in purpose.
             // Having one full request on the beginning of the loop is useful so
@@ -110,8 +109,8 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
             };
             let response: GpuResponse;
 
-            memory.0.send(mem_request).unwrap();
-            response = memory.1.recv().unwrap();
+            current_memory.0.send(mem_request).unwrap();
+            response = current_memory.1.recv().unwrap();
             display_enabled = utils::check_bit(response.read_value, 7);
 
             current_state.bg_dirty = response.background_dirty;
@@ -125,23 +124,42 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
 
                     2 => {
                         if current_state.mode_clock >= 80 {
+                            
+                            let mut stat_value = memory_read(0xFF41, &current_memory);
+                            
                             current_state.mode_clock = 0;
                             current_state.mode = 3;
+                            
+                            if utils::check_bit(stat_value, 5) {
+                                if_value = utils::set_bit_u8(if_value, 2);
+                                memory_write(if_value, 0xFF0F, &current_memory);
+                            }
+
+                            stat_value = utils::set_bit_u8(stat_value, 1);
+                            stat_value = utils::reset_bit_u8(stat_value, 0);
+                            memory_write(stat_value, 0xFF41, &current_memory);
                         }
                     }
 
                     3 => {
                         if current_state.mode_clock >= 172 {
+                            
+                            let mut stat_value = memory_read(0xFF41, &current_memory);
+                            
                             current_state.mode_clock = 0;
                             current_state.mode = 0;
 
+                            stat_value = utils::set_bit_u8(stat_value, 1);
+                            stat_value = utils::set_bit_u8(stat_value, 0);
+                            memory_write(stat_value, 0xFF41, &current_memory);
+
                             if current_state.tiles_dirty {
-                                make_tiles((&memory.0, &memory.1), &mut current_state);
+                                make_tiles(&current_memory, &mut current_state);
                                 current_state.tiles_dirty = false;
                             }
 
                             if current_state.bg_dirty {
-                                make_background((&memory.0, &memory.1), &mut current_state);
+                                make_background(&current_memory, &mut current_state);
                                 current_state.bg_dirty = false;
                             }
 
@@ -152,15 +170,24 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
                     0 => {
                         if current_state.mode_clock >= 204 {
                 
+                            let mut stat_value = memory_read(0xFF41, &current_memory);
+                            
                             current_state.mode_clock = 0;
                             current_state.line += 1;
-                            memory_write(current_state.line, 0xFF44, (&memory.0, &memory.1));
-                            if_value = utils::set_bit_u8(if_value, 2);
-                            memory_write(if_value, 0xFF0F, (&memory.0, &memory.1));
+                            memory_write(current_state.line, 0xFF44, &current_memory);
+                            
+                            if utils::check_bit(stat_value, 3) {
+                                if_value = utils::set_bit_u8(if_value, 2);
+                                memory_write(if_value, 0xFF0F, &current_memory);
+                            }
+
+                            stat_value = utils::reset_bit_u8(stat_value, 1);
+                            stat_value = utils::reset_bit_u8(stat_value, 0);
+                            memory_write(stat_value, 0xFF41, &current_memory);
 
                             if current_state.all_tiles.len() >= 128 && current_state.background_points.len() >= 65536
                             {
-                                draw(&mut current_state, &mut emu_canvas, (&memory.0, &memory.1));
+                                draw(&mut current_state, &mut emu_canvas, &current_memory);
                             }
 
                             if current_state.line == 144 {
@@ -176,19 +203,25 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
                     1 => {
                         if current_state.mode_clock >= 456 {
 
+                            let mut stat_value = memory_read(0xFF41, &current_memory);
+                            
                             current_state.mode_clock = 0;
                             current_state.line += 1;
-                            memory_write(current_state.line, 0xFF44, (&memory.0, &memory.1));
+                            memory_write(current_state.line, 0xFF44, &current_memory);
                             
-                            if_value = utils::set_bit_u8(if_value, 1);
-                            memory_write(if_value, 0xFF0F, (&memory.0, &memory.1));
+                            if_value = utils::set_bit_u8(if_value, 0);
+                            memory_write(if_value, 0xFF0F, &current_memory);
+
+                            stat_value = utils::reset_bit_u8(stat_value, 1);
+                            stat_value = utils::set_bit_u8(stat_value, 0);
+                            memory_write(stat_value, 0xFF41, &current_memory);
 
                             if current_state.line == 154 {
                             // End of the screen, restart.
                                 current_state.mode = 2;
                                 current_state.line = 1;
                                 
-                                memory_write(current_state.line, 0xFF44, (&memory.0, &memory.1));
+                                memory_write(current_state.line, 0xFF44, &current_memory);
                                 emu_canvas.clear();
                             }
                         }
@@ -197,13 +230,11 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
                     _ => panic!("Invalid GPU Mode"),
                 }
             }
-
-            //thread::sleep(Duration::from_micros(50));
         }
     });
 }
 
-fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>)) {
+fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>)) {
 
     let scroll_x = memory_read(0xFF43, memory) as i32;
     let scroll_y = memory_read(0xFF42, memory) as i32;
@@ -243,7 +274,7 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: (&Sender<Memo
     }
 }
 
-fn make_tiles(memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>), state: &mut GpuState) {
+fn make_tiles(memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>), state: &mut GpuState) {
 
     let mut memory_position = 0x8000;
     let mut tiles_position = 0;
@@ -306,7 +337,7 @@ fn make_tile(bytes: &Vec<u8>) -> Tile {
     new_tile
 }
 
-fn make_background(memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>), state: &mut GpuState) {
+fn make_background(memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>), state: &mut GpuState) {
 
     let mut new_points: Vec<BGPoint> = Vec::new();
     let mut current_background = 0x9800;
@@ -404,7 +435,7 @@ fn get_color(bytes: &Vec<u8>, bit: u8) -> Color {
     }
 }
 
-fn memory_read(addr: u16, memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>)) -> u8 {
+fn memory_read(addr: u16, memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>)) -> u8 {
     
     let mem_request = MemoryAccess {
         operation: MemoryOp::Read,
@@ -416,7 +447,7 @@ fn memory_read(addr: u16, memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>
     memory.1.recv().unwrap().read_value
 }
 
-fn memory_write(value: u8, addr: u16, memory: (&Sender<MemoryAccess>, &Receiver<GpuResponse>)) {
+fn memory_write(value: u8, addr: u16, memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>)) {
 
     let mem_request = MemoryAccess {
         operation: MemoryOp::Write,
