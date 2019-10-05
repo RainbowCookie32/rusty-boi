@@ -1,5 +1,5 @@
-use log::info;
-
+use std::thread;
+use std::time::Duration;
 use std::sync::mpsc::{Sender, Receiver};
 
 use super::utils;
@@ -19,12 +19,13 @@ pub fn timer_loop(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Rece
 
     loop {
 
-        let cycles = cpu_cycles.recv().unwrap();
         let tac_value = memory_read(0xFF07, &memory);
         let timer_enabled = utils::check_bit(tac_value, 2);
 
         if timer_enabled {
 
+            let cycles = cpu_cycles.recv().unwrap();
+            
             needed_cycles = get_frequency(tac_value);
             timer_cycles += cycles;
             div_cycles += cycles;
@@ -61,6 +62,9 @@ pub fn timer_loop(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Rece
 
                 last_cycle = timer_cycles;
             }
+        }
+        else {
+            thread::sleep(Duration::from_millis(1));
         }
     }
 }
