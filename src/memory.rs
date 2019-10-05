@@ -10,6 +10,7 @@ pub struct Memory {
     pub loaded_rom: Vec<u8>,
 
     pub ram: Vec<u8>,
+    pub echo_ram: Vec<u8>,
     pub io_regs: Vec<u8>,
     pub hram: Vec<u8>,
     pub interrupts: u8,
@@ -79,6 +80,7 @@ pub fn start_memory(data: (Vec<u8>, Vec<u8>), sender: Sender<ThreadComms>) {
         loaded_rom: data.1,
 
         ram: vec![0; 8192],
+        echo_ram: vec![0; 8192],
         io_regs: vec![0; 256],
         hram: vec![0; 127],
         interrupts: 0,
@@ -242,8 +244,8 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
-        warn!("Memory: Unimplemented read at {}, returning 0", format!("{:#X}", address));
-        0
+        let memory_addr: usize = (address - 0xC000).try_into().unwrap();
+        memory.echo_ram[memory_addr]
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
@@ -305,10 +307,14 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     {
         let memory_addr: usize = (address - 0xC000).try_into().unwrap();
         memory.ram[memory_addr] = value;
+        memory.echo_ram[memory_addr] = value;
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
-        warn!("Memory: Write to unimplemented memory at address {}, value {}. Ignoring...", format!("{:#X}", address), format!("{:#X}", value));
+        warn!("Memory: Write to echo ram. Address {}, value {}.", format!("{:#X}", address), format!("{:#X}", value));
+        let memory_addr: usize = (address - 0xE000).try_into().unwrap();
+        memory.ram[memory_addr] = value;
+        memory.echo_ram[memory_addr] = value;
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
