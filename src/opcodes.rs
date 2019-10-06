@@ -135,7 +135,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x63 => instruction_finished(ld_low_into_hi(&mut current_state.hl, &mut current_state.de), current_state),
         0x64 => instruction_finished((1, 4), current_state),
         0x65 => instruction_finished(ld_self_low_to_hi(&mut current_state.hl), current_state),
-        0x66 => instruction_finished(ld_h_from_hl(&mut current_state.de, memory), current_state),
+        0x66 => instruction_finished(ld_h_from_hl(&mut current_state.hl, memory), current_state),
         0x67 => instruction_finished(ld_hi_into_hi(&mut current_state.hl, &mut current_state.af), current_state),
         0x68 => instruction_finished(ld_hi_into_low(&mut current_state.hl, &mut current_state.bc), current_state),
         0x69 => instruction_finished(ld_low_into_low(&mut current_state.hl, &mut current_state.bc), current_state),
