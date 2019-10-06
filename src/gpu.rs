@@ -1,7 +1,7 @@
 use std::thread;
 use std::sync::mpsc::{Sender, Receiver};
 
-use log::{info};
+use log::info;
 
 use sdl2::rect::Point;
 use sdl2::event::Event;
@@ -255,20 +255,10 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Sender<Memo
     while drawn_pixels < 256 {
 
         let current_point = &state.background_points[point_idx as usize];
-        let mut should_draw = true;
+        let final_point = current_point.point.offset(final_sx, final_sy);
 
-        // If the point is outside of the screen bounds, just skip drawing it.
-        // The scroll registers should keep everything important on screen.
-        if current_point.point.x() + scroll_x > 160 || current_point.point.y() + scroll_y > 144 {
-            should_draw = false;
-        }
-
-        if should_draw {
-            let final_point = current_point.point.offset(final_sx, final_sy);
-            canvas.set_draw_color(current_point.color);
-            canvas.draw_point(final_point).unwrap();
-        }
-
+        canvas.set_draw_color(current_point.color);
+        canvas.draw_point(final_point).unwrap();
         point_idx += 1;
         drawn_pixels += 1;
     }
