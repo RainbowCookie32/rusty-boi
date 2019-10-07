@@ -3,6 +3,8 @@ use std::thread;
 use std::io::Read;
 use std::fs::File;
 use std::sync::mpsc;
+use std::time::Duration;
+use std::iter::FromIterator;
 
 use log::info;
 use log::error;
@@ -12,6 +14,16 @@ use super::gpu;
 use super::timer;
 use super::memory::start_memory;
 
+pub struct Cart {
+
+    pub cart_type: u8,
+    pub rom_size: u8,
+    pub ram_size: u16,
+
+    pub rom_banks: Vec<Vec<u8>>,
+    pub cart_ram: Vec<u8>,
+    pub has_ram: bool,
+}
 
 pub enum InputEvent {
     
@@ -107,17 +119,19 @@ fn execution_loop() {
             },
             Err(_error) => {}
         };
+
+        thread::sleep(Duration::from_millis(5));
     }
     
     info!("Emu: Stopped emulation.");
 }
 
-fn get_roms_data() -> (Vec<u8>, Vec<u8>) {
+fn get_roms_data() -> (Vec<u8>, Cart) {
 
     let mut rom_path = String::new();
     let mut bootrom_path = String::new();
     let bootrom: Vec<u8>;
-    let rom: Vec<u8>;
+    let rom: Cart;
     
     info!("Emu: Point me to a GameBoy Bootrom");
 
@@ -147,7 +161,7 @@ fn load_bootrom(path: String) -> Vec<u8> {
     data
 }
 
-fn load_rom(path: String) -> Vec<u8> {
+fn load_rom(path: String) -> Cart {
     
     let mut rom_file = File::open(path).expect("Loader: Failed to open ROM");
     let mut data = Vec::new();
@@ -157,5 +171,70 @@ fn load_rom(path: String) -> Vec<u8> {
         Err(_) => error!("Loader: Failed to open the ROM file"),
     };
 
-    data
+    make_cart(&data)
+}
+
+fn make_cart(cart_data: &Vec<u8>) -> Cart {
+
+    let loaded_cart: Cart;
+
+    let cart_type = cart_data[0x0147];
+    let rom_size = match cart_data[0x148] {
+        0x0 => 2,
+        0x1 => 4,
+        0x2 => 8,
+        0x3 => 16,
+        0x4 => 32,
+        0x5 => 64,
+        0x6 => 128,
+        _ => 2,
+    };
+    let ram_size: u16 = match cart_data[0x149] {
+        0 => 0,
+        1 => 2048,
+        2 => 8192,
+        3 => 32768,
+        _ => 0,
+    };
+
+    let mut rom_banks: Vec<Vec<u8>> = vec![Vec::new(); rom_size];
+    let mut loaded_banks: usize = 0;
+    let has_ram: bool;
+    let mut ram: Vec<u8> = Vec::new();
+
+    while loaded_banks < rom_size {
+
+        if loaded_banks == 0 {
+            let bank = Vec::from_iter(cart_data[0..16384].iter().cloned());
+            rom_banks[loaded_banks] = bank;
+            loaded_banks += 1;
+        }
+        else {
+            let bank = Vec::from_iter(cart_data[16384 * loaded_banks..(16384 * loaded_banks) + 16384].iter().cloned());
+            rom_banks[loaded_banks] = bank;
+            loaded_banks += 1;
+        }
+    }
+
+    // TODO: Should also check if it's RAM + battery, since that
+    // means that it has data meant to be saved when the cart is removed.
+    // Should also add a way to save the RAM contents, to load them later.
+    if ram_size > 0 {
+        ram = vec![0; ram_size as usize];
+        has_ram = true;
+    }
+    else {
+        has_ram = false;
+    }
+
+    loaded_cart = Cart {
+        cart_type: cart_type,
+        rom_size: rom_size as u8,
+        ram_size: ram_size,
+        rom_banks: rom_banks,
+        cart_ram: ram,
+        has_ram: has_ram,
+    };
+
+    loaded_cart
 }
