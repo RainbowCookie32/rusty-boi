@@ -254,7 +254,7 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
-        let memory_addr: usize = (address - 0xC000).try_into().unwrap();
+        let memory_addr: usize = (address - 0xE000).try_into().unwrap();
         memory.echo_ram[memory_addr]
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
@@ -289,7 +289,7 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
 
 pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
 
-    if address == 0x2000
+    if address <= 0x7FFF
     {
         info!("Memory: Switching ROM Bank to {}", value);
         memory.selected_bank = value;
