@@ -1,5 +1,3 @@
-use std::thread;
-use std::time::Duration;
 use std::sync::mpsc::{Sender, Receiver};
 
 use super::utils;
@@ -8,63 +6,70 @@ use super::memory::MemoryOp;
 use super::memory::MemoryAccess;
 
 
-pub fn timer_loop(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Receiver<u8>)) {
+pub struct TimerState {
 
-    let mut div_cycles: u32 = 0;
-    let mut last_div_cycle: u32 = 0;
+    div_cycles: u32,
+    last_div_cycle: u32,
 
-    let mut timer_cycles: u32 = 0;
-    let mut last_cycle: u32 = 0;
-    let mut needed_cycles: u16;
+    timer_cycles: u32,
+    last_timer_cycle: u32,
+    needed_cycles: u16,
+}
 
-    loop {
+pub fn init_timer() -> TimerState {
 
-        let tac_value = memory_read(0xFF07, &memory);
-        let timer_enabled = utils::check_bit(tac_value, 2);
+    TimerState {
+        div_cycles: 0,
+        last_div_cycle: 0,
+        timer_cycles: 0,
+        last_timer_cycle: 0,
+        needed_cycles: 0,
+    }
+}
 
-        if timer_enabled {
+pub fn timer_cycle(timer_state: &mut TimerState, cycles: u32, memory: &(Sender<MemoryAccess>, Receiver<u8>)) {
 
-            let cycles = cpu_cycles.recv().unwrap();
+    let tac_value = memory_read(0xFF07, &memory);
+    let timer_enabled = utils::check_bit(tac_value, 2);
+    let mut current_state = timer_state;
+
+    if timer_enabled {
             
-            needed_cycles = get_frequency(tac_value);
-            timer_cycles += cycles;
-            div_cycles += cycles;
+        current_state.needed_cycles = get_frequency(tac_value);
+        current_state.timer_cycles += cycles;
+        current_state.div_cycles += cycles;
 
-            if div_cycles - last_div_cycle >= 256 {
+        if current_state.div_cycles - current_state.last_div_cycle >= 256 {
 
-                let div_value = memory_read(0xFF04, &memory);
-                let new_value = div_value.overflowing_add(1);
-                memory_write(new_value.0, 0xFF04, &memory);
-                last_div_cycle = div_cycles;
-                if new_value.1 {
-                    div_cycles = 0;
-                    last_div_cycle = 0;
-                }
-            }
-
-            if timer_cycles - last_cycle >= needed_cycles as u32 {
-
-                let tima_value = memory_read(0xFF05, &memory);
-                let new_value = tima_value.overflowing_add(1);
-
-                if new_value.1 {
-                    
-                    let if_value = memory_read(0xFF0F, &memory);
-                    let modulo_value = memory_read(0xFF06, &memory);
-                    memory_write(modulo_value, 0xFF05, &memory);
-                    memory_write(utils::set_bit_u8(if_value, 2), 0xFF0F, &memory);
-                    timer_cycles = 0;
-                }
-                else {
-                    memory_write(new_value.0, 0xFF05, &memory);
-                    timer_cycles = 0;
-                }
-
-                last_cycle = timer_cycles;
+            let div_value = memory_read(0xFF04, &memory);
+            let new_value = div_value.overflowing_add(1);
+            memory_write(new_value.0, 0xFF04, &memory);
+            current_state.last_div_cycle = current_state.div_cycles;
+            if new_value.1 {
+                current_state.div_cycles = 0;
+                current_state.last_div_cycle = 0;
             }
         }
-        else {
-            thread::sleep(Duration::from_millis(1));
+
+        if current_state.timer_cycles - current_state.last_timer_cycle >= current_state.needed_cycles as u32 {
+
+            let tima_value = memory_read(0xFF05, &memory);
+            let new_value = tima_value.overflowing_add(1);
+
+            if new_value.1 {
+                    
+                let if_value = memory_read(0xFF0F, &memory);
+                let modulo_value = memory_read(0xFF06, &memory);
+                memory_write(modulo_value, 0xFF05, &memory);
+                memory_write(utils::set_bit_u8(if_value, 2), 0xFF0F, &memory);
+                current_state.timer_cycles = 0;
+            }
+            else {
+                memory_write(new_value.0, 0xFF05, &memory);
+                current_state.timer_cycles = 0;
+            }
+
+            current_state.last_timer_cycle = current_state.timer_cycles;
         }
     }
 }

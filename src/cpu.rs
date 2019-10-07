@@ -3,7 +3,7 @@ use std::sync::mpsc::{Sender, Receiver};
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::memory::{MemoryOp, MemoryAccess};
-use super::{utils, opcodes, opcodes_prefixed};
+use super::{timer, utils, opcodes, opcodes_prefixed};
 use super::register::{CpuReg, Register, Pc, PcTrait, Cycles, CycleCounter};
 
 
@@ -83,10 +83,11 @@ pub fn init_cpu() -> CpuState {
     initial_state
 }
 
-pub fn exec_loop(cycles_tx: Sender<u32>, timer_tx: Sender<u32>, memory: (Sender<MemoryAccess>, Receiver<u8>)) {
+pub fn exec_loop(cycles_tx: Sender<u32>, timer: (Sender<MemoryAccess>, Receiver<u8>), memory: (Sender<MemoryAccess>, Receiver<u8>)) {
 
     let current_memory = (memory.0, memory.1);
     let mut current_state = init_cpu();
+    let mut timer_state = timer::init_timer();
 
     loop {
 
@@ -134,7 +135,7 @@ pub fn exec_loop(cycles_tx: Sender<u32>, timer_tx: Sender<u32>, memory: (Sender<
         }
 
         cycles_tx.send(current_state.cycles.get()).unwrap();
-        timer_tx.send(current_state.cycles.get()).unwrap();
+        timer::timer_cycle(&mut timer_state, current_state.cycles.get(), &timer);
     }
 }
 

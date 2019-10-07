@@ -11,7 +11,6 @@ use log::error;
 
 use super::cpu;
 use super::gpu;
-use super::timer;
 use super::memory::start_memory;
 
 pub struct Cart {
@@ -63,7 +62,6 @@ fn execution_loop() {
     let rom_data = get_roms_data();
 
     let (cycles_tx, cycles_rx) = mpsc::channel();
-    let (timer_cycles_tx, timer_cycles_rx) = mpsc::channel();
     let (mem_init_tx, mem_init_rx) = mpsc::channel();
     let (input_tx, input_rx) = mpsc::channel();
 
@@ -77,15 +75,11 @@ fn execution_loop() {
     let timer_channels = mem_channels.timer;
 
     let _cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        cpu::exec_loop(cycles_tx, timer_cycles_tx, cpu_channels);
+        cpu::exec_loop(cycles_tx, timer_channels, cpu_channels);
     }).unwrap();
 
     let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
         gpu::start_gpu(cycles_rx, gpu_channels, input_tx);
-    }).unwrap();
-
-    let _timer_thread = thread::Builder::new().name("timer_thread".to_string()).spawn(move || {
-        timer::timer_loop(timer_cycles_rx, timer_channels);
     }).unwrap();
 
     loop {
