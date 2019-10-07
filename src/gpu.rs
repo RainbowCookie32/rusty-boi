@@ -131,12 +131,12 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
                             current_state.mode = 3;
                             
                             if utils::check_bit(stat_value, 5) {
-                                if_value = utils::set_bit_u8(if_value, 2);
+                                if_value = utils::set_bit(if_value, 2);
                                 memory_write(if_value, 0xFF0F, &current_memory);
                             }
 
-                            stat_value = utils::set_bit_u8(stat_value, 1);
-                            stat_value = utils::reset_bit_u8(stat_value, 0);
+                            stat_value = utils::set_bit(stat_value, 1);
+                            stat_value = utils::reset_bit(stat_value, 0);
                             memory_write(stat_value, 0xFF41, &current_memory);
                         }
                     }
@@ -149,8 +149,8 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
                             current_state.mode_clock = 0;
                             current_state.mode = 0;
 
-                            stat_value = utils::set_bit_u8(stat_value, 1);
-                            stat_value = utils::set_bit_u8(stat_value, 0);
+                            stat_value = utils::set_bit(stat_value, 1);
+                            stat_value = utils::set_bit(stat_value, 0);
                             memory_write(stat_value, 0xFF41, &current_memory);
 
                             if current_state.tiles_dirty {
@@ -177,12 +177,12 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
                             memory_write(current_state.line, 0xFF44, &current_memory);
                             
                             if utils::check_bit(stat_value, 3) {
-                                if_value = utils::set_bit_u8(if_value, 2);
+                                if_value = utils::set_bit(if_value, 2);
                                 memory_write(if_value, 0xFF0F, &current_memory);
                             }
 
-                            stat_value = utils::reset_bit_u8(stat_value, 1);
-                            stat_value = utils::reset_bit_u8(stat_value, 0);
+                            stat_value = utils::reset_bit(stat_value, 1);
+                            stat_value = utils::reset_bit(stat_value, 0);
                             memory_write(stat_value, 0xFF41, &current_memory);
 
                             if current_state.all_tiles.len() >= 128 && current_state.background_points.len() >= 65536
@@ -209,11 +209,11 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
                             current_state.line += 1;
                             memory_write(current_state.line, 0xFF44, &current_memory);
                             
-                            if_value = utils::set_bit_u8(if_value, 0);
+                            if_value = utils::set_bit(if_value, 0);
                             memory_write(if_value, 0xFF0F, &current_memory);
 
-                            stat_value = utils::reset_bit_u8(stat_value, 1);
-                            stat_value = utils::set_bit_u8(stat_value, 0);
+                            stat_value = utils::reset_bit(stat_value, 1);
+                            stat_value = utils::set_bit(stat_value, 0);
                             memory_write(stat_value, 0xFF41, &current_memory);
 
                             if current_state.line == 154 {

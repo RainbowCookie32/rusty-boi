@@ -6,10 +6,11 @@ use super::emulator::Cart;
 
 use log::{info, warn};
 
+
 pub struct Memory {
 
     pub loaded_bootrom: Vec<u8>,
-    pub loaded_rom: Cart,
+    pub loaded_cart: Cart,
     pub selected_bank: u8,
 
     pub ram: Vec<u8>,
@@ -80,7 +81,7 @@ pub fn start_memory(data: (Vec<u8>, Cart), sender: Sender<ThreadComms>) {
     let initial_memory = Memory {
 
         loaded_bootrom: data.0,
-        loaded_rom: data.1,
+        loaded_cart: data.1,
         selected_bank: 1,
 
         ram: vec![0; 8192],
@@ -210,7 +211,7 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     {
         let memory_addr: usize = address.try_into().unwrap();
         if memory.bootrom_finished {
-            memory.loaded_rom.rom_banks[0][memory_addr]
+            memory.loaded_cart.rom_banks[0][memory_addr]
         }
         else {
             memory.loaded_bootrom[memory_addr]
@@ -219,12 +220,12 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     else if address >= 0x0100 && address <= 0x3FFF
     {
         let memory_addr: usize = address.try_into().unwrap();
-        memory.loaded_rom.rom_banks[0][memory_addr]
+        memory.loaded_cart.rom_banks[0][memory_addr]
     }
     else if address >= 0x4000 && address <= 0x7FFF
     {
         let memory_addr: usize = (addr - 0x4000).try_into().unwrap();
-        memory.loaded_rom.rom_banks[memory.selected_bank as usize][memory_addr]
+        memory.loaded_cart.rom_banks[memory.selected_bank as usize][memory_addr]
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
@@ -238,9 +239,9 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else if address >= 0xA000 && address <= 0xBFFF 
     {
-        if memory.loaded_rom.has_ram {
+        if memory.loaded_cart.has_ram {
             let memory_addr: usize = (addr - 0xA000).try_into().unwrap();
-            memory.loaded_rom.cart_ram[memory_addr]
+            memory.loaded_cart.cart_ram[memory_addr]
         }
         else {
             info!("Memory: Cart has no external RAM, returning 0.");
@@ -312,9 +313,9 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     }
     else if address >= 0xA000 && address <= 0xBFFF 
     {
-        if memory.loaded_rom.has_ram {
+        if memory.loaded_cart.has_ram {
             let memory_addr: usize = (address - 0xA000).try_into().unwrap();
-            memory.loaded_rom.cart_ram[memory_addr] = value;
+            memory.loaded_cart.cart_ram[memory_addr] = value;
         }
         else {
             info!("Memory: Cart has no external RAM, ignoring write.");

@@ -61,7 +61,7 @@ pub fn timer_cycle(timer_state: &mut TimerState, cycles: u32, memory: &(Sender<M
                 let if_value = memory_read(0xFF0F, &memory);
                 let modulo_value = memory_read(0xFF06, &memory);
                 memory_write(modulo_value, 0xFF05, &memory);
-                memory_write(utils::set_bit_u8(if_value, 2), 0xFF0F, &memory);
+                memory_write(utils::set_bit(if_value, 2), 0xFF0F, &memory);
                 current_state.timer_cycles = 0;
             }
             else {

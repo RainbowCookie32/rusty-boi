@@ -562,8 +562,8 @@ fn sra(af: &mut CpuReg, value: u8) -> u8 {
     let shifted_bit = utils::check_bit(value, 0);
     let msb = utils::check_bit(value, 7);
     let mut result = value >> 1;
-    if msb {result = utils::set_bit_u8(result, 7)}
-    else {result = utils::reset_bit_u8(result, 7)}
+    if msb {result = utils::set_bit(result, 7)}
+    else {result = utils::reset_bit(result, 7)}
     
     utils::set_zf(result == 0, af);
     utils::set_nf(false, af);
@@ -747,7 +747,7 @@ fn bit_hl(checked_bit: u8, af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sen
 // RES opcodes
 
 fn res(value: u8, bit: u8) -> u8 {
-    utils::reset_bit_u8(value, bit)
+    utils::reset_bit(value, bit)
 }
 
 fn res_lb(reg: &mut CpuReg, bit: u8) -> (u16, u32) {
@@ -776,7 +776,7 @@ fn res_hl(bit: u8, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::
 // SET opcodes
 
 fn set(value: u8, bit: u8) -> u8 {
-    utils::set_bit_u8(value, bit)
+    utils::set_bit(value, bit)
 }
 
 fn set_lb(reg: &mut CpuReg, bit: u8) -> (u16, u32) {

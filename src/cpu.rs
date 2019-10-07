@@ -155,7 +155,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess
     if vblank_interrupt {
 
         if current_state.interrupts.can_interrupt {
-            if_value = utils::reset_bit_u8(if_value, 0);
+            if_value = utils::reset_bit(if_value, 0);
             memory_write(&0xFF0F, if_value, &memory.0);
             stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
             current_state.pc.set(0x0040);
@@ -165,7 +165,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess
     else if lcdc_interrupt {
         
         if current_state.interrupts.can_interrupt {
-            if_value = utils::reset_bit_u8(if_value, 1);
+            if_value = utils::reset_bit(if_value, 1);
             memory_write(&0xFF0F, if_value, &memory.0);
             stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
             current_state.pc.set(0x0048);
@@ -175,7 +175,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess
     else if timer_interrupt {
         
         if current_state.interrupts.can_interrupt {
-            if_value = utils::reset_bit_u8(if_value, 2);
+            if_value = utils::reset_bit(if_value, 2);
             memory_write(&0xFF0F, if_value, &memory.0);
             stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
             current_state.pc.set(0x0050);
@@ -185,7 +185,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess
     else if serial_interrupt {
         
         if current_state.interrupts.can_interrupt {
-            if_value = utils::reset_bit_u8(if_value, 3);
+            if_value = utils::reset_bit(if_value, 3);
             memory_write(&0xFF0F, if_value, &memory.0);
             stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
             current_state.pc.set(0x0058);
@@ -195,7 +195,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess
     else if input_interrupt {
         
         if current_state.interrupts.can_interrupt {
-            if_value = utils::reset_bit_u8(if_value, 4);
+            if_value = utils::reset_bit(if_value, 4);
             memory_write(&0xFF0F, if_value, &memory.0);
             stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
             current_state.pc.set(0x0060);
