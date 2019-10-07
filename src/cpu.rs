@@ -42,7 +42,6 @@ pub struct InterruptState {
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum CycleResult {
 
-    UnimplementedOp,
     NopFlood,
     InvalidOp,
     Stop,
@@ -129,7 +128,7 @@ pub fn exec_loop(cycles_tx: Sender<u32>, timer_tx: Sender<u32>, memory: (Sender<
             current_state.halt_bug = true;
         }
 
-        if current_state.last_result == CycleResult::InvalidOp || current_state.last_result == CycleResult::UnimplementedOp {
+        if current_state.last_result == CycleResult::InvalidOp || current_state.last_result == CycleResult::NopFlood {
             error!("CPU: Breaking execution, last state was {:#?}", current_state.last_result);
             break;
         }
