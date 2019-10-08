@@ -1,5 +1,6 @@
-use log::{info, error};
 use std::sync::mpsc::{Sender, Receiver};
+
+use log::{info, error};
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::memory::{MemoryOp, MemoryAccess};
@@ -83,7 +84,7 @@ pub fn init_cpu() -> CpuState {
     initial_state
 }
 
-pub fn exec_loop(cycles_tx: Sender<u32>, timer: (Sender<MemoryAccess>, Receiver<u8>), memory: (Sender<MemoryAccess>, Receiver<u8>)) {
+pub fn exec_loop(cycles_tx: Sender<u16>, timer: (Sender<MemoryAccess>, Receiver<u8>), memory: (Sender<MemoryAccess>, Receiver<u8>)) {
 
     let current_memory = (memory.0, memory.1);
     let mut current_state = init_cpu();
@@ -91,8 +92,10 @@ pub fn exec_loop(cycles_tx: Sender<u32>, timer: (Sender<MemoryAccess>, Receiver<
 
     loop {
 
+        if current_state.cycles.get() > 200 {current_state.cycles.set(0)}
+        
         handle_interrupts(&mut current_state, &current_memory);
-        let mut opcode = memory_read_u8(&current_state.pc.get(), &current_memory);
+        let mut opcode = memory_read_u8(current_state.pc.get(), &current_memory);
 
         if !current_state.halted {
             
@@ -102,7 +105,7 @@ pub fn exec_loop(cycles_tx: Sender<u32>, timer: (Sender<MemoryAccess>, Receiver<
             }
         
             if opcode == 0xCB {
-                opcode = memory_read_u8(&(current_state.pc.get() + 1), &current_memory);
+                opcode = memory_read_u8(current_state.pc.get() + 1, &current_memory);
                 current_state.last_result = opcodes_prefixed::run_prefixed_instruction(&mut current_state, &current_memory, opcode);
             }
             else {
@@ -117,7 +120,6 @@ pub fn exec_loop(cycles_tx: Sender<u32>, timer: (Sender<MemoryAccess>, Receiver<
             }
             else if current_state.last_result == CycleResult::Stop {
                 current_state.stopped = true;
-                // Ugly, hacky, everything qualifies here probably.
                 // TODO: Since the GPU implementation depends on the display to be enabled
                 // to work, disabling it should do the job as well. Should get a more
                 // elegant solution eventually.
@@ -141,10 +143,10 @@ pub fn exec_loop(cycles_tx: Sender<u32>, timer: (Sender<MemoryAccess>, Receiver<
 
 fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess>, Receiver<u8>)) {
 
-    let ie_value = memory_read_u8(&0xFFFF, memory);
+    let ie_value = memory_read_u8(0xFFFF, memory);
     update_interrupts(ie_value, &mut current_state.interrupts);
 
-    let mut if_value = memory_read_u8(&0xFF0F, memory);
+    let mut if_value = memory_read_u8(0xFF0F, memory);
 
     let vblank_interrupt = utils::check_bit(if_value, 0) && current_state.interrupts.vblank_enabled;
     let lcdc_interrupt = utils::check_bit(if_value, 1) && current_state.interrupts.lcdc_enabled;
@@ -204,11 +206,25 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess
     }
 }
 
-pub fn memory_read_u8(addr: &u16, memory: &(Sender<MemoryAccess>, Receiver<u8>)) -> u8 {
+pub fn toggle_interrupts(state: &mut CpuState, value: bool) {
+
+    state.interrupts.can_interrupt = value;
+}
+
+fn update_interrupts(new_value: u8, interrupts: &mut InterruptState) {
+
+    interrupts.vblank_enabled = utils::check_bit(new_value, 0);
+    interrupts.lcdc_enabled = utils::check_bit(new_value, 1);
+    interrupts.timer_enabled = utils::check_bit(new_value, 2);
+    interrupts.serial_enabled = utils::check_bit(new_value, 3);
+    interrupts.input_enabled = utils::check_bit(new_value, 4);
+}
+
+pub fn memory_read_u8(addr: u16, memory: &(Sender<MemoryAccess>, Receiver<u8>)) -> u8 {
 
     let mem_request = MemoryAccess {
         operation: MemoryOp::Read,
-        address: *addr,
+        address: addr,
         value: 0,
     };
     
@@ -307,18 +323,4 @@ pub fn stack_write(sp: &mut CpuReg, value: u16, memory: &Sender<MemoryAccess>) {
 
     mem_request.value = utils::get_rb(value);
     memory.send(mem_request).unwrap();
-}
-
-pub fn toggle_interrupts(state: &mut CpuState, value: bool) {
-
-    state.interrupts.can_interrupt = value;
-}
-
-fn update_interrupts(new_value: u8, interrupts: &mut InterruptState) {
-
-    interrupts.vblank_enabled = utils::check_bit(new_value, 0);
-    interrupts.lcdc_enabled = utils::check_bit(new_value, 1);
-    interrupts.timer_enabled = utils::check_bit(new_value, 2);
-    interrupts.serial_enabled = utils::check_bit(new_value, 3);
-    interrupts.input_enabled = utils::check_bit(new_value, 4);
 }

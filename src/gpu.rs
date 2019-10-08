@@ -1,4 +1,5 @@
 use std::thread;
+use std::ops::Neg;
 use std::sync::mpsc::{Sender, Receiver};
 
 use log::info;
@@ -29,7 +30,7 @@ pub struct BGPoint {
 pub struct GpuState {
 
     pub mode: u8,
-    pub mode_clock: u32,
+    pub mode_clock: u16,
     pub line: u8,
     pub all_tiles: Vec<Tile>,
     pub background_points: Vec<BGPoint>,
@@ -38,7 +39,7 @@ pub struct GpuState {
     pub tiles_dirty: bool,
 }
 
-pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>), input: Sender<InputEvent>) {
+pub fn start_gpu(cpu_cycles: Receiver<u16>, memory: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>), input: Sender<InputEvent>) {
 
     let initial_state = GpuState {
         mode: 0,
@@ -236,15 +237,10 @@ pub fn start_gpu(cpu_cycles: Receiver<u32>, memory: (Sender<MemoryAccess>, Recei
 
 fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>)) {
 
-    let scroll_x = memory_read(0xFF43, memory) as i32;
-    let scroll_y = memory_read(0xFF42, memory) as i32;
+    let scroll_x = (memory_read(0xFF43, memory) as i32).neg();
+    let scroll_y = (memory_read(0xFF42, memory) as i32).neg();
     let mut point_idx: u16 = 0;
     let mut drawn_pixels: u16 = 0;
-
-    // Substracting the scroll value by itself * 2 it's an ugly way to get the same value, but in negative.
-    // That way we can make offset() to substract from the target coordinates instead of adding.
-    let final_sx = scroll_x - (scroll_x * 2);
-    let final_sy = scroll_y - (scroll_y * 2);
 
     // Index offset for the points array in case the current line is not 0.
     if state.line > 0 {
@@ -255,7 +251,7 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Sender<Memo
     while drawn_pixels < 256 {
 
         let current_point = &state.background_points[point_idx as usize];
-        let final_point = current_point.point.offset(final_sx, final_sy);
+        let final_point = current_point.point.offset(scroll_x, scroll_y);
 
         canvas.set_draw_color(current_point.color);
         canvas.draw_point(final_point).unwrap();
@@ -306,7 +302,7 @@ fn make_tile(bytes: &Vec<u8>) -> Tile {
 
         // If both bytes are zero, then we won't have colors since all bits will be 0.
         // Just skip checking them if that's the case and move on to the next ones.
-        if tile_bytes[0] == 0 && tile_bytes[1] == 0 {
+        if false /*tile_bytes[0] == 0 && tile_bytes[1] == 0*/ {
             generated_colors += 8;
             color_index += 8;
         }

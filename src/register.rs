@@ -9,7 +9,7 @@ pub struct Pc {
 }
 
 pub struct Cycles {
-    pub value: u32,
+    pub value: u16,
 }
 
 pub trait Register {
@@ -47,8 +47,9 @@ pub trait PcTrait {
 
 pub trait CycleCounter {
 
-    fn add(&mut self, value: u32);
-    fn get(&self) -> u32;
+    fn add(&mut self, value: u16);
+    fn get(&self) -> u16;
+    fn set(&mut self, value: u16);
 }
 
 impl Register for CpuReg {
@@ -155,11 +156,15 @@ impl PcTrait for Pc {
 
 impl CycleCounter for Cycles {
 
-    fn add(&mut self, value: u32) {
+    fn add(&mut self, value: u16) {
         self.value += value;
     }
 
-    fn get(&self) -> u32 {
+    fn get(&self) -> u16 {
         self.value
+    }
+
+    fn set(&mut self, value: u16) {
+        self.value = value;
     }
 }

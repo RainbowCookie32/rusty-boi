@@ -8,11 +8,11 @@ use super::memory::MemoryAccess;
 
 pub struct TimerState {
 
-    div_cycles: u32,
-    last_div_cycle: u32,
+    div_cycles: u16,
+    last_div_cycle: u16,
 
-    timer_cycles: u32,
-    last_timer_cycle: u32,
+    timer_cycles: u16,
+    last_timer_cycle: u16,
     needed_cycles: u16,
 }
 
@@ -27,7 +27,7 @@ pub fn init_timer() -> TimerState {
     }
 }
 
-pub fn timer_cycle(timer_state: &mut TimerState, cycles: u32, memory: &(Sender<MemoryAccess>, Receiver<u8>)) {
+pub fn timer_cycle(timer_state: &mut TimerState, cycles: u16, memory: &(Sender<MemoryAccess>, Receiver<u8>)) {
 
     let tac_value = memory_read(0xFF07, &memory);
     let timer_enabled = utils::check_bit(tac_value, 2);
@@ -51,7 +51,7 @@ pub fn timer_cycle(timer_state: &mut TimerState, cycles: u32, memory: &(Sender<M
             }
         }
 
-        if current_state.timer_cycles - current_state.last_timer_cycle >= current_state.needed_cycles as u32 {
+        if current_state.timer_cycles - current_state.last_timer_cycle >= current_state.needed_cycles {
 
             let tima_value = memory_read(0xFF05, &memory);
             let new_value = tima_value.overflowing_add(1);

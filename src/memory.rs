@@ -1,10 +1,9 @@
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
-use std::convert::TryInto;
-
-use super::emulator::Cart;
 
 use log::{info, warn};
+
+use super::emulator::Cart;
 
 
 pub struct Memory {
@@ -143,7 +142,7 @@ fn handle_cpu_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &
     
     match request.operation {
         MemoryOp::Read => {
-            result_value = memory_read(&request.address, current_memory);
+            result_value = memory_read(request.address, current_memory);
             tx.send(result_value).unwrap();
         },
         MemoryOp::Write => {
@@ -168,7 +167,7 @@ fn handle_gpu_request(request: &MemoryAccess, tx: &Sender<GpuResponse>, current_
     match request.operation {
         MemoryOp::Read => {
 
-            result_value = memory_read(&request.address, current_memory);
+            result_value = memory_read(request.address, current_memory);
             
             let response = GpuResponse {
                 tiles_dirty: current_memory.tiles_dirty,
@@ -191,7 +190,7 @@ fn handle_timer_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory:
     
     match request.operation {
         MemoryOp::Read => {
-            result_value = memory_read(&request.address, current_memory);
+            result_value = memory_read(request.address, current_memory);
             tx.send(result_value).unwrap();
         },
         MemoryOp::Write => {
@@ -203,45 +202,37 @@ fn handle_timer_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory:
     }
 }
 
-pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
-
-    let address: u16 = *addr;
+pub fn memory_read(address: u16, memory: &Memory) -> u8 {
 
     if address < 0x0100 
     {
-        let memory_addr: usize = address.try_into().unwrap();
         if memory.bootrom_finished {
-            memory.loaded_cart.rom_banks[0][memory_addr]
+            memory.loaded_cart.rom_banks[0][address as usize]
         }
         else {
-            memory.loaded_bootrom[memory_addr]
+            memory.loaded_bootrom[address as usize]
         }
     }
     else if address >= 0x0100 && address <= 0x3FFF
     {
-        let memory_addr: usize = address.try_into().unwrap();
-        memory.loaded_cart.rom_banks[0][memory_addr]
+        memory.loaded_cart.rom_banks[0][address as usize]
     }
     else if address >= 0x4000 && address <= 0x7FFF
     {
-        let memory_addr: usize = (addr - 0x4000).try_into().unwrap();
-        memory.loaded_cart.rom_banks[memory.selected_bank as usize][memory_addr]
+        memory.loaded_cart.rom_banks[memory.selected_bank as usize][(address - 0x4000) as usize]
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
-        let memory_addr: usize = (addr - 0x8000).try_into().unwrap();
-        memory.char_ram[memory_addr]
+        memory.char_ram[(address - 0x8000) as usize]
     }
     else if address >= 0x9800 && address <= 0x9FFF
     {
-        let memory_addr: usize = (addr - 0x9800).try_into().unwrap();
-        memory.bg_map[memory_addr]
+        memory.bg_map[(address - 0x9800) as usize]
     }
     else if address >= 0xA000 && address <= 0xBFFF 
     {
         if memory.loaded_cart.has_ram {
-            let memory_addr: usize = (addr - 0xA000).try_into().unwrap();
-            memory.loaded_cart.cart_ram[memory_addr]
+            memory.loaded_cart.cart_ram[(address - 0xA000) as usize]
         }
         else {
             info!("Memory: Cart has no external RAM, returning 0.");
@@ -250,18 +241,15 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else if address >= 0xC000 && address <= 0xDFFF
     {
-        let memory_addr: usize = (address - 0xC000).try_into().unwrap();
-        memory.ram[memory_addr]
+        memory.ram[(address - 0xC000) as usize]
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
-        let memory_addr: usize = (address - 0xE000).try_into().unwrap();
-        memory.echo_ram[memory_addr]
+        memory.echo_ram[(address - 0xE000) as usize]
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
-        let memory_addr: usize = (address - 0xFE00).try_into().unwrap();
-        memory.oam_mem[memory_addr]
+        memory.oam_mem[(address - 0xFE00) as usize]
     }
     else if address >= 0xFEA0 && address <= 0xFEFF
     {
@@ -270,13 +258,11 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else if address >= 0xFF00 && address <= 0xFF7F
     {
-        let memory_addr: usize = (address - 0xFF00).try_into().unwrap();
-        memory.io_regs[memory_addr]
+        memory.io_regs[(address - 0xFF00) as usize]
     }
     else if address >= 0xFF80 && address <= 0xFFFE
     {
-        let memory_addr: usize = (address - 0xFF80).try_into().unwrap();
-        memory.hram[memory_addr]
+        memory.hram[(address - 0xFF80) as usize]
     }
     else if address == 0xFFFF
     {
@@ -284,7 +270,7 @@ pub fn memory_read(addr: &u16, memory: &Memory) -> u8 {
     }
     else
     {
-        panic!("Invalid or unimplemented read at {}", format!("{:#X}", addr));
+        panic!("Invalid or unimplemented read at {}", format!("{:#X}", address));
     }
 }
 
@@ -297,25 +283,18 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
-        let memory_addr: usize = (address - 0x8000).try_into().unwrap();
-        // A simple check that avoids marking tiles as dirty if the old value is the same as the new one.
-        // The best example here is the bootrom's first loop that zeroes VRAM. Both the initial value and the new one are 0.
-        // Regenerating caches there is useless.
-        memory.tiles_dirty = check_write(&memory.char_ram[memory_addr], &value);
-        memory.char_ram[memory_addr] = value;
+        memory.tiles_dirty = check_write(&memory.char_ram[(address - 0x8000) as usize], &value);
+        memory.char_ram[(address - 0x8000) as usize] = value;
     }
     else if address >= 0x9800 && address <= 0x9FFF
     {
-        let memory_addr: usize = (address - 0x9800).try_into().unwrap();
-        // A simple check that avoids marking the background as dirty if the old value is the same as the new one.
-        memory.background_dirty = check_write(&memory.bg_map[memory_addr], &value);
-        memory.bg_map[memory_addr] = value;
+        memory.background_dirty = check_write(&memory.bg_map[(address - 0x9800) as usize], &value);
+        memory.bg_map[(address - 0x9800) as usize] = value;
     }
     else if address >= 0xA000 && address <= 0xBFFF 
     {
         if memory.loaded_cart.has_ram {
-            let memory_addr: usize = (address - 0xA000).try_into().unwrap();
-            memory.loaded_cart.cart_ram[memory_addr] = value;
+            memory.loaded_cart.cart_ram[(address - 0xA000) as usize] = value;
         }
         else {
             info!("Memory: Cart has no external RAM, ignoring write.");
@@ -323,21 +302,18 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     }
     else if address >= 0xC000 && address <= 0xDFFF
     {
-        let memory_addr: usize = (address - 0xC000).try_into().unwrap();
-        memory.ram[memory_addr] = value;
-        memory.echo_ram[memory_addr] = value;
+        memory.ram[(address - 0xC000) as usize] = value;
+        memory.echo_ram[(address - 0xC000) as usize] = value;
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
         warn!("Memory: Write to echo ram. Address {}, value {}.", format!("{:#X}", address), format!("{:#X}", value));
-        let memory_addr: usize = (address - 0xE000).try_into().unwrap();
-        memory.ram[memory_addr] = value;
-        memory.echo_ram[memory_addr] = value;
+        memory.ram[(address - 0xE000) as usize] = value;
+        memory.echo_ram[(address - 0xE000) as usize] = value;
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
-        let memory_addr: usize = (address - 0xFE00).try_into().unwrap();
-        memory.oam_mem[memory_addr] = value;
+        memory.oam_mem[(address - 0xFE00) as usize] = value;
     }
     else if address >= 0xFEA0 && address <= 0xFEFF
     {
@@ -345,7 +321,8 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
     }
     else if address >= 0xFF00 && address <= 0xFF7F
     {
-        let memory_addr: usize = (address - 0xFF00).try_into().unwrap();
+        // Basically here to print the output of blargg's tests.
+        // Holds the values stored in FF01 until a line break, then prints them.
         if address == 0xFF01 {
             if value == 0xA {
 
@@ -363,12 +340,11 @@ pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
                 memory.serial_buffer.push(value);
             }
         }
-        memory.io_regs[memory_addr] = value;
+        memory.io_regs[(address - 0xFF00) as usize] = value;
     }
     else if address >= 0xFF80 && address <= 0xFFFE 
     {
-        let memory_addr: usize = (address - 0xFF80).try_into().unwrap();
-        memory.hram[memory_addr] = value;
+        memory.hram[(address - 0xFF80) as usize] = value;
     }
     else if address == 0xFFFF
     {
