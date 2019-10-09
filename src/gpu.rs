@@ -150,6 +150,7 @@ pub fn start_gpu(cpu_cycles: Receiver<u16>, memory: (Sender<MemoryAccess>, Recei
                         if current_state.tiles_dirty {
                             make_tiles(&current_memory, &mut current_state);
                             current_state.tiles_dirty = false;
+                            current_state.bg_dirty = true;
                         }
 
                         if current_state.bg_dirty {
