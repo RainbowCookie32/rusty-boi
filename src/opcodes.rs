@@ -152,7 +152,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x73 => instruction_finished(save_low_to_hl(&mut current_state.de, &mut current_state.hl, memory), current_state),
         0x74 => instruction_finished(save_h_to_hl(&mut current_state.hl, memory), current_state),
         0x75 => instruction_finished(save_l_to_hl(&mut current_state.hl, memory), current_state),
-        0x76 => result = halt(current_state),
+        0x76 => result = halt(current_state, memory),
         0x77 => instruction_finished(save_hi_to_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x78 => instruction_finished(ld_hi_into_hi(&mut current_state.af, &mut current_state.bc), current_state),
         0x79 => instruction_finished(ld_low_into_hi(&mut current_state.af, &mut current_state.bc), current_state),
@@ -307,6 +307,7 @@ fn instruction_finished(values: (u16, u16), state: &mut CpuState) {
 
     if state.halt_bug {
         state.cycles.add(values.1);
+        state.halt_bug = false;
     }
     else {
         state.pc.add(values.0); state.cycles.add(values.1);
@@ -361,10 +362,11 @@ fn daa(af: &mut CpuReg) -> (u16, u16) {
 
 // HALT and STOP
 
-fn halt(current_state: &mut CpuState) -> CycleResult {
+fn halt(current_state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> CycleResult {
 
     current_state.pc.add(1);
     current_state.cycles.add(4);
+    current_state.halt_bug = cpu::memory_read_u8(0xFF0F, memory) != 0 && !current_state.interrupts.can_interrupt;
     CycleResult::Halt
 }
 
@@ -783,7 +785,7 @@ fn increment_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<Memo
     let result = value.overflowing_add(1);
     let half_carry = (result.0 & 0x0F) == 0;
     cpu::memory_write(&hl.get_register(), result.0, &memory.0);
-    utils::set_zf(result.1, af); utils::set_nf(false, af);
+    utils::set_zf(result.0 == 0, af); utils::set_nf(false, af);
     utils::set_hf(half_carry, af);
     (1, 12)
 }
