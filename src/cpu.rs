@@ -3,6 +3,7 @@ use std::sync::mpsc::{Sender, Receiver};
 use log::{info, error};
 use byteorder::{ByteOrder, LittleEndian};
 
+use super::emulator::InputEvent;
 use super::memory::{MemoryOp, MemoryAccess};
 use super::{timer, utils, opcodes, opcodes_prefixed};
 use super::register::{CpuReg, Register, Pc, PcTrait, Cycles, CycleCounter};
@@ -84,7 +85,7 @@ pub fn init_cpu() -> CpuState {
     initial_state
 }
 
-pub fn exec_loop(cycles_tx: Sender<u16>, timer: (Sender<MemoryAccess>, Receiver<u8>), memory: (Sender<MemoryAccess>, Receiver<u8>)) {
+pub fn exec_loop(cycles_tx: Sender<u16>, timer: (Sender<MemoryAccess>, Receiver<u8>), input: Receiver<InputEvent>, memory: (Sender<MemoryAccess>, Receiver<u8>)) {
 
     let current_memory = (memory.0, memory.1);
     let mut current_state = init_cpu();
@@ -125,10 +126,6 @@ pub fn exec_loop(cycles_tx: Sender<u16>, timer: (Sender<MemoryAccess>, Receiver<
                 // elegant solution eventually.
                 memory_write(&0xFF40, 0, &current_memory.0);
             }
-            current_state.halt_bug = false;
-        }
-        else {
-            current_state.halt_bug = true;
         }
 
         if current_state.last_result == CycleResult::InvalidOp || current_state.last_result == CycleResult::NopFlood {
@@ -138,7 +135,80 @@ pub fn exec_loop(cycles_tx: Sender<u16>, timer: (Sender<MemoryAccess>, Receiver<
 
         cycles_tx.send(current_state.cycles.get()).unwrap();
         timer::timer_cycle(&mut timer_state, current_state.cycles.get(), &timer);
+        if update_inputs(&input, &current_memory) {break}
     }
+}
+
+fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Sender<MemoryAccess>, Receiver<u8>)) -> bool {
+
+    let received_input: bool;
+    let input_event = input_rx.try_recv();
+
+    let mut should_break = false;
+    let mut received_message = InputEvent::APressed;
+    let mut input_value = memory_read_u8(0xFF00, memory);
+
+    match input_event {
+        Ok(message) => {
+            received_input = true;
+            received_message = message;
+        }
+        Err(_error) => {
+            received_input = false;
+        }
+    }
+
+    if received_input {
+
+        // Not fully sure if it should also trigger an interrupt on release.
+        let mut should_interrupt = false;
+
+        if received_message == InputEvent::Quit {
+            should_break = true;
+        }
+        // Writing 0x10 to FF00 enables the P14 row of buttons.
+        else if input_value == 0x10 {
+
+            match received_message {
+                InputEvent::RightPressed => { input_value = utils::set_bit(input_value, 0); should_interrupt = true; },
+                InputEvent::RightReleased => { input_value = utils::reset_bit(input_value, 0); },
+                InputEvent::LeftPressed => { input_value = utils::set_bit(input_value, 1); should_interrupt = true; },
+                InputEvent::LeftReleased => { input_value = utils::reset_bit(input_value, 1); },
+                InputEvent::UpPressed => { input_value = utils::set_bit(input_value, 2); should_interrupt = true; },
+                InputEvent::UpReleased => { input_value = utils::reset_bit(input_value, 2); },
+                InputEvent::DownPressed => { input_value = utils::set_bit(input_value, 3); should_interrupt = true; },
+                InputEvent::DownReleased => { input_value = utils::reset_bit(input_value, 3); },
+                _ => {}
+            }
+
+        }
+        // Writing 0x20 to FF00 enabled the P15 row.
+        else if input_value == 0x20 {
+
+            match received_message {
+                InputEvent::APressed => { input_value = utils::set_bit(input_value, 0); should_interrupt = true; },
+                InputEvent::AReleased => { input_value = utils::reset_bit(input_value, 0) },
+                InputEvent::BPressed => { input_value = utils::set_bit(input_value, 1); should_interrupt = true; },
+                InputEvent::BReleased => { input_value = utils::reset_bit(input_value, 1) },
+                InputEvent::SelectPressed => { input_value = utils::set_bit(input_value, 2); should_interrupt = true; },
+                InputEvent::SelectReleased => { input_value = utils::reset_bit(input_value, 2) },
+                InputEvent::StartPressed => { input_value = utils::set_bit(input_value, 3); should_interrupt = true; },
+                InputEvent::StartReleased => { input_value = utils::reset_bit(input_value, 3) },
+                _ => {}
+            }
+        }
+
+        memory_write(&0xFF00, input_value, &memory.0);
+        if should_interrupt {
+            let current_if = memory_read_u8(0xFF0F, memory);
+            memory_write(&0xFF0F, utils::set_bit(current_if, 4), &memory.0);
+        }
+    }
+    else {
+        memory_write(&0xFF00, input_value | 0xF, &memory.0);
+    }
+
+    should_break
 }
 
 fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess>, Receiver<u8>)) {

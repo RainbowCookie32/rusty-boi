@@ -3,7 +3,6 @@ use std::thread;
 use std::io::Read;
 use std::fs::File;
 use std::sync::mpsc;
-use std::time::Duration;
 use std::iter::FromIterator;
 
 use log::info;
@@ -24,6 +23,7 @@ pub struct Cart {
     pub has_ram: bool,
 }
 
+#[derive(PartialEq)]
 pub enum InputEvent {
     
     // SDL Quit event.
@@ -74,49 +74,15 @@ fn execution_loop() {
     let gpu_channels = mem_channels.gpu;
     let timer_channels = mem_channels.timer;
 
-    let _cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        cpu::exec_loop(cycles_tx, timer_channels, cpu_channels);
+    let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
+        cpu::exec_loop(cycles_tx, timer_channels, input_rx, cpu_channels);
     }).unwrap();
 
     let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
         gpu::start_gpu(cycles_rx, gpu_channels, input_tx);
     }).unwrap();
 
-    loop {
-
-        let input_event = input_rx.try_recv();
-        let received_message: InputEvent;
-
-        match input_event {
-            Ok(result) => {
-
-                received_message = result;
-                match received_message {
-                    InputEvent::Quit => break,
-                    InputEvent::APressed => { info!("Emu: Pressed A") },
-                    InputEvent::AReleased => { info!("Emu: Released A") },
-                    InputEvent::BPressed => { info!("Emu: Pressed B") },
-                    InputEvent::BReleased => { info!("Emu: Released B") },
-                    InputEvent::UpPressed => { info!("Emu: Pressed Up") },
-                    InputEvent::UpReleased => { info!("Emu: Released Up") },
-                    InputEvent::DownPressed => { info!("Emu: Pressed Down") },
-                    InputEvent::DownReleased => { info!("Emu: Released Down") },
-                    InputEvent::LeftPressed => { info!("Emu: Pressed Left") },
-                    InputEvent::LeftReleased => { info!("Emu: Released Left") },
-                    InputEvent::RightPressed => { info!("Emu: Pressed Right") },
-                    InputEvent::RightReleased => { info!("Emu: Released Right") },
-                    InputEvent::StartPressed => { info!("Emu: Pressed Start") },
-                    InputEvent::StartReleased => { info!("Emu: Released Start") },
-                    InputEvent::SelectPressed => { info!("Emu: Pressed Select") },
-                    InputEvent::SelectReleased => { info!("Emu: Released Select") },
-                }
-            },
-            Err(_error) => {}
-        };
-
-        thread::sleep(Duration::from_millis(5));
-    }
-    
+    cpu_thread.join().unwrap();
     info!("Emu: Stopped emulation.");
 }
 
