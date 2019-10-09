@@ -9,10 +9,7 @@ use super::memory::MemoryAccess;
 pub struct TimerState {
 
     div_cycles: u16,
-    last_div_cycle: u16,
-
     timer_cycles: u16,
-    last_timer_cycle: u16,
     needed_cycles: u16,
 }
 
@@ -20,9 +17,7 @@ pub fn init_timer() -> TimerState {
 
     TimerState {
         div_cycles: 0,
-        last_div_cycle: 0,
         timer_cycles: 0,
-        last_timer_cycle: 0,
         needed_cycles: 0,
     }
 }
@@ -39,22 +34,19 @@ pub fn timer_cycle(timer_state: &mut TimerState, cycles: u16, memory: &(Sender<M
         current_state.timer_cycles += cycles;
         current_state.div_cycles += cycles;
 
-        if current_state.div_cycles - current_state.last_div_cycle >= 256 {
+        if current_state.div_cycles >= 256 {
 
             let div_value = memory_read(0xFF04, &memory);
             let new_value = div_value.overflowing_add(1);
             memory_write(new_value.0, 0xFF04, &memory);
-            current_state.last_div_cycle = current_state.div_cycles;
-            if new_value.1 {
-                current_state.div_cycles = 0;
-                current_state.last_div_cycle = 0;
-            }
+            current_state.div_cycles = 0;
         }
 
-        if current_state.timer_cycles - current_state.last_timer_cycle >= current_state.needed_cycles {
+        if current_state.timer_cycles >= current_state.needed_cycles {
 
             let tima_value = memory_read(0xFF05, &memory);
             let new_value = tima_value.overflowing_add(1);
+            current_state.timer_cycles = 0;
 
             if new_value.1 {
                     
@@ -62,14 +54,10 @@ pub fn timer_cycle(timer_state: &mut TimerState, cycles: u16, memory: &(Sender<M
                 let modulo_value = memory_read(0xFF06, &memory);
                 memory_write(modulo_value, 0xFF05, &memory);
                 memory_write(utils::set_bit(if_value, 2), 0xFF0F, &memory);
-                current_state.timer_cycles = 0;
             }
             else {
                 memory_write(new_value.0, 0xFF05, &memory);
-                current_state.timer_cycles = 0;
             }
-
-            current_state.last_timer_cycle = current_state.timer_cycles;
         }
     }
 }
