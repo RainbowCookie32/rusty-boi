@@ -749,27 +749,27 @@ fn increment_full(reg: &mut CpuReg) -> (u16, u16) {
 
 fn increment_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
 
-    let half_carry = utils::check_bit(reg.get_register_lb(), 3);
-    let overflow = reg.increment_lb();
-    utils::set_zf(overflow, af); utils::set_nf(false, af);
+    reg.increment_lb();
+    let half_carry = (reg.get_register_lb() & 0x0F) == 0;
+    utils::set_zf(reg.get_register_lb() == 0, af); utils::set_nf(false, af);
     utils::set_hf(half_carry, af);
     (1, 4)
 }
 
 fn increment_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
     
-    let half_carry = utils::check_bit(reg.get_register_rb(), 3);
-    let overflow = reg.increment_rb();
-    utils::set_zf(overflow, af); utils::set_nf(false, af);
+    reg.increment_rb();
+    let half_carry = (reg.get_register_rb() & 0x0F) == 0;
+    utils::set_zf(reg.get_register_rb() == 0, af); utils::set_nf(false, af);
     utils::set_hf(half_carry, af);
     (1, 4)
 }
 
 fn increment_a(af: &mut CpuReg) -> (u16, u16) {
 
-    let half_carry = utils::check_bit(af.get_register_lb(), 3);
-    let overflow = af.increment_lb();
-    utils::set_zf(overflow, af); utils::set_nf(false, af);
+    af.increment_lb();
+    let half_carry = (af.get_register_lb() & 0x0F) == 0;
+    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
     utils::set_hf(half_carry, af);
     (1, 4)
 }
@@ -780,8 +780,8 @@ fn increment_a(af: &mut CpuReg) -> (u16, u16) {
 fn increment_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
     
     let value = cpu::memory_read_u8(hl.get_register(), memory);
-    let half_carry = utils::check_bit(value, 3);
     let result = value.overflowing_add(1);
+    let half_carry = (result.0 & 0x0F) == 0;
     cpu::memory_write(&hl.get_register(), result.0, &memory.0);
     utils::set_zf(result.1, af); utils::set_nf(false, af);
     utils::set_hf(half_carry, af);
@@ -799,8 +799,8 @@ fn decrement_full(reg: &mut CpuReg) -> (u16, u16) {
 
 fn decrement_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
     
-    let half_carry = !utils::check_bit(reg.get_register_lb(), 3);
     reg.decrement_lb();
+    let half_carry = (reg.get_register_lb() & 0x0F) == 0;
     utils::set_zf(reg.get_register_lb() == 0, af); utils::set_nf(true, af);
     utils::set_hf(half_carry, af);
     (1, 4)
@@ -808,8 +808,8 @@ fn decrement_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
 
 fn decrement_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
     
-    let half_carry = !utils::check_bit(reg.get_register_rb(), 3);
     reg.decrement_rb();
+    let half_carry = (reg.get_register_rb() & 0x0F) == 0;
     utils::set_zf(reg.get_register_rb() == 0, af); utils::set_nf(true, af);
     utils::set_hf(half_carry, af);
     (1, 4)
@@ -817,8 +817,8 @@ fn decrement_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
 
 fn decrement_a(af: &mut CpuReg) -> (u16, u16) {
     
-    let half_carry = !utils::check_bit(af.get_register_lb(), 3);
     af.decrement_lb();
+    let half_carry = (af.get_register_lb() & 0x0F) == 0;
     utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(true, af);
     utils::set_hf(half_carry, af);
     (1, 4)
@@ -830,8 +830,8 @@ fn decrement_a(af: &mut CpuReg) -> (u16, u16) {
 fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
     
     let value = cpu::memory_read_u8(hl.get_register(), memory);
-    let half_carry = !utils::check_bit(value, 3);
     let result = value.overflowing_sub(1);
+    let half_carry = (result.0 & 0x0F) == 0;
     cpu::memory_write(&hl.get_register(), result.0, &memory.0);
     utils::set_zf(result.0 == 0, af); utils::set_nf(true, af);
     utils::set_hf(half_carry, af);
