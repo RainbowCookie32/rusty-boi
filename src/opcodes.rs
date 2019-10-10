@@ -27,7 +27,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
 
     match opcode {
 
-        0x00 => nop(current_state),
+        0x00 => instruction_finished(nop(), current_state),
         0x01 => instruction_finished(ld_imm_into_full(&mut current_state.bc, memory, &current_state.pc.get()), current_state),
         0x02 => instruction_finished(save_a_to_full(&mut current_state.af, &mut current_state.bc, memory), current_state),
         0x03 => instruction_finished(increment_full(&mut current_state.bc), current_state),
@@ -318,10 +318,9 @@ fn instruction_finished(values: (u16, u16), state: &mut CpuState) {
 
 // NOP
 
-fn nop(current_state: &mut CpuState) {
+fn nop() -> (u16, u16) {
 
-    current_state.pc.add(1);
-    current_state.cycles.add(1);
+    (1, 4)
 }
 
 // DAA
