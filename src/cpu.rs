@@ -85,7 +85,7 @@ pub fn init_cpu() -> CpuState {
     initial_state
 }
 
-pub fn exec_loop(cycles_tx: Sender<u16>, timer: (Sender<MemoryAccess>, Receiver<u8>), input: Receiver<InputEvent>, memory: (Sender<MemoryAccess>, Receiver<u8>)) {
+pub fn cpu_loop(cycles_tx: Sender<u16>, timer: (Sender<MemoryAccess>, Receiver<u8>), input: Receiver<InputEvent>, memory: (Sender<MemoryAccess>, Receiver<u8>)) {
 
     let current_memory = (memory.0, memory.1);
     let mut current_state = init_cpu();
@@ -124,7 +124,7 @@ pub fn exec_loop(cycles_tx: Sender<u16>, timer: (Sender<MemoryAccess>, Receiver<
                 // TODO: Since the GPU implementation depends on the display to be enabled
                 // to work, disabling it should do the job as well. Should get a more
                 // elegant solution eventually.
-                memory_write(&0xFF40, 0, &current_memory.0);
+                memory_write(0xFF40, 0, &current_memory.0);
             }
         }
 
@@ -166,9 +166,9 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Sender<MemoryAccess>
         if received_message == InputEvent::Quit {
             should_break = true;
         }
-        // Writing 0x10 to FF00 enables the P14 row of buttons.
-        else if input_value == 0x10 {
+        else if input_value & 0x20 == 0x20 {
 
+            info!("Input: Pressed button at P15 row");
             match received_message {
                 InputEvent::RightPressed => { input_value = utils::set_bit(input_value, 0); should_interrupt = true; },
                 InputEvent::RightReleased => { input_value = utils::reset_bit(input_value, 0); },
@@ -182,9 +182,9 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Sender<MemoryAccess>
             }
 
         }
-        // Writing 0x20 to FF00 enabled the P15 row.
-        else if input_value == 0x20 {
+        else if input_value & 0x10 == 0x10 {
 
+            info!("Input: Pressed button at P14 row");
             match received_message {
                 InputEvent::APressed => { input_value = utils::set_bit(input_value, 0); should_interrupt = true; },
                 InputEvent::AReleased => { input_value = utils::reset_bit(input_value, 0) },
@@ -198,14 +198,14 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Sender<MemoryAccess>
             }
         }
 
-        memory_write(&0xFF00, input_value, &memory.0);
+        memory_write(0xFF00, input_value, &memory.0);
         if should_interrupt {
             let current_if = memory_read_u8(0xFF0F, memory);
-            memory_write(&0xFF0F, utils::set_bit(current_if, 4), &memory.0);
+            memory_write(0xFF0F, utils::set_bit(current_if, 4), &memory.0);
         }
     }
     else {
-        memory_write(&0xFF00, input_value | 0xF, &memory.0);
+        memory_write(0xFF00, input_value | 0xF, &memory.0);
     }
 
     should_break
@@ -228,7 +228,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess
 
         if current_state.interrupts.can_interrupt {
             if_value = utils::reset_bit(if_value, 0);
-            memory_write(&0xFF0F, if_value, &memory.0);
+            memory_write(0xFF0F, if_value, &memory.0);
             stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
             current_state.pc.set(0x0040);
         }
@@ -238,7 +238,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess
         
         if current_state.interrupts.can_interrupt {
             if_value = utils::reset_bit(if_value, 1);
-            memory_write(&0xFF0F, if_value, &memory.0);
+            memory_write(0xFF0F, if_value, &memory.0);
             stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
             current_state.pc.set(0x0048);
         }
@@ -248,7 +248,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess
         
         if current_state.interrupts.can_interrupt {
             if_value = utils::reset_bit(if_value, 2);
-            memory_write(&0xFF0F, if_value, &memory.0);
+            memory_write(0xFF0F, if_value, &memory.0);
             stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
             current_state.pc.set(0x0050);
         }
@@ -258,7 +258,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess
         
         if current_state.interrupts.can_interrupt {
             if_value = utils::reset_bit(if_value, 3);
-            memory_write(&0xFF0F, if_value, &memory.0);
+            memory_write(0xFF0F, if_value, &memory.0);
             stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
             current_state.pc.set(0x0058);
         }
@@ -268,7 +268,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Sender<MemoryAccess
         
         if current_state.interrupts.can_interrupt {
             if_value = utils::reset_bit(if_value, 4);
-            memory_write(&0xFF0F, if_value, &memory.0);
+            memory_write(0xFF0F, if_value, &memory.0);
             stack_write(&mut current_state.sp, current_state.pc.get(), &memory.0);
             current_state.pc.set(0x0060);
         }
@@ -332,11 +332,11 @@ pub fn memory_read_u16(addr: u16, memory: &(Sender<MemoryAccess>, Receiver<u8>))
     read_value
 }
 
-pub fn memory_write(addr: &u16, val: u8, memory: &Sender<MemoryAccess>) {
+pub fn memory_write(addr: u16, val: u8, memory: &Sender<MemoryAccess>) {
 
     let mem_request = MemoryAccess {
         operation: MemoryOp::Write,
-        address: *addr,
+        address: addr,
         value: val,
     };
     

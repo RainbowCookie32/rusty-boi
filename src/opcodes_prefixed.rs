@@ -345,7 +345,7 @@ fn rlc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>
 
     let value = cpu::memory_read_u8(hl.get_register(), memory);
     let result = rlc(af, value);
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
+    cpu::memory_write(hl.get_register(), result, &memory.0);
 
     (2, 16)
 }
@@ -395,7 +395,7 @@ fn rrc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>
 
     let value = cpu::memory_read_u8(hl.get_register(), memory);
     let result = rrc(af, value);
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
+    cpu::memory_write(hl.get_register(), result, &memory.0);
     
     (2, 16)
 }
@@ -447,7 +447,7 @@ fn rl_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>,
 
     let value = cpu::memory_read_u8(hl.get_register(), memory);
     let result = rl(af, value);
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
+    cpu::memory_write(hl.get_register(), result, &memory.0);
 
     (2, 16)
 }
@@ -499,7 +499,7 @@ fn rr_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>,
 
     let value = cpu::memory_read_u8(hl.get_register(), memory);
     let result = rr(af, value);
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
+    cpu::memory_write(hl.get_register(), result, &memory.0);
 
     (2, 16)
 }
@@ -549,7 +549,7 @@ fn sla_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess
 
     let value = cpu::memory_read_u8(hl.get_register(), memory);
     let result = sla(af, value);
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
+    cpu::memory_write(hl.get_register(), result, &memory.0);
 
     (2, 16)
 }
@@ -602,7 +602,7 @@ fn sra_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess
 
     let value = cpu::memory_read_u8(hl.get_register(), memory);
     let result = sra(af, value);
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
+    cpu::memory_write(hl.get_register(), result, &memory.0);
 
     (2, 16)
 }
@@ -651,7 +651,7 @@ fn swap_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess
 
     let value = cpu::memory_read_u8(hl.get_register(), memory);
     let result = swap(af, value);
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
+    cpu::memory_write(hl.get_register(), result, &memory.0);
 
     (2, 16)
 }
@@ -701,7 +701,7 @@ fn srl_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess
 
     let value = cpu::memory_read_u8(hl.get_register(), memory);
     let result = srl(af, value);
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
+    cpu::memory_write(hl.get_register(), result, &memory.0);
 
     (2, 16)
 }
@@ -768,7 +768,7 @@ fn res_hl(bit: u8, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::
 
     let value = cpu::memory_read_u8(hl.get_register(), memory);
     let result = res(value, bit);
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
+    cpu::memory_write(hl.get_register(), result, &memory.0);
     (2, 16)
 }
 
@@ -797,6 +797,6 @@ fn set_hl(bit: u8, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::
 
     let value = cpu::memory_read_u8(hl.get_register(), memory);
     let result = set(value, bit);
-    cpu::memory_write(&hl.get_register(), result, &memory.0);
+    cpu::memory_write(hl.get_register(), result, &memory.0);
     (2, 16)
 }

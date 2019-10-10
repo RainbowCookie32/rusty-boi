@@ -75,7 +75,7 @@ fn execution_loop() {
     let timer_channels = mem_channels.timer;
 
     let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        cpu::exec_loop(cycles_tx, timer_channels, input_rx, cpu_channels);
+        cpu::cpu_loop(cycles_tx, timer_channels, input_rx, cpu_channels);
     }).unwrap();
 
     let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
