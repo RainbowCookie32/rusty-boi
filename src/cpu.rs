@@ -104,9 +104,13 @@ pub fn cpu_loop(cycles_tx: Sender<u16>, timer: (Sender<MemoryAccess>, Receiver<u
                 info!("CPU: Bootrom execution finished, starting loaded ROM.");
                 current_memory.0.send(MemoryAccess{ operation: MemoryOp::BootromFinished, address: 0, value: 0 }).unwrap();
             }
+
+            if current_state.pc.get() == 0xC642 {
+                //info!("CPU: Test finished.");
+            }
         
             if opcode == 0xCB {
-                opcode = memory_read_u8(current_state.pc.get() + 1, &current_memory);
+                opcode = read_immediate(current_state.pc.get(), &current_memory);
                 current_state.last_result = opcodes_prefixed::run_prefixed_instruction(&mut current_state, &current_memory, opcode);
             }
             else {
@@ -288,6 +292,18 @@ fn update_interrupts(new_value: u8, interrupts: &mut InterruptState) {
     interrupts.timer_enabled = utils::check_bit(new_value, 2);
     interrupts.serial_enabled = utils::check_bit(new_value, 3);
     interrupts.input_enabled = utils::check_bit(new_value, 4);
+}
+
+pub fn read_immediate(address: u16, memory: &(Sender<MemoryAccess>, Receiver<u8>)) -> u8 {
+
+    let mem_request = MemoryAccess {
+        operation: MemoryOp::Read,
+        address: address + 1,
+        value: 0,
+    };
+    
+    memory.0.send(mem_request).unwrap();
+    memory.1.recv().unwrap()
 }
 
 pub fn memory_read_u8(addr: u16, memory: &(Sender<MemoryAccess>, Receiver<u8>)) -> u8 {

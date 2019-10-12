@@ -33,15 +33,15 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x03 => instruction_finished(increment_full(&mut current_state.bc), current_state),
         0x04 => instruction_finished(increment_lb(&mut current_state.bc, &mut current_state.af), current_state),
         0x05 => instruction_finished(decrement_lb(&mut current_state.bc, &mut current_state.af), current_state),
-        0x06 => instruction_finished(ld_imm_into_hi(&mut current_state.bc, memory, &current_state.pc.get()), current_state),
+        0x06 => instruction_finished(load_imm_into_hi(&mut current_state.bc, current_state.pc.get(), memory), current_state),
         0x07 => instruction_finished(rlc_a(&mut current_state.af), current_state),
         0x08 => instruction_finished(save_sp_to_imm(&mut current_state.sp, memory, &current_state.pc.get()), current_state),
         0x09 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.bc, &mut current_state.af), current_state),
-        0x0A => instruction_finished(ld_hi_from_hl(&mut current_state.af, &mut current_state.bc, memory), current_state),
+        0x0A => instruction_finished(load_bc_into_a(&mut current_state.af, current_state.bc.get_register(), memory), current_state),
         0x0B => instruction_finished(decrement_full(&mut current_state.bc), current_state),
         0x0C => instruction_finished(increment_rb(&mut current_state.bc, &mut current_state.af), current_state),
         0x0D => instruction_finished(decrement_rb(&mut current_state.bc, &mut current_state.af), current_state),
-        0x0E => instruction_finished(ld_imm_into_low(&mut current_state.bc, memory, &current_state.pc.get()), current_state),
+        0x0E => instruction_finished(load_imm_into_low(&mut current_state.bc, current_state.pc.get(), memory), current_state),
         0x0F => instruction_finished(rrc_a(&mut current_state.af), current_state),
 
         0x10 => result = stop(current_state),
@@ -50,15 +50,15 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x13 => instruction_finished(increment_full(&mut current_state.de), current_state),
         0x14 => instruction_finished(increment_lb(&mut current_state.de, &mut current_state.af), current_state),
         0x15 => instruction_finished(decrement_lb(&mut current_state.de, &mut current_state.af), current_state),
-        0x16 => instruction_finished(ld_imm_into_hi(&mut current_state.de, memory, &current_state.pc.get()), current_state),
+        0x16 => instruction_finished(load_imm_into_hi(&mut current_state.de, current_state.pc.get(), memory), current_state),
         0x17 => instruction_finished(rla(&mut current_state.af), current_state),
         0x18 => relative_jump(memory, current_state),
         0x19 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.de, &mut current_state.af), current_state),
-        0x1A => instruction_finished(ld_hi_from_hl(&mut current_state.af, &mut current_state.de, memory), current_state),
+        0x1A => instruction_finished(load_de_into_a(&mut current_state.af, current_state.de.get_register(), memory), current_state),
         0x1B => instruction_finished(decrement_full(&mut current_state.de), current_state),
         0x1C => instruction_finished(increment_rb(&mut current_state.de, &mut current_state.af), current_state),
         0x1D => instruction_finished(decrement_rb(&mut current_state.de, &mut current_state.af), current_state),
-        0x1E => instruction_finished(ld_imm_into_low(&mut current_state.de, memory, &current_state.pc.get()), current_state),
+        0x1E => instruction_finished(load_imm_into_low(&mut current_state.de, current_state.pc.get(), memory), current_state),
         0x1F => instruction_finished(rr_a(&mut current_state.af), current_state),
 
         0x20 => conditional_relative_jump(JumpCondition::ZNotSet, memory, current_state),
@@ -67,7 +67,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x23 => instruction_finished(increment_full(&mut current_state.hl), current_state),
         0x24 => instruction_finished(increment_lb(&mut current_state.hl, &mut current_state.af), current_state),
         0x25 => instruction_finished(decrement_lb(&mut current_state.hl, &mut current_state.af), current_state),
-        0x26 => instruction_finished(ld_imm_into_hi(&mut current_state.hl, memory, &current_state.pc.get()), current_state),
+        0x26 => instruction_finished(load_imm_into_hi(&mut current_state.hl, current_state.pc.get(), memory), current_state),
         0x27 => instruction_finished(daa(&mut current_state.af), current_state),
         0x28 => conditional_relative_jump(JumpCondition::ZSet, memory, current_state),
         0x29 => instruction_finished(add_hl_to_hl(&mut current_state.hl, &mut current_state.af), current_state),
@@ -75,7 +75,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x2B => instruction_finished(decrement_full(&mut current_state.hl), current_state),
         0x2C => instruction_finished(increment_rb(&mut current_state.hl, &mut current_state.af), current_state),
         0x2D => instruction_finished(decrement_rb(&mut current_state.hl, &mut current_state.af), current_state),
-        0x2E => instruction_finished(ld_imm_into_low(&mut current_state.hl, memory, &current_state.pc.get()), current_state),
+        0x2E => instruction_finished(load_imm_into_low(&mut current_state.hl, current_state.pc.get(), memory), current_state),
         0x2F => instruction_finished(cpl(&mut current_state.af), current_state),
 
         0x30 => conditional_relative_jump(JumpCondition::CNotSet, memory, current_state),        
@@ -92,59 +92,59 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x3B => instruction_finished(decrement_full(&mut current_state.sp), current_state),
         0x3C => instruction_finished(increment_a(&mut current_state.af), current_state),
         0x3D => instruction_finished(decrement_a(&mut current_state.af), current_state),
-        0x3E => instruction_finished(ld_imm_into_hi(&mut current_state.af, memory, &current_state.pc.get()), current_state),
+        0x3E => instruction_finished(load_imm_into_hi(&mut current_state.af, current_state.pc.get(), memory), current_state),
         0x3F => instruction_finished(ccf(&mut current_state.af), current_state),
 
         0x40 => instruction_finished((1, 4), current_state),
-        0x41 => instruction_finished(ld_self_low_to_hi(&mut current_state.bc), current_state),
-        0x42 => instruction_finished(ld_hi_into_hi(&mut current_state.bc, &mut current_state.de), current_state),
-        0x43 => instruction_finished(ld_low_into_hi(&mut current_state.bc, &mut current_state.de), current_state),
-        0x44 => instruction_finished(ld_hi_into_hi(&mut current_state.bc, &mut current_state.hl), current_state),
-        0x45 => instruction_finished(ld_low_into_hi(&mut current_state.bc, &mut current_state.hl), current_state),
-        0x46 => instruction_finished(ld_hi_from_hl(&mut current_state.bc, &mut current_state.hl, memory), current_state),
-        0x47 => instruction_finished(ld_hi_into_hi(&mut current_state.bc, &mut current_state.af), current_state),
-        0x48 => instruction_finished(ld_self_hi_to_low(&mut current_state.bc), current_state),
+        0x41 => instruction_finished(load_low_into_hi(&mut current_state.bc), current_state),
+        0x42 => instruction_finished(load_into_hi(&mut current_state.bc, current_state.de.get_register_lb()), current_state),
+        0x43 => instruction_finished(load_into_hi(&mut current_state.bc, current_state.de.get_register_rb()), current_state),
+        0x44 => instruction_finished(load_into_hi(&mut current_state.bc, current_state.hl.get_register_lb()), current_state),
+        0x45 => instruction_finished(load_into_hi(&mut current_state.bc, current_state.hl.get_register_rb()), current_state),
+        0x46 => instruction_finished(load_hl_into_hi(&mut current_state.bc, current_state.hl.get_register(), memory), current_state),
+        0x47 => instruction_finished(load_into_hi(&mut current_state.bc, current_state.af.get_register_lb()), current_state),
+        0x48 => instruction_finished(load_hi_into_low(&mut current_state.bc), current_state),
         0x49 => instruction_finished((1, 4), current_state),
-        0x4A => instruction_finished(ld_hi_into_low(&mut current_state.bc, &mut current_state.de), current_state),
-        0x4B => instruction_finished(ld_low_into_low(&mut current_state.bc, &mut current_state.de), current_state),
-        0x4C => instruction_finished(ld_hi_into_low(&mut current_state.bc, &mut current_state.hl), current_state),
-        0x4D => instruction_finished(ld_low_into_low(&mut current_state.bc, &mut current_state.hl), current_state),
-        0x4E => instruction_finished(ld_low_from_hl(&mut current_state.bc, &mut current_state.hl, memory), current_state),
-        0x4F => instruction_finished(ld_hi_into_low(&mut current_state.bc, &mut current_state.af), current_state),
+        0x4A => instruction_finished(load_into_low(&mut current_state.bc, current_state.de.get_register_lb()), current_state),
+        0x4B => instruction_finished(load_into_low(&mut current_state.bc, current_state.de.get_register_rb()), current_state),
+        0x4C => instruction_finished(load_into_low(&mut current_state.bc, current_state.hl.get_register_lb()), current_state),
+        0x4D => instruction_finished(load_into_low(&mut current_state.bc, current_state.hl.get_register_rb()), current_state),
+        0x4E => instruction_finished(load_hl_into_low(&mut current_state.bc, current_state.hl.get_register(), memory), current_state),
+        0x4F => instruction_finished(load_into_low(&mut current_state.bc, current_state.af.get_register_lb()), current_state),
 
-        0x50 => instruction_finished(ld_hi_into_hi(&mut current_state.de, &mut current_state.bc), current_state),
-        0x51 => instruction_finished(ld_low_into_hi(&mut current_state.de, &mut current_state.bc), current_state),
+        0x50 => instruction_finished(load_into_hi(&mut current_state.de, current_state.bc.get_register_lb()), current_state),
+        0x51 => instruction_finished(load_into_hi(&mut current_state.de, current_state.bc.get_register_rb()), current_state),
         0x52 => instruction_finished((1, 4), current_state),
-        0x53 => instruction_finished(ld_self_low_to_hi(&mut current_state.de), current_state),
-        0x54 => instruction_finished(ld_hi_into_hi(&mut current_state.de, &mut current_state.hl), current_state),
-        0x55 => instruction_finished(ld_low_into_hi(&mut current_state.de, &mut current_state.hl), current_state),
-        0x56 => instruction_finished(ld_hi_from_hl(&mut current_state.de, &mut current_state.hl, memory), current_state),
-        0x57 => instruction_finished(ld_hi_into_hi(&mut current_state.de, &mut current_state.af), current_state),
-        0x58 => instruction_finished(ld_hi_into_low(&mut current_state.de, &mut current_state.bc), current_state),
-        0x59 => instruction_finished(ld_low_into_low(&mut current_state.de, &mut current_state.bc), current_state),
-        0x5A => instruction_finished(ld_self_hi_to_low(&mut current_state.de), current_state),
+        0x53 => instruction_finished(load_low_into_hi(&mut current_state.de), current_state),
+        0x54 => instruction_finished(load_into_hi(&mut current_state.de, current_state.hl.get_register_lb()), current_state),
+        0x55 => instruction_finished(load_into_hi(&mut current_state.de, current_state.hl.get_register_rb()), current_state),
+        0x56 => instruction_finished(load_hl_into_hi(&mut current_state.de, current_state.hl.get_register(), memory), current_state),
+        0x57 => instruction_finished(load_into_hi(&mut current_state.de, current_state.af.get_register_lb()), current_state),
+        0x58 => instruction_finished(load_into_low(&mut current_state.de, current_state.bc.get_register_lb()), current_state),
+        0x59 => instruction_finished(load_into_low(&mut current_state.de, current_state.bc.get_register_rb()), current_state),
+        0x5A => instruction_finished(load_hi_into_low(&mut current_state.de), current_state),
         0x5B => instruction_finished((1, 4), current_state),
-        0x5C => instruction_finished(ld_hi_into_low(&mut current_state.de, &mut current_state.hl), current_state),
-        0x5D => instruction_finished(ld_low_into_low(&mut current_state.de, &mut current_state.hl), current_state),
-        0x5E => instruction_finished(ld_low_from_hl(&mut current_state.de, &mut current_state.hl, memory), current_state),
-        0x5F => instruction_finished(ld_hi_into_low(&mut current_state.de, &mut current_state.af), current_state),
+        0x5C => instruction_finished(load_into_low(&mut current_state.de, current_state.hl.get_register_lb()), current_state),
+        0x5D => instruction_finished(load_into_low(&mut current_state.de, current_state.hl.get_register_rb()), current_state),
+        0x5E => instruction_finished(load_hl_into_low(&mut current_state.de, current_state.hl.get_register(), memory), current_state),
+        0x5F => instruction_finished(load_into_low(&mut current_state.de, current_state.af.get_register_lb()), current_state),
 
-        0x60 => instruction_finished(ld_hi_into_hi(&mut current_state.hl, &mut current_state.bc), current_state),
-        0x61 => instruction_finished(ld_low_into_hi(&mut current_state.hl, &mut current_state.bc), current_state),
-        0x62 => instruction_finished(ld_hi_into_hi(&mut current_state.hl, &mut current_state.de), current_state),
-        0x63 => instruction_finished(ld_low_into_hi(&mut current_state.hl, &mut current_state.de), current_state),
+        0x60 => instruction_finished(load_into_hi(&mut current_state.hl, current_state.bc.get_register_lb()), current_state),
+        0x61 => instruction_finished(load_into_hi(&mut current_state.hl, current_state.bc.get_register_rb()), current_state),
+        0x62 => instruction_finished(load_into_hi(&mut current_state.hl, current_state.de.get_register_lb()), current_state),
+        0x63 => instruction_finished(load_into_hi(&mut current_state.hl, current_state.de.get_register_rb()), current_state),
         0x64 => instruction_finished((1, 4), current_state),
-        0x65 => instruction_finished(ld_self_low_to_hi(&mut current_state.hl), current_state),
-        0x66 => instruction_finished(ld_h_from_hl(&mut current_state.hl, memory), current_state),
-        0x67 => instruction_finished(ld_hi_into_hi(&mut current_state.hl, &mut current_state.af), current_state),
-        0x68 => instruction_finished(ld_hi_into_low(&mut current_state.hl, &mut current_state.bc), current_state),
-        0x69 => instruction_finished(ld_low_into_low(&mut current_state.hl, &mut current_state.bc), current_state),
-        0x6A => instruction_finished(ld_hi_into_low(&mut current_state.hl, &mut current_state.de), current_state),
-        0x6B => instruction_finished(ld_low_into_low(&mut current_state.hl, &mut current_state.de), current_state),
-        0x6C => instruction_finished(ld_self_hi_to_low(&mut current_state.hl), current_state),
+        0x65 => instruction_finished(load_low_into_hi(&mut current_state.hl), current_state),
+        0x66 => instruction_finished(load_hl_into_h(&mut current_state.hl, memory), current_state),
+        0x67 => instruction_finished(load_into_hi(&mut current_state.hl, current_state.af.get_register_lb()), current_state),
+        0x68 => instruction_finished(load_into_low(&mut current_state.hl, current_state.bc.get_register_lb()), current_state),
+        0x69 => instruction_finished(load_into_low(&mut current_state.hl, current_state.bc.get_register_rb()), current_state),
+        0x6A => instruction_finished(load_into_low(&mut current_state.hl, current_state.de.get_register_lb()), current_state),
+        0x6B => instruction_finished(load_into_low(&mut current_state.hl, current_state.de.get_register_rb()), current_state),
+        0x6C => instruction_finished(load_hi_into_low(&mut current_state.hl), current_state),
         0x6D => instruction_finished((1, 4), current_state),
-        0x6E => instruction_finished(ld_l_from_hl(&mut current_state.hl, memory), current_state),
-        0x6F => instruction_finished(ld_hi_into_low(&mut current_state.hl, &mut current_state.af), current_state),
+        0x6E => instruction_finished(load_hl_into_l(&mut current_state.hl, memory), current_state),
+        0x6F => instruction_finished(load_into_low(&mut current_state.hl, current_state.af.get_register_lb()), current_state),
 
         0x70 => instruction_finished(save_hi_to_hl(&mut current_state.bc, &mut current_state.hl, memory), current_state),
         0x71 => instruction_finished(save_low_to_hl(&mut current_state.bc, &mut current_state.hl, memory), current_state),
@@ -154,82 +154,82 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x75 => instruction_finished(save_l_to_hl(&mut current_state.hl, memory), current_state),
         0x76 => result = halt(current_state, memory),
         0x77 => instruction_finished(save_hi_to_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x78 => instruction_finished(ld_hi_into_hi(&mut current_state.af, &mut current_state.bc), current_state),
-        0x79 => instruction_finished(ld_low_into_hi(&mut current_state.af, &mut current_state.bc), current_state),
-        0x7A => instruction_finished(ld_hi_into_hi(&mut current_state.af, &mut current_state.de), current_state),
-        0x7B => instruction_finished(ld_low_into_hi(&mut current_state.af, &mut current_state.de), current_state),
-        0x7C => instruction_finished(ld_hi_into_hi(&mut current_state.af, &mut current_state.hl), current_state),
-        0x7D => instruction_finished(ld_low_into_hi(&mut current_state.af, &mut current_state.hl), current_state),
-        0x7E => instruction_finished(ld_a_from_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x78 => instruction_finished(load_into_hi(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
+        0x79 => instruction_finished(load_into_hi(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
+        0x7A => instruction_finished(load_into_hi(&mut current_state.af, current_state.de.get_register_lb()), current_state),
+        0x7B => instruction_finished(load_into_hi(&mut current_state.af, current_state.de.get_register_rb()), current_state),
+        0x7C => instruction_finished(load_into_hi(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
+        0x7D => instruction_finished(load_into_hi(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
+        0x7E => instruction_finished(load_hl_into_hi(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
         0x7F => instruction_finished((1, 4), current_state),
 
-        0x80 => instruction_finished(add_hi_to_a(&mut current_state.af, &mut current_state.bc), current_state),
-        0x81 => instruction_finished(add_low_to_a(&mut current_state.af, &mut current_state.bc), current_state),
-        0x82 => instruction_finished(add_hi_to_a(&mut current_state.af, &mut current_state.de), current_state),
-        0x83 => instruction_finished(add_low_to_a(&mut current_state.af, &mut current_state.de), current_state),
-        0x84 => instruction_finished(add_hi_to_a(&mut current_state.af, &mut current_state.hl), current_state),
-        0x85 => instruction_finished(add_low_to_a(&mut current_state.af, &mut current_state.hl), current_state),
-        0x86 => instruction_finished(add_val_to_a(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x87 => instruction_finished(add_a_to_a(&mut current_state.af), current_state),
-        0x88 => instruction_finished(adc_hi_to_a(&mut current_state.af, &mut current_state.bc), current_state),
-        0x89 => instruction_finished(adc_low_to_a(&mut current_state.af, &mut current_state.bc), current_state),
-        0x8A => instruction_finished(adc_hi_to_a(&mut current_state.af, &mut current_state.de), current_state),
-        0x8B => instruction_finished(adc_low_to_a(&mut current_state.af, &mut current_state.de), current_state),
-        0x8C => instruction_finished(adc_hi_to_a(&mut current_state.af, &mut current_state.hl), current_state),
-        0x8D => instruction_finished(adc_low_to_a(&mut current_state.af, &mut current_state.hl), current_state),
-        0x8E => instruction_finished(adc_val_to_a(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x8F => instruction_finished(adc_a_to_a(&mut current_state.af), current_state),
+        0x80 => instruction_finished(add(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
+        0x81 => instruction_finished(add(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
+        0x82 => instruction_finished(add(&mut current_state.af, current_state.de.get_register_lb()), current_state),
+        0x83 => instruction_finished(add(&mut current_state.af, current_state.de.get_register_rb()), current_state),
+        0x84 => instruction_finished(add(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
+        0x85 => instruction_finished(add(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
+        0x86 => instruction_finished(add_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
+        0x87 => instruction_finished(add_a(&mut current_state.af), current_state),
+        0x88 => instruction_finished(adc(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
+        0x89 => instruction_finished(adc(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
+        0x8A => instruction_finished(adc(&mut current_state.af, current_state.de.get_register_lb()), current_state),
+        0x8B => instruction_finished(adc(&mut current_state.af, current_state.de.get_register_rb()), current_state),
+        0x8C => instruction_finished(adc(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
+        0x8D => instruction_finished(adc(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
+        0x8E => instruction_finished(adc_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
+        0x8F => instruction_finished(adc_a(&mut current_state.af), current_state),
 
-        0x90 => instruction_finished(sub_hi_from_a(&mut current_state.af, &mut current_state.bc), current_state),
-        0x91 => instruction_finished(sub_low_from_a(&mut current_state.af, &mut current_state.bc), current_state),
-        0x92 => instruction_finished(sub_hi_from_a(&mut current_state.af, &mut current_state.de), current_state),
-        0x93 => instruction_finished(sub_low_from_a(&mut current_state.af, &mut current_state.de), current_state),
-        0x94 => instruction_finished(sub_hi_from_a(&mut current_state.af, &mut current_state.hl), current_state),
-        0x95 => instruction_finished(sub_low_from_a(&mut current_state.af, &mut current_state.hl), current_state),
-        0x96 => instruction_finished(sub_val_from_a(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x97 => instruction_finished(sub_a_from_a(&mut current_state.af), current_state),
-        0x98 => instruction_finished(sbc_hi_from_a(&mut current_state.af, &mut current_state.bc), current_state),
-        0x99 => instruction_finished(sbc_low_from_a(&mut current_state.af, &mut current_state.bc), current_state),
-        0x9A => instruction_finished(sbc_hi_from_a(&mut current_state.af, &mut current_state.de), current_state),
-        0x9B => instruction_finished(sbc_low_from_a(&mut current_state.af, &mut current_state.de), current_state),
-        0x9C => instruction_finished(sbc_hi_from_a(&mut current_state.af, &mut current_state.hl), current_state),
-        0x9D => instruction_finished(sbc_low_from_a(&mut current_state.af, &mut current_state.hl), current_state),
-        0x9E => instruction_finished(sbc_val_from_a(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x9F => instruction_finished(sbc_a_from_a(&mut current_state.af), current_state),
+        0x90 => instruction_finished(sub(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
+        0x91 => instruction_finished(sub(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
+        0x92 => instruction_finished(sub(&mut current_state.af, current_state.de.get_register_lb()), current_state),
+        0x93 => instruction_finished(sub(&mut current_state.af, current_state.de.get_register_rb()), current_state),
+        0x94 => instruction_finished(sub(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
+        0x95 => instruction_finished(sub(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
+        0x96 => instruction_finished(sub_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
+        0x97 => instruction_finished(sub_a(&mut current_state.af), current_state),
+        0x98 => instruction_finished(sbc(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
+        0x99 => instruction_finished(sbc(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
+        0x9A => instruction_finished(sbc(&mut current_state.af, current_state.de.get_register_lb()), current_state),
+        0x9B => instruction_finished(sbc(&mut current_state.af, current_state.de.get_register_rb()), current_state),
+        0x9C => instruction_finished(sbc(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
+        0x9D => instruction_finished(sbc(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
+        0x9E => instruction_finished(sbc_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
+        0x9F => instruction_finished(sbc_a(&mut current_state.af), current_state),
 
-        0xA0 => instruction_finished(and_a_with_hi(&mut current_state.af, &mut current_state.bc), current_state),
-        0xA1 => instruction_finished(and_a_with_low(&mut current_state.af, &mut current_state.bc), current_state),
-        0xA2 => instruction_finished(and_a_with_hi(&mut current_state.af, &mut current_state.de), current_state),
-        0xA3 => instruction_finished(and_a_with_low(&mut current_state.af, &mut current_state.de), current_state),
-        0xA4 => instruction_finished(and_a_with_hi(&mut current_state.af, &mut current_state.hl), current_state),
-        0xA5 => instruction_finished(and_a_with_low(&mut current_state.af, &mut current_state.hl), current_state),
-        0xA6 => instruction_finished(and_a_with_value(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0xA7 => instruction_finished(and_a_with_a(&mut current_state.af), current_state),
-        0xA8 => instruction_finished(xor_a_with_hi(&mut current_state.af, &mut current_state.bc), current_state),
-        0xA9 => instruction_finished(xor_a_with_low(&mut current_state.af, &mut current_state.bc), current_state),
-        0xAA => instruction_finished(xor_a_with_hi(&mut current_state.af, &mut current_state.de), current_state),
-        0xAB => instruction_finished(xor_a_with_low(&mut current_state.af, &mut current_state.de), current_state),
-        0xAC => instruction_finished(xor_a_with_hi(&mut current_state.af, &mut current_state.hl), current_state),
-        0xAD => instruction_finished(xor_a_with_low(&mut current_state.af, &mut current_state.hl), current_state),
-        0xAE => instruction_finished(xor_a_with_value(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0xAF => instruction_finished(xor_a_with_a(&mut current_state.af), current_state),
+        0xA0 => instruction_finished(and(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
+        0xA1 => instruction_finished(and(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
+        0xA2 => instruction_finished(and(&mut current_state.af, current_state.de.get_register_lb()), current_state),
+        0xA3 => instruction_finished(and(&mut current_state.af, current_state.de.get_register_rb()), current_state),
+        0xA4 => instruction_finished(and(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
+        0xA5 => instruction_finished(and(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
+        0xA6 => instruction_finished(and_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
+        0xA7 => instruction_finished(and_a(&mut current_state.af), current_state),
+        0xA8 => instruction_finished(xor(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
+        0xA9 => instruction_finished(xor(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
+        0xAA => instruction_finished(xor(&mut current_state.af, current_state.de.get_register_lb()), current_state),
+        0xAB => instruction_finished(xor(&mut current_state.af, current_state.de.get_register_rb()), current_state),
+        0xAC => instruction_finished(xor(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
+        0xAD => instruction_finished(xor(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
+        0xAE => instruction_finished(xor_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
+        0xAF => instruction_finished(xor_a(&mut current_state.af), current_state),
 
-        0xB0 => instruction_finished(or_a_with_hi(&mut current_state.af, &mut current_state.bc), current_state),
-        0xB1 => instruction_finished(or_a_with_low(&mut current_state.af, &mut current_state.bc), current_state),
-        0xB2 => instruction_finished(or_a_with_hi(&mut current_state.af, &mut current_state.de), current_state),
-        0xB3 => instruction_finished(or_a_with_low(&mut current_state.af, &mut current_state.de), current_state),
-        0xB4 => instruction_finished(or_a_with_hi(&mut current_state.af, &mut current_state.hl), current_state),
-        0xB5 => instruction_finished(or_a_with_low(&mut current_state.af, &mut current_state.hl), current_state),
-        0xB6 => instruction_finished(or_a_with_value(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0xB7 => instruction_finished(or_a_with_a(&mut current_state.af), current_state),
-        0xB8 => instruction_finished(cp_a_with_hi(&mut current_state.af, &mut current_state.bc), current_state),
-        0xB9 => instruction_finished(cp_a_with_low(&mut current_state.af, &mut current_state.bc), current_state),
-        0xBA => instruction_finished(cp_a_with_hi(&mut current_state.af, &mut current_state.de), current_state),
-        0xBB => instruction_finished(cp_a_with_low(&mut current_state.af, &mut current_state.de), current_state),
-        0xBC => instruction_finished(cp_a_with_hi(&mut current_state.af, &mut current_state.hl), current_state),
-        0xBD => instruction_finished(cp_a_with_low(&mut current_state.af, &mut current_state.hl), current_state),
-        0xBE => instruction_finished(cp_a_with_value(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0xBF => instruction_finished(cp_a_with_a(&mut current_state.af), current_state),
+        0xB0 => instruction_finished(or(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
+        0xB1 => instruction_finished(or(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
+        0xB2 => instruction_finished(or(&mut current_state.af, current_state.de.get_register_lb()), current_state),
+        0xB3 => instruction_finished(or(&mut current_state.af, current_state.de.get_register_rb()), current_state),
+        0xB4 => instruction_finished(or(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
+        0xB5 => instruction_finished(or(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
+        0xB6 => instruction_finished(or_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
+        0xB7 => instruction_finished(or_a(&mut current_state.af), current_state),
+        0xB8 => instruction_finished(cp(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
+        0xB9 => instruction_finished(cp(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
+        0xBA => instruction_finished(cp(&mut current_state.af, current_state.de.get_register_lb()), current_state),
+        0xBB => instruction_finished(cp(&mut current_state.af, current_state.de.get_register_rb()), current_state),
+        0xBC => instruction_finished(cp(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
+        0xBD => instruction_finished(cp(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
+        0xBE => instruction_finished(cp_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
+        0xBF => instruction_finished(cp_a(&mut current_state.af), current_state),
 
         0xC0 => conditional_ret(current_state, memory, JumpCondition::ZNotSet),
         0xC1 => instruction_finished(pop(&mut current_state.bc, &mut current_state.sp, memory), current_state),
@@ -237,7 +237,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xC3 => jump(memory, current_state),
         0xC4 => conditional_call(memory, current_state, JumpCondition::ZNotSet),
         0xC5 => instruction_finished(push(&mut current_state.bc, &mut current_state.sp, memory), current_state),
-        0xC6 => instruction_finished(add_imm_to_a(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xC6 => instruction_finished(add_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xC7 => rst(0x0000, memory, current_state),
         0xC8 => conditional_ret(current_state, memory, JumpCondition::ZSet),
         0xC9 => ret(current_state, memory),
@@ -245,7 +245,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xCB => result = CycleResult::InvalidOp, // Shouldn't have a CB at this stage, so mark as invalid if it happens.
         0xCC => conditional_call(memory, current_state, JumpCondition::ZSet),
         0xCD => call(memory, current_state),
-        0xCE => instruction_finished(adc_imm_to_a(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xCE => instruction_finished(adc_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xCF => rst(0x0008, memory, current_state),
 
         0xD0 => conditional_ret(current_state, memory, JumpCondition::CNotSet),
@@ -254,7 +254,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xD3 => result = CycleResult::InvalidOp,
         0xD4 => conditional_call(memory, current_state, JumpCondition::CNotSet),
         0xD5 => instruction_finished(push(&mut current_state.de, &mut current_state.sp, memory), current_state),
-        0xD6 => instruction_finished(sub_imm_from_a(&mut current_state.af, memory, &current_state.pc.get()), current_state),
+        0xD6 => instruction_finished(sub_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xD7 => rst(0x0010, memory, current_state),
         0xD8 => conditional_ret(current_state, memory, JumpCondition::CSet),
         0xD9 => reti(current_state, memory),
@@ -262,7 +262,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xDB => result = CycleResult::InvalidOp,
         0xDC => conditional_call(memory, current_state, JumpCondition::CSet),
         0xDD => result = CycleResult::InvalidOp,
-        0xDE => instruction_finished(sbc_imm_from_a(&mut current_state.af, memory, &current_state.pc.get()), current_state),
+        0xDE => instruction_finished(sbc_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xDF => rst(0x0017, memory, current_state),
 
         0xE0 => instruction_finished(save_a_to_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
@@ -271,7 +271,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xE3 => result = CycleResult::InvalidOp,
         0xE4 => result = CycleResult::InvalidOp,
         0xE5 => instruction_finished(push(&mut current_state.hl, &mut current_state.sp, memory), current_state),
-        0xE6 => instruction_finished(and_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xE6 => instruction_finished(and_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xE7 => rst(0x0020, memory, current_state),
         0xE8 => instruction_finished(add_imm_to_sp(&mut current_state.af, &mut current_state.sp, &current_state.pc.get(), memory), current_state),
         0xE9 => jump_to_hl(current_state),
@@ -279,7 +279,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xEB => result = CycleResult::InvalidOp,
         0xEC => result = CycleResult::InvalidOp,
         0xED => result = CycleResult::InvalidOp,
-        0xEE => instruction_finished(xor_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xEE => instruction_finished(xor_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xEF => rst(0x0028, memory, current_state),
 
         0xF0 => instruction_finished(ld_a_from_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
@@ -288,15 +288,15 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xF3 => instruction_finished(di(current_state), current_state),
         0xF4 => result = CycleResult::InvalidOp,
         0xF5 => instruction_finished(push(&mut current_state.af, &mut current_state.sp, memory), current_state),
-        0xF6 => instruction_finished(or_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xF6 => instruction_finished(or_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xF7 => rst(0x0030, memory, current_state),
-        0xF8 => instruction_finished(add_imm_to_sp_ld_to_hl(current_state, memory), current_state),
+        0xF8 => instruction_finished(add_imm_to_sp_save_to_hl(current_state, memory), current_state),
         0xF9 => instruction_finished(ld_hl_into_sp(&mut current_state.sp, &mut current_state.hl), current_state),
         0xFA => instruction_finished(ld_a_from_imm_addr(&mut current_state.af, &current_state.pc.get(), memory), current_state),
         0xFB => instruction_finished(ei(current_state), current_state),
         0xFC => result = CycleResult::InvalidOp,
         0xFD => result = CycleResult::InvalidOp,
-        0xFE => instruction_finished(cp_a_with_imm(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xFE => instruction_finished(cp_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xFF => rst(0x0038, memory, current_state),
     }
 
@@ -407,10 +407,10 @@ fn conditional_jump(condition: JumpCondition, memory: &(mpsc::Sender<MemoryAcces
 
     match condition {
 
-        JumpCondition::ZNotSet => should_jump = !utils::check_bit(state.af.get_register_rb(), 7),
-        JumpCondition::CNotSet => should_jump = !utils::check_bit(state.af.get_register_rb(), 4),
-        JumpCondition::ZSet => should_jump = utils::check_bit(state.af.get_register_rb(), 7),
-        JumpCondition::CSet => should_jump = utils::check_bit(state.af.get_register_rb(), 4),
+        JumpCondition::ZNotSet => should_jump = !utils::get_zf(&mut state.af),
+        JumpCondition::CNotSet => should_jump = !utils::get_cf(&mut state.af),
+        JumpCondition::ZSet => should_jump = utils::get_zf(&mut state.af),
+        JumpCondition::CSet => should_jump = utils::get_cf(&mut state.af),
     }
 
     if should_jump { jump(memory, state) ;}
@@ -419,17 +419,17 @@ fn conditional_jump(condition: JumpCondition, memory: &(mpsc::Sender<MemoryAcces
 
 fn conditional_relative_jump(condition: JumpCondition, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), state: &mut CpuState) {
 
-    let jump: bool;
+    let should_jump: bool;
 
     match condition {
 
-        JumpCondition::ZNotSet => jump = !utils::check_bit(state.af.get_register_rb(), 7),
-        JumpCondition::CNotSet => jump = !utils::check_bit(state.af.get_register_rb(), 4),
-        JumpCondition::ZSet => jump = utils::check_bit(state.af.get_register_rb(), 7),
-        JumpCondition::CSet => jump = utils::check_bit(state.af.get_register_rb(), 4),
+        JumpCondition::ZNotSet => should_jump = !utils::get_zf(&mut state.af),
+        JumpCondition::CNotSet => should_jump = !utils::get_cf(&mut state.af),
+        JumpCondition::ZSet => should_jump = utils::get_zf(&mut state.af),
+        JumpCondition::CSet => should_jump = utils::get_cf(&mut state.af),
     }
 
-    if jump { relative_jump(memory, state) ;}
+    if should_jump { relative_jump(memory, state) ;}
     else { state.pc.add(2); state.cycles.add(8) }
 }
 
@@ -452,10 +452,10 @@ fn conditional_call(memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), s
 
     match condition {
 
-        JumpCondition::ZNotSet => should_call = !utils::check_bit(state.af.get_register_rb(), 7),
-        JumpCondition::CNotSet => should_call = !utils::check_bit(state.af.get_register_rb(), 4),
-        JumpCondition::ZSet => should_call = utils::check_bit(state.af.get_register_rb(), 7),
-        JumpCondition::CSet => should_call = utils::check_bit(state.af.get_register_rb(), 4),
+        JumpCondition::ZNotSet => should_call = !utils::get_zf(&mut state.af),
+        JumpCondition::CNotSet => should_call = !utils::get_cf(&mut state.af),
+        JumpCondition::ZSet => should_call = utils::get_zf(&mut state.af),
+        JumpCondition::CSet => should_call = utils::get_cf(&mut state.af),
     }
 
     if should_call { call(memory, state) ;}
@@ -480,10 +480,10 @@ fn conditional_ret(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, m
 
     match condition {
 
-        JumpCondition::ZNotSet => should_ret = !utils::check_bit(state.af.get_register_rb(), 7),
-        JumpCondition::CNotSet => should_ret = !utils::check_bit(state.af.get_register_rb(), 4),
-        JumpCondition::ZSet => should_ret = utils::check_bit(state.af.get_register_rb(), 7),
-        JumpCondition::CSet => should_ret = utils::check_bit(state.af.get_register_rb(), 4),
+        JumpCondition::ZNotSet => should_ret = !utils::get_zf(&mut state.af),
+        JumpCondition::CNotSet => should_ret = !utils::get_cf(&mut state.af),
+        JumpCondition::ZSet => should_ret = utils::get_zf(&mut state.af),
+        JumpCondition::CSet => should_ret = utils::get_cf(&mut state.af),
     }
 
     if should_ret { ret(state, memory);}
@@ -493,45 +493,33 @@ fn conditional_ret(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, m
 
 // Load register to register
 
-fn ld_hi_into_low(target: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
+fn load_into_hi(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    target.set_register_rb(source.get_register_lb());
+    register.set_register_lb(value);
     (1, 4)
 }
 
-fn ld_hi_into_hi(target: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
+fn load_into_low(register: &mut CpuReg, value: u8) -> (u16, u16) {
     
-    target.set_register_lb(source.get_register_lb());
+    register.set_register_rb(value);
     (1, 4)
 }
 
-fn ld_low_into_low(target: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-
-    target.set_register_rb(source.get_register_rb());
-    (1, 4)
-}
-
-fn ld_low_into_hi(target: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
+fn load_hi_into_low(register: &mut CpuReg) -> (u16, u16) {
     
-    target.set_register_lb(source.get_register_rb());
+    let value = register.get_register_lb();
+    register.set_register_rb(value);
     (1, 4)
 }
 
-fn ld_self_low_to_hi(reg: &mut CpuReg) -> (u16, u16) {
-
-    let value = reg.get_register_rb();
-    reg.set_register_lb(value);
+fn load_low_into_hi(register: &mut CpuReg) -> (u16, u16) {
+    
+    let value = register.get_register_rb();
+    register.set_register_lb(value);
     (1, 4)
 }
 
-fn ld_self_hi_to_low(reg: &mut CpuReg) -> (u16, u16) {
-
-    let value = reg.get_register_lb();
-    reg.set_register_rb(value);
-    (1, 4)
-}
-
-fn add_imm_to_sp_ld_to_hl(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn add_imm_to_sp_save_to_hl(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
     let value = cpu::memory_read_u8(state.pc.get() + 1, memory) as i8;
     let result = state.sp.get_register().overflowing_add(value as u16);
@@ -547,15 +535,17 @@ fn add_imm_to_sp_ld_to_hl(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAcc
 
 // Load register from immediate
 
-fn ld_imm_into_hi(target: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), pc: &u16) -> (u16, u16) {
-    
-    target.set_register_lb(cpu::memory_read_u8(pc + 1, memory));
+fn load_imm_into_hi(register: &mut CpuReg, pc: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+
+    let value = cpu::read_immediate(pc, memory);
+    register.set_register_lb(value);
     (2, 8)
 }
 
-fn ld_imm_into_low(target: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), pc: &u16) -> (u16, u16) {
+fn load_imm_into_low(register: &mut CpuReg, pc: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    target.set_register_rb(cpu::memory_read_u8(pc + 1, memory));
+    let value = cpu::read_immediate(pc, memory);
+    register.set_register_rb(value);
     (2, 8)
 }
 
@@ -592,38 +582,47 @@ fn ld_a_from_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &(mpsc::Sender<Memor
     (1, 8)
 }
 
-// Load register from HL
+// Load register from register address
 
-fn ld_hi_from_hl(reg: &mut CpuReg, full: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn load_hl_into_hi(register: &mut CpuReg, hl: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    reg.set_register_lb(cpu::memory_read_u8(full.get_register(), memory));
+    let value = cpu::memory_read_u8(hl, memory);
+    register.set_register_lb(value);
     (1, 8)
 }
 
-fn ld_low_from_hl(reg: &mut CpuReg, full: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn load_hl_into_low(register: &mut CpuReg, hl: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    reg.set_register_rb(cpu::memory_read_u8(full.get_register(), memory));
+    let value = cpu::memory_read_u8(hl, memory);
+    register.set_register_rb(value);
     (1, 8)
 }
 
-fn ld_h_from_hl(hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn load_hl_into_h(register: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let hl_value = hl.get_register();
-    let value = cpu::memory_read_u8(hl_value, memory);
-    hl.set_register_lb(value);
+    let address = register.get_register();
+    register.set_register_lb(cpu::memory_read_u8(address, memory));
     (1, 8)
 }
 
-fn ld_l_from_hl(hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn load_hl_into_l(register: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let addr = hl.get_register();
-    hl.set_register_rb(cpu::memory_read_u8(addr, memory));
+    let address = register.get_register();
+    register.set_register_rb(cpu::memory_read_u8(address, memory));
     (1, 8)
 }
 
-fn ld_a_from_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn load_bc_into_a(register: &mut CpuReg, bc: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    af.set_register_lb(cpu::memory_read_u8(hl.get_register(), memory));
+    let value = cpu::memory_read_u8(bc, memory);
+    register.set_register_lb(value);
+    (1, 8)
+}
+
+fn load_de_into_a(register: &mut CpuReg, de: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+
+    let value = cpu::memory_read_u8(de, memory);
+    register.set_register_lb(value);
     (1, 8)
 }
 
@@ -875,445 +874,293 @@ fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: &u16, memory: &(mpsc::Sen
     (2, 16)
 }
 
-fn add(af: &mut CpuReg, value: u8) -> u8 {
+fn add(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &value));
-    let result = af.get_register_lb().overflowing_add(value);
+    let half_carry = utils::check_half_carry_u8((&register.get_register_lb(), &value));
+    let result = register.add_to_lb(value);
 
-    utils::set_zf(result.0 == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(half_carry, af);
-    utils::set_cf(result.1, af);
-
-    result.0
-}
-
-fn add_hi_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-
-    let result = add(af, source.get_register_lb());
-    af.set_register_lb(result);
+    utils::set_zf(register.get_register_lb() == 0, register);
+    utils::set_nf(false, register);
+    utils::set_hf(half_carry, register);
+    utils::set_cf(result, register);
     (1, 4)
 }
 
-fn add_low_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
+fn add_a(register: &mut CpuReg) -> (u16, u16) {
 
-    let result = add(af, source.get_register_rb());
-    af.set_register_lb(result);
-    (1, 4)
+    let value = register.get_register_lb();
+    add(register, value)
 }
 
-fn add_a_to_a(af: &mut CpuReg) -> (u16, u16) {
+fn add_hl(register: &mut CpuReg, hl: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let value = af.get_register_lb();
-    let result = add(af, value);
-    af.set_register_lb(result);
-    (1, 4)
+    let value = cpu::memory_read_u8(hl, memory);
+    add(register, value);
+    (1, 8)
 }
 
-fn add_val_to_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn add_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
-    let result = add(af, value);
-    af.set_register_lb(result);
-    (1, 4)
-}
-
-fn add_imm_to_a(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
-
-    let value = cpu::memory_read_u8(pc + 1, memory);
-    let result = add(af, value);
-    af.set_register_lb(result);
+    add(register, value);
     (2, 8)
 }
 
 
 // ADC opcodes
 
-fn adc(af: &mut CpuReg, value: u8) -> u8 {
+fn adc(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let carry = utils::get_carry(af);
-    let half_carry = utils::check_half_carry_u8((&af.get_register_lb(), &value));
-    let mut carry_results = (false, false);
-    let mut result = af.get_register_lb().overflowing_add(value);
-    carry_results.0 = result.1;
-    result = result.0.overflowing_add(carry);
-    carry_results.1 = result.1;
+    let carry_value = utils::get_carry(register);
+    let half_carry = utils::check_half_carry_u8((&register.get_register_lb(), &value));
+    let result = register.get_register_lb() as u16 + value as u16 + carry_value as u16;
+    let new_value = if result > 0xFF {0} else {result as u8};
 
-    utils::set_zf(result.0 == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(half_carry, af);
-    utils::set_cf(carry_results.0 || carry_results.1, af);
+    register.set_register_lb(new_value);
 
-    result.0
-}
+    utils::set_zf(new_value == 0, register);
+    utils::set_nf(false, register);
+    utils::set_hf(half_carry, register);
+    utils::set_cf(result > 0xFF, register);
 
-fn adc_hi_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-
-    let result = adc(af, source.get_register_lb());
-    af.set_register_lb(result);
     (1, 4)
 }
 
-fn adc_low_to_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-
-    let result = adc(af, source.get_register_rb());
-    af.set_register_lb(result);
-    (1, 4)
+fn adc_a(register: &mut CpuReg) -> (u16, u16) {
+    
+    let value = register.get_register_lb();
+    adc(register, value)
 }
 
-fn adc_a_to_a(af: &mut CpuReg) -> (u16, u16) {
+fn adc_hl(register: &mut CpuReg, hl: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let value = af.get_register_lb();
-    let result = adc(af, value);
-    af.set_register_lb(result);
-    (1, 4)
+    let value = cpu::memory_read_u8(hl, memory);
+    adc(register, value);
+    (1, 8)
 }
 
-fn adc_val_to_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn adc_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
-    let result = adc(af, value);
-    af.set_register_lb(result);
-    (1, 4)
-}
-
-fn adc_imm_to_a(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
-
-    let value = cpu::memory_read_u8(pc + 1, memory);
-    let result = adc(af, value);
-    af.set_register_lb(result);
+    adc(register, value);
     (2, 8)
 }
 
 
 // Substract value from registers
 
-fn sub(af: &mut CpuReg, value: u8) -> u8 {
+fn sub(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    let result = af.get_register_lb().overflowing_sub(value);
+    let half_carry = utils::check_half_borrow((register.get_register_lb(), value));
+    let result = register.sub_from_lb(value);
 
-    utils::set_zf(result.0 == 0, af);
-    utils::set_nf(true, af);
-    utils::set_hf(half_carry, af);
-    utils::set_cf(result.1, af);
+    utils::set_zf(register.get_register_lb() == 0, register);
+    utils::set_nf(true, register);
+    utils::set_hf(half_carry, register);
+    utils::set_cf(result, register);
 
-    result.0
-}
-
-fn sub_hi_from_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-
-    let result = sub(af, source.get_register_lb());
-    af.set_register_lb(result);
     (1, 4)
 }
 
-fn sub_low_from_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-
-    let result = sub(af, source.get_register_rb());
-    af.set_register_lb(result);
-    (1, 4)
+fn sub_a(register: &mut CpuReg) -> (u16, u16) {
+    
+    let value = register.get_register_lb();
+    sub(register, value)
 }
 
-fn sub_a_from_a(af: &mut CpuReg) -> (u16, u16) {
+fn sub_hl(register: &mut CpuReg, hl: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let value = af.get_register_lb();
-    let result = sub(af, value);
-    af.set_register_lb(result);
-    (1, 4)
+    let value = cpu::memory_read_u8(hl, memory);
+    sub(register, value);
+    (1, 8)
 }
 
-fn sub_val_from_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn sub_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
-    let result = sub(af, value);
-    af.set_register_lb(result);
-    (1, 4)
-}
-
-fn sub_imm_from_a(af: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), pc: &u16) -> (u16, u16) {
-
-    let value = cpu::memory_read_u8(pc + 1, memory);
-    let result = sub(af, value);
-    af.set_register_lb(result);
+    sub(register, value);
     (2, 8)
 }
 
 
 // SBC opcodes
 
-fn sbc(af: &mut CpuReg, value: u8) -> u8 {
+fn sbc(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let carry = utils::get_carry(af);
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    let mut borrow_results = (false, false);
-    let mut result = af.get_register_lb().overflowing_sub(value);
-    borrow_results.0 = result.1;
-    result = result.0.overflowing_sub(carry);
-    borrow_results.1 = result.1;
+    let carry_value = utils::get_carry(register);
+    let half_carry = utils::check_half_borrow((register.get_register_lb(), value));
+    let result = register.sub_from_lb(value);
+    let result_carry = register.sub_from_lb(carry_value);
 
-    utils::set_zf(result.0 == 0, af);
-    utils::set_nf(true, af);
-    utils::set_hf(half_carry, af);
-    utils::set_cf(borrow_results.0 || borrow_results.1, af);
+    utils::set_zf(register.get_register_lb() == 0, register);
+    utils::set_nf(true, register);
+    utils::set_hf(half_carry, register);
+    utils::set_cf(result || result_carry, register);
 
-    result.0
-}
-
-fn sbc_hi_from_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-
-    let result = sbc(af, source.get_register_lb());
-    af.set_register_lb(result);
     (1, 4)
 }
 
-fn sbc_low_from_a(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
+fn sbc_a(register: &mut CpuReg) -> (u16, u16) {
 
-    let result = sbc(af, source.get_register_rb());
-    af.set_register_lb(result);
-    (1, 4)
+    let value = register.get_register_lb();
+    sbc(register, value)
 }
 
-fn sbc_a_from_a(af: &mut CpuReg) -> (u16, u16) {
+fn sbc_hl(register: &mut CpuReg, hl: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let value = af.get_register_lb();
-    let result = sbc(af, value);
-    af.set_register_lb(result);
-    (1, 4)
+    let value = cpu::memory_read_u8(hl, memory);
+    sbc(register, value);
+    (1, 8)
 }
 
-fn sbc_val_from_a(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn sbc_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
-    let result = sbc(af, value);
-    af.set_register_lb(result);
-    (1, 4)
-}
-
-fn sbc_imm_from_a(af: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), pc: &u16) -> (u16, u16) {
-
-    let value = cpu::memory_read_u8(pc + 1, memory);
-    let result = sbc(af, value);
-    af.set_register_lb(result);
+    sbc(register, value);
     (2, 8)
 }
 
 
 // AND opcodes
 
-fn and(af: &mut CpuReg, value: u8) -> u8 {
+fn and(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let result = af.get_register_lb() & value;
+    let result = register.get_register_lb() & value;
+    register.set_register_lb(result);
 
-    utils::set_zf(result == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(true, af);
-    utils::set_cf(false, af);
-    
-    result
-}
-
-fn and_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-
-    let result = and(af, source.get_register_lb());
-    af.set_register_lb(result);
+    utils::set_zf(result == 0, register);
+    utils::set_nf(false, register);
+    utils::set_hf(true, register);
+    utils::set_cf(false, register);
     (1, 4)
 }
 
-fn and_a_with_low(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
+fn and_a(register: &mut CpuReg) -> (u16, u16) {
 
-    let result = and(af, source.get_register_rb());
-    af.set_register_lb(result);
-    (1, 4)
+    let value = register.get_register_lb();
+    and(register, value)
 }
 
-fn and_a_with_a(af: &mut CpuReg) -> (u16, u16) {
+fn and_hl(register: &mut CpuReg, hl: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let reg_value = af.get_register_lb();
-    let result = and(af, reg_value);
-    af.set_register_lb(result);
-    (1, 4)
+    let value = cpu::memory_read_u8(hl, memory);
+    and(register, value);
+    (1 ,8)
 }
 
-fn and_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn and_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
-    let result = and(af, value);
-    af.set_register_lb(result);
-    (1, 4)
-}
-
-fn and_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
-
-    let value = cpu::memory_read_u8(pc + 1, memory);
-    let result = and(af, value);
-    af.set_register_lb(result);
+    and(register, value);
     (2, 8)
 }
 
 
 // OR opcodes
 
-fn or(af: &mut CpuReg, value: u8) -> u8 {
+fn or(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let result = af.get_register_lb() | value;
+    let result = register.get_register_lb() | value;
+    register.set_register_lb(result);
 
-    utils::set_zf(result == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-    utils::set_cf(false, af);
-
-    result
-}
-
-fn or_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-
-    let result = or(af, source.get_register_lb());
-    af.set_register_lb(result);
+    utils::set_zf(result == 0, register);
+    utils::set_nf(false, register);
+    utils::set_hf(false, register);
+    utils::set_cf(false, register);
     (1, 4)
 }
 
-fn or_a_with_low(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
+fn or_a(register: &mut CpuReg) -> (u16, u16) {
 
-    let result = or(af, source.get_register_rb());
-    af.set_register_lb(result);
-    (1, 4)
+    let value = register.get_register_lb();
+    or(register, value)
 }
 
-fn or_a_with_a(af: &mut CpuReg) -> (u16, u16) {
-
-    let reg_value = af.get_register_lb();
-    let result = or(af, reg_value);
-    af.set_register_lb(result);
-    (1, 4)
+fn or_hl(register: &mut CpuReg, hl: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+    
+    let value = cpu::memory_read_u8(hl, memory);
+    or(register, value);
+    (1, 8)
 }
 
-fn or_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn or_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
-    let result = or(af, value);
-    af.set_register_lb(result);
-    (1, 4)
-}
-
-fn or_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
-
-    let value = cpu::memory_read_u8(pc + 1, memory);
-    let result = or(af, value);
-    af.set_register_lb(result);
+    or(register, value);
     (2, 8)
 }
 
 
 // XOR opcodes
 
-fn xor(af: &mut CpuReg, value: u8) -> u8 {
+fn xor(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let result = af.get_register_lb() ^ value;
+    let result = register.get_register_lb() ^ value;
+    register.set_register_lb(result);
 
-    utils::set_zf(result == 0, af);
-    utils::set_nf(false, af);
-    utils::set_hf(false, af);
-    utils::set_cf(false, af);
-
-    result
-}
-
-fn xor_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-
-    let result = xor(af, source.get_register_lb());
-    af.set_register_lb(result);
+    utils::set_zf(result == 0, register);
+    utils::set_nf(false, register);
+    utils::set_hf(false, register);
+    utils::set_cf(false, register);
     (1, 4)
 }
 
-fn xor_a_with_low(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
+fn xor_a(register: &mut CpuReg) -> (u16, u16) {
 
-    let result = xor(af, source.get_register_rb());
-    af.set_register_lb(result);
-    (1, 4)
+    let value = register.get_register_lb();
+    xor(register, value)
 }
 
-fn xor_a_with_a(af: &mut CpuReg) -> (u16, u16) {
+fn xor_hl(register: &mut CpuReg, hl: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let result = af.get_register_lb() ^ af.get_register_lb();
-    af.set_register_lb(result);
-    utils::set_zf(result == 0, af); utils::set_nf(false, af);
-    utils::set_hf(false, af); utils::set_cf(false, af);
-    (1, 4)
+    let value = cpu::memory_read_u8(hl, memory);
+    xor(register, value);
+    (1, 8)
 }
 
-fn xor_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn xor_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
-    let result = xor(af, value);
-    af.set_register_lb(result);
-    (1, 4)
-}
-
-fn xor_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
-
-    let value = cpu::memory_read_u8(pc + 1, memory);
-    let result = xor(af, value);
-    af.set_register_lb(result);
+    xor(register, value);
     (2, 8)
 }
 
 
 // Complement (logical NOT) A
 
-fn cpl(af: &mut CpuReg) -> (u16, u16) {
+fn cpl(register: &mut CpuReg) -> (u16, u16) {
 
-    let value = !af.get_register_lb();
-    af.set_register_lb(value);
-    utils::set_nf(true, af);
-    utils::set_hf(true, af);
+    let value = !register.get_register_lb();
+    register.set_register_lb(value);
+    utils::set_nf(true, register);
+    utils::set_hf(true, register);
     (1, 4)
 }
 
 
 // CP opcodes
 
-fn cp(af: &mut CpuReg, value: u8) {
+fn cp(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let half_carry = utils::check_half_borrow((af.get_register_lb(), value));
-    let result = af.get_register_lb().overflowing_sub(value);
+    let result = register.get_register_lb().overflowing_sub(value);
+    let half_borrow = utils::check_half_borrow((register.get_register_lb(), value));
 
-    utils::set_zf(result.0 == 0, af);
-    utils::set_nf(true, af);
-    utils::set_hf(half_carry, af);
-    utils::set_cf(result.1, af);
-}
-
-fn cp_a_with_hi(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-
-    cp(af, source.get_register_lb());
+    utils::set_zf(result.0 == 0, register);
+    utils::set_nf(true, register);
+    utils::set_hf(half_borrow, register);
+    utils::set_cf(result.1, register);
     (1, 4)
 }
 
-fn cp_a_with_low(af: &mut CpuReg, source: &mut CpuReg) -> (u16, u16) {
-    
-    cp(af, source.get_register_rb());
-    (1, 4)
+fn cp_a(register: &mut CpuReg) -> (u16, u16) {
+
+    let value = register.get_register_lb();
+    cp(register, value)
 }
 
-fn cp_a_with_a(af: &mut CpuReg) -> (u16, u16) {
+fn cp_hl(register: &mut CpuReg, hl: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let value = af.get_register_lb();
-    cp(af, value);
-    (1, 4)
-}
-
-fn cp_a_with_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
-
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
-    cp(af, value);
+    let value = cpu::memory_read_u8(hl, memory);
+    cp(register, value);
     (1, 8)
 }
 
-fn cp_a_with_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn cp_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(pc + 1, memory);
-    cp(af, value);
+    cp(register, value);
     (2, 8)
 }
 

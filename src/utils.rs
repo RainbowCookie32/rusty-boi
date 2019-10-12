@@ -46,6 +46,10 @@ pub fn set_cf(value: bool, af: &mut CpuReg) {
     }
 }
 
+pub fn get_zf(af: &mut CpuReg) -> bool {
+    check_bit(af.get_register_rb(), 7)
+}
+
 pub fn get_nf(af: &mut CpuReg) -> bool {
     check_bit(af.get_register_rb(), 6)
 }
