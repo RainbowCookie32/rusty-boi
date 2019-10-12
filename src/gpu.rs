@@ -99,9 +99,9 @@ pub fn start_gpu(cpu_cycles: Receiver<u16>, input: Sender<InputEvent>, memory: (
         current_state.tiles_dirty = mem.tiles_dirty;
         std::mem::drop(mem);
 
-        if display_enabled {
+        current_state.gpu_cycles = current_state.gpu_cycles.overflowing_add(cpu_cycles.recv().unwrap()).0;
 
-            current_state.gpu_cycles += cpu_cycles.recv().unwrap();
+        if display_enabled {
 
             if current_state.gpu_mode == 0 && current_state.gpu_cycles >= 204 {
                 hblank_mode(&mut current_state, &mut emu_canvas, &memory);
