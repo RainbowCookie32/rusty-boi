@@ -63,9 +63,9 @@ fn execution_loop() {
     let rom_data = get_roms_data();
     
     let memory_arc = init_memory(rom_data);
-    let cpu_arc = Arc::clone(&memory_arc);
-    let gpu_arc = Arc::clone(&memory_arc);
-
+    let cpu_arc = (Arc::clone(&memory_arc.0), Arc::clone(&memory_arc.1), Arc::clone(&memory_arc.2));
+    let gpu_arc = (Arc::clone(&memory_arc.1), Arc::clone(&memory_arc.2));
+    
     let (cycles_tx, cycles_rx) = mpsc::channel();
     let (input_tx, input_rx) = mpsc::channel();
 

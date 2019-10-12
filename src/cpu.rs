@@ -5,7 +5,7 @@ use log::{info, error};
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::memory;
-use super::memory::Memory;
+use super::memory::{RomMemory, CpuMemory, GpuMemory};
 
 use super::emulator::InputEvent;
 use super::{timer, utils, opcodes, opcodes_prefixed};
@@ -88,7 +88,7 @@ pub fn init_cpu() -> CpuState {
     initial_state
 }
 
-pub fn cpu_loop(cycles_tx: Sender<u16>, input: Receiver<InputEvent>, memory: Arc<Mutex<Memory>>) {
+pub fn cpu_loop(cycles_tx: Sender<u16>, input: Receiver<InputEvent>, memory: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut current_state = init_cpu();
     let mut timer_state = timer::init_timer();
@@ -98,14 +98,12 @@ pub fn cpu_loop(cycles_tx: Sender<u16>, input: Receiver<InputEvent>, memory: Arc
         if current_state.cycles.get() > 200 {current_state.cycles.set(0)}
         
         handle_interrupts(&mut current_state, &memory);
-        let mem = memory.lock().unwrap();
-        let mut opcode = memory::read(current_state.pc.get(), &mem);
-        std::mem::drop(mem);
+        let mut opcode = memory::cpu_read(current_state.pc.get(), &memory);
 
         if !current_state.halted {
             
             if current_state.pc.get() == 0x0100 {
-                let mut mem = memory.lock().unwrap();
+                let mut mem = memory.0.lock().unwrap();
                 info!("CPU: Bootrom execution finished, starting loaded ROM.");
                 mem.bootrom_finished = true;
             }
@@ -116,10 +114,10 @@ pub fn cpu_loop(cycles_tx: Sender<u16>, input: Receiver<InputEvent>, memory: Arc
         
             if opcode == 0xCB {
                 opcode = read_immediate(current_state.pc.get(), &memory);
-                current_state.last_result = opcodes_prefixed::run_prefixed_instruction(&mut current_state, opcode, &memory);
+                current_state.last_result = opcodes_prefixed::run_opcode(&mut current_state, opcode, &memory);
             }
             else {
-                current_state.last_result = opcodes::run_instruction(&mut current_state, opcode, &memory);
+                current_state.last_result = opcodes::run_opcode(&mut current_state, opcode, &memory);
                 if opcode == 0x00 {current_state.nops += 1;}
                 else {current_state.nops = 0;}
                 if current_state.nops >= 5 { current_state.last_result = CycleResult::NopFlood }
@@ -133,7 +131,7 @@ pub fn cpu_loop(cycles_tx: Sender<u16>, input: Receiver<InputEvent>, memory: Arc
                 // TODO: Since the GPU implementation depends on the display to be enabled
                 // to work, disabling it should do the job as well. Should get a more
                 // elegant solution eventually.
-                memory::write(0xFF40, 0, &mut memory.lock().unwrap());
+                memory::cpu_write(0xFF40, 0, &memory);
             }
         }
 
@@ -143,22 +141,19 @@ pub fn cpu_loop(cycles_tx: Sender<u16>, input: Receiver<InputEvent>, memory: Arc
         }
 
         cycles_tx.send(current_state.cycles.get()).unwrap();
-        timer::timer_cycle(&mut timer_state, current_state.cycles.get(), &memory);
+        timer::timer_cycle(&mut timer_state, current_state.cycles.get(), &memory.1);
         if update_inputs(&input, &memory) {break}
     }
 }
 
-fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &Arc<Mutex<Memory>>) -> bool {
+fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> bool {
 
-    let mem = memory.lock().unwrap();
     let received_input: bool;
     let input_event = input_rx.try_recv();
 
     let mut should_break = false;
     let mut received_message = InputEvent::APressed;
-    let mut input_value = memory::read(0xFF00, &mem);
-
-    std::mem::drop(mem);
+    let mut input_value = memory::cpu_read(0xFF00, &memory);
 
     match input_event {
         Ok(message) => {
@@ -210,32 +205,24 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &Arc<Mutex<Memory>>) -
             }
         }
 
-        let mut mem = memory.lock().unwrap();
-        memory::write(0xFF00, input_value, &mut mem);
+        memory::cpu_write(0xFF00, input_value, memory);
         if should_interrupt {
-            let current_if = memory::read(0xFF0F, &mem);
-            memory::write(0xFF0F, utils::set_bit(current_if, 4), &mut mem);
+            let current_if = memory::cpu_read(0xFF0F, memory);
+            memory::cpu_write(0xFF0F, utils::set_bit(current_if, 4), memory);
         }
-        std::mem::drop(mem);
     }
     else {
-        let mut mem = memory.lock().unwrap();
-        memory::write(0xFF00, input_value | 0xF, &mut mem);
-        std::mem::drop(mem);
+        memory::cpu_write(0xFF00, input_value | 0xF, memory);
     }
 
     should_break
 }
 
-fn handle_interrupts(current_state: &mut CpuState, memory: &Arc<Mutex<Memory>>) {
+fn handle_interrupts(current_state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
-    let mem = memory.lock().unwrap();
-    let ie_value = memory::read(0xFFFF, &mem);
+    let ie_value = memory::cpu_read(0xFFFF, memory);
     update_interrupts(ie_value, &mut current_state.interrupts);
-
-    let mut if_value = memory::read(0xFF0F, &mem);
-
-    std::mem::drop(mem);
+    let mut if_value = memory::cpu_read(0xFF0F, memory);
 
     let vblank_interrupt = utils::check_bit(if_value, 0) && current_state.interrupts.vblank_enabled;
     let lcdc_interrupt = utils::check_bit(if_value, 1) && current_state.interrupts.lcdc_enabled;
@@ -246,11 +233,9 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &Arc<Mutex<Memory>>) 
     if vblank_interrupt {
 
         if current_state.interrupts.can_interrupt {
-            let mut mem = memory.lock().unwrap();
             if_value = utils::reset_bit(if_value, 0);
-            memory::write(0xFF0F, if_value, &mut mem);
-            stack_write(&mut current_state.sp, current_state.pc.get(), &memory);
-            std::mem::drop(mem);
+            memory::cpu_write(0xFF0F, if_value, memory);
+            stack_write(&mut current_state.sp, current_state.pc.get(), memory);
             current_state.pc.set(0x0040);
         }
         current_state.halted = false;
@@ -258,11 +243,9 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &Arc<Mutex<Memory>>) 
     else if lcdc_interrupt {
         
         if current_state.interrupts.can_interrupt {
-            let mut mem = memory.lock().unwrap();
             if_value = utils::reset_bit(if_value, 1);
-            memory::write(0xFF0F, if_value, &mut mem);
-            stack_write(&mut current_state.sp, current_state.pc.get(), &memory);
-            std::mem::drop(mem);
+            memory::cpu_write(0xFF0F, if_value, memory);
+            stack_write(&mut current_state.sp, current_state.pc.get(), memory);
             current_state.pc.set(0x0048);
         }
         current_state.halted = false;
@@ -270,11 +253,9 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &Arc<Mutex<Memory>>) 
     else if timer_interrupt {
         
         if current_state.interrupts.can_interrupt {
-            let mut mem = memory.lock().unwrap();
             if_value = utils::reset_bit(if_value, 2);
-            memory::write(0xFF0F, if_value, &mut mem);
-            stack_write(&mut current_state.sp, current_state.pc.get(), &memory);
-            std::mem::drop(mem);
+            memory::cpu_write(0xFF0F, if_value, memory);
+            stack_write(&mut current_state.sp, current_state.pc.get(), memory);
             current_state.pc.set(0x0050);
         }
         current_state.halted = false;
@@ -282,11 +263,9 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &Arc<Mutex<Memory>>) 
     else if serial_interrupt {
         
         if current_state.interrupts.can_interrupt {
-            let mut mem = memory.lock().unwrap();
             if_value = utils::reset_bit(if_value, 3);
-            memory::write(0xFF0F, if_value, &mut mem);
-            stack_write(&mut current_state.sp, current_state.pc.get(), &memory);
-            std::mem::drop(mem);
+            memory::cpu_write(0xFF0F, if_value, memory);
+            stack_write(&mut current_state.sp, current_state.pc.get(), memory);
             current_state.pc.set(0x0058);
         }
         current_state.halted = false;
@@ -294,11 +273,9 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &Arc<Mutex<Memory>>) 
     else if input_interrupt {
         
         if current_state.interrupts.can_interrupt {
-            let mut mem = memory.lock().unwrap();
             if_value = utils::reset_bit(if_value, 4);
-            memory::write(0xFF0F, if_value, &mut mem);
-            stack_write(&mut current_state.sp, current_state.pc.get(), &memory);
-            std::mem::drop(mem);
+            memory::cpu_write(0xFF0F, if_value, memory);
+            stack_write(&mut current_state.sp, current_state.pc.get(), memory);
             current_state.pc.set(0x0060);
         }
         current_state.halted = false;
@@ -319,46 +296,41 @@ fn update_interrupts(new_value: u8, interrupts: &mut InterruptState) {
     interrupts.input_enabled = utils::check_bit(new_value, 4);
 }
 
-pub fn read_immediate(address: u16, memory: &Arc<Mutex<Memory>>) -> u8 {
+pub fn read_immediate(address: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> u8 {
 
-    let mem = memory.lock().unwrap();
-    memory::read(address + 1, &mem)
+    memory::cpu_read(address + 1, memory)
 }
 
-pub fn read_u16(addr: u16, memory: &Arc<Mutex<Memory>>) -> u16 {
+pub fn read_u16(addr: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> u16 {
 
     let mut bytes: Vec<u8> = vec![0; 2];
-    let mem = memory.lock().unwrap();
     let read_value: u16;
     
-    bytes[0] = memory::read(addr, &mem);
-    bytes[1] = memory::read(addr + 1, &mem);
+    bytes[0] = memory::cpu_read(addr, memory);
+    bytes[1] = memory::cpu_read(addr + 1, memory);
 
     read_value = LittleEndian::read_u16(&bytes);
     read_value
 }
 
-pub fn stack_read(sp: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> u16 {
+pub fn stack_read(sp: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> u16 {
 
     let final_value: u16;
     let mut values: Vec<u8> = vec![0; 2];
-    let mem = memory.lock().unwrap();
     
-    values[0] = memory::read(sp.get_register(), &mem);
+    values[0] = memory::cpu_read(sp.get_register(), memory);
     sp.increment();
-    values[1] = memory::read(sp.get_register(), &mem);
+    values[1] = memory::cpu_read(sp.get_register(), memory);
     sp.increment();
 
     final_value = LittleEndian::read_u16(&values);
     final_value
 }
 
-pub fn stack_write(sp: &mut CpuReg, value: u16, memory: &Arc<Mutex<Memory>>) {
-
-    let mut mem = memory.lock().unwrap();
+pub fn stack_write(sp: &mut CpuReg, value: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     sp.decrement();
-    memory::write(sp.get_register(), utils::get_lb(value), &mut mem);
+    memory::cpu_write(sp.get_register(), utils::get_lb(value), memory);
     sp.decrement();
-    memory::write(sp.get_register(), utils::get_rb(value), &mut mem);
+    memory::cpu_write(sp.get_register(), utils::get_rb(value), memory);
 }

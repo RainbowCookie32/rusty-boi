@@ -7,7 +7,7 @@ use super::cpu::CpuState;
 use super::cpu::CycleResult;
 
 use super::memory;
-use super::memory::Memory;
+use super::memory::{RomMemory, CpuMemory, GpuMemory};
 
 use super::register::CpuReg;
 use super::register::Register;
@@ -22,283 +22,283 @@ pub enum JumpCondition {
     CNotSet,
 }
 
-pub fn run_instruction(current_state: &mut CpuState, opcode: u8, memory: &Arc<Mutex<Memory>>) -> CycleResult {
+pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
 
     let mut result = CycleResult::Success;
 
     match opcode {
 
-        0x00 => instruction_finished(nop(), current_state),
-        0x01 => instruction_finished(ld_imm_into_full(&mut current_state.bc, current_state.pc.get(), memory), current_state),
-        0x02 => instruction_finished(save_a_to_full(&mut current_state.af, &mut current_state.bc, memory), current_state),
-        0x03 => instruction_finished(increment_full(&mut current_state.bc), current_state),
-        0x04 => instruction_finished(increment_lb(&mut current_state.bc, &mut current_state.af), current_state),
-        0x05 => instruction_finished(decrement_lb(&mut current_state.bc, &mut current_state.af), current_state),
-        0x06 => instruction_finished(load_imm_into_hi(&mut current_state.bc, current_state.pc.get(), memory), current_state),
-        0x07 => instruction_finished(rlc_a(&mut current_state.af), current_state),
-        0x08 => instruction_finished(save_sp_to_imm(&mut current_state.sp, current_state.pc.get(), memory), current_state),
-        0x09 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.bc, &mut current_state.af), current_state),
-        0x0A => instruction_finished(load_bc_into_a(&mut current_state.af, current_state.bc.get_register(), memory), current_state),
-        0x0B => instruction_finished(decrement_full(&mut current_state.bc), current_state),
-        0x0C => instruction_finished(increment_rb(&mut current_state.bc, &mut current_state.af), current_state),
-        0x0D => instruction_finished(decrement_rb(&mut current_state.bc, &mut current_state.af), current_state),
-        0x0E => instruction_finished(load_imm_into_low(&mut current_state.bc, current_state.pc.get(), memory), current_state),
-        0x0F => instruction_finished(rrc_a(&mut current_state.af), current_state),
+        0x00 => instruction_finished(nop(), state),
+        0x01 => instruction_finished(ld_imm_into_full(&mut state.bc, state.pc.get(), memory), state),
+        0x02 => instruction_finished(save_a_to_full(&mut state.af, &mut state.bc, memory), state),
+        0x03 => instruction_finished(increment_full(&mut state.bc), state),
+        0x04 => instruction_finished(increment_lb(&mut state.bc, &mut state.af), state),
+        0x05 => instruction_finished(decrement_lb(&mut state.bc, &mut state.af), state),
+        0x06 => instruction_finished(load_imm_into_hi(&mut state.bc, state.pc.get(), memory), state),
+        0x07 => instruction_finished(rlc_a(&mut state.af), state),
+        0x08 => instruction_finished(save_sp_to_imm(&mut state.sp, state.pc.get(), memory), state),
+        0x09 => instruction_finished(add_full(&mut state.hl, &mut state.bc, &mut state.af), state),
+        0x0A => instruction_finished(load_bc_into_a(&mut state.af, state.bc.get_register(), memory), state),
+        0x0B => instruction_finished(decrement_full(&mut state.bc), state),
+        0x0C => instruction_finished(increment_rb(&mut state.bc, &mut state.af), state),
+        0x0D => instruction_finished(decrement_rb(&mut state.bc, &mut state.af), state),
+        0x0E => instruction_finished(load_imm_into_low(&mut state.bc, state.pc.get(), memory), state),
+        0x0F => instruction_finished(rrc_a(&mut state.af), state),
 
-        0x10 => result = stop(current_state),
-        0x11 => instruction_finished(ld_imm_into_full(&mut current_state.de, current_state.pc.get(), memory), current_state),
-        0x12 => instruction_finished(save_a_to_full(&mut current_state.af, &mut current_state.de, memory), current_state),
-        0x13 => instruction_finished(increment_full(&mut current_state.de), current_state),
-        0x14 => instruction_finished(increment_lb(&mut current_state.de, &mut current_state.af), current_state),
-        0x15 => instruction_finished(decrement_lb(&mut current_state.de, &mut current_state.af), current_state),
-        0x16 => instruction_finished(load_imm_into_hi(&mut current_state.de, current_state.pc.get(), memory), current_state),
-        0x17 => instruction_finished(rla(&mut current_state.af), current_state),
-        0x18 => relative_jump(current_state, memory),
-        0x19 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.de, &mut current_state.af), current_state),
-        0x1A => instruction_finished(load_de_into_a(&mut current_state.af, current_state.de.get_register(), memory), current_state),
-        0x1B => instruction_finished(decrement_full(&mut current_state.de), current_state),
-        0x1C => instruction_finished(increment_rb(&mut current_state.de, &mut current_state.af), current_state),
-        0x1D => instruction_finished(decrement_rb(&mut current_state.de, &mut current_state.af), current_state),
-        0x1E => instruction_finished(load_imm_into_low(&mut current_state.de, current_state.pc.get(), memory), current_state),
-        0x1F => instruction_finished(rr_a(&mut current_state.af), current_state),
+        0x10 => result = stop(state),
+        0x11 => instruction_finished(ld_imm_into_full(&mut state.de, state.pc.get(), memory), state),
+        0x12 => instruction_finished(save_a_to_full(&mut state.af, &mut state.de, memory), state),
+        0x13 => instruction_finished(increment_full(&mut state.de), state),
+        0x14 => instruction_finished(increment_lb(&mut state.de, &mut state.af), state),
+        0x15 => instruction_finished(decrement_lb(&mut state.de, &mut state.af), state),
+        0x16 => instruction_finished(load_imm_into_hi(&mut state.de, state.pc.get(), memory), state),
+        0x17 => instruction_finished(rla(&mut state.af), state),
+        0x18 => relative_jump(state, memory),
+        0x19 => instruction_finished(add_full(&mut state.hl, &mut state.de, &mut state.af), state),
+        0x1A => instruction_finished(load_de_into_a(&mut state.af, state.de.get_register(), memory), state),
+        0x1B => instruction_finished(decrement_full(&mut state.de), state),
+        0x1C => instruction_finished(increment_rb(&mut state.de, &mut state.af), state),
+        0x1D => instruction_finished(decrement_rb(&mut state.de, &mut state.af), state),
+        0x1E => instruction_finished(load_imm_into_low(&mut state.de, state.pc.get(), memory), state),
+        0x1F => instruction_finished(rr_a(&mut state.af), state),
 
-        0x20 => conditional_relative_jump(current_state, JumpCondition::ZNotSet, memory),
-        0x21 => instruction_finished(ld_imm_into_full(&mut current_state.hl, current_state.pc.get(), memory), current_state),
-        0x22 => instruction_finished(save_a_to_hl_inc(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x23 => instruction_finished(increment_full(&mut current_state.hl), current_state),
-        0x24 => instruction_finished(increment_lb(&mut current_state.hl, &mut current_state.af), current_state),
-        0x25 => instruction_finished(decrement_lb(&mut current_state.hl, &mut current_state.af), current_state),
-        0x26 => instruction_finished(load_imm_into_hi(&mut current_state.hl, current_state.pc.get(), memory), current_state),
-        0x27 => instruction_finished(daa(&mut current_state.af), current_state),
-        0x28 => conditional_relative_jump(current_state, JumpCondition::ZSet, memory),
-        0x29 => instruction_finished(add_hl_to_hl(&mut current_state.hl, &mut current_state.af), current_state),
-        0x2A => instruction_finished(ld_a_from_hl_inc(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x2B => instruction_finished(decrement_full(&mut current_state.hl), current_state),
-        0x2C => instruction_finished(increment_rb(&mut current_state.hl, &mut current_state.af), current_state),
-        0x2D => instruction_finished(decrement_rb(&mut current_state.hl, &mut current_state.af), current_state),
-        0x2E => instruction_finished(load_imm_into_low(&mut current_state.hl, current_state.pc.get(), memory), current_state),
-        0x2F => instruction_finished(cpl(&mut current_state.af), current_state),
+        0x20 => conditional_relative_jump(state, JumpCondition::ZNotSet, memory),
+        0x21 => instruction_finished(ld_imm_into_full(&mut state.hl, state.pc.get(), memory), state),
+        0x22 => instruction_finished(save_a_to_hl_inc(&mut state.af, &mut state.hl, memory), state),
+        0x23 => instruction_finished(increment_full(&mut state.hl), state),
+        0x24 => instruction_finished(increment_lb(&mut state.hl, &mut state.af), state),
+        0x25 => instruction_finished(decrement_lb(&mut state.hl, &mut state.af), state),
+        0x26 => instruction_finished(load_imm_into_hi(&mut state.hl, state.pc.get(), memory), state),
+        0x27 => instruction_finished(daa(&mut state.af), state),
+        0x28 => conditional_relative_jump(state, JumpCondition::ZSet, memory),
+        0x29 => instruction_finished(add_hl_to_hl(&mut state.hl, &mut state.af), state),
+        0x2A => instruction_finished(ld_a_from_hl_inc(&mut state.af, &mut state.hl, memory), state),
+        0x2B => instruction_finished(decrement_full(&mut state.hl), state),
+        0x2C => instruction_finished(increment_rb(&mut state.hl, &mut state.af), state),
+        0x2D => instruction_finished(decrement_rb(&mut state.hl, &mut state.af), state),
+        0x2E => instruction_finished(load_imm_into_low(&mut state.hl, state.pc.get(), memory), state),
+        0x2F => instruction_finished(cpl(&mut state.af), state),
 
-        0x30 => conditional_relative_jump(current_state, JumpCondition::CNotSet, memory),        
-        0x31 => instruction_finished(ld_imm_into_full(&mut current_state.sp, current_state.pc.get(), memory), current_state),
-        0x32 => instruction_finished(save_a_to_hl_dec(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x33 => instruction_finished(increment_full(&mut current_state.sp), current_state),
-        0x34 => instruction_finished(increment_value(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x35 => instruction_finished(decrement_at_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x36 => instruction_finished(save_imm_to_hl(&mut current_state.hl, current_state.pc.get(), memory), current_state),
-        0x37 => instruction_finished(scf(&mut current_state.af), current_state),
-        0x38 => conditional_relative_jump(current_state, JumpCondition::CSet, memory),
-        0x39 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.sp, &mut current_state.af), current_state),
-        0x3A => instruction_finished(ld_a_from_hl_dec(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x3B => instruction_finished(decrement_full(&mut current_state.sp), current_state),
-        0x3C => instruction_finished(increment_a(&mut current_state.af), current_state),
-        0x3D => instruction_finished(decrement_a(&mut current_state.af), current_state),
-        0x3E => instruction_finished(load_imm_into_hi(&mut current_state.af, current_state.pc.get(), memory), current_state),
-        0x3F => instruction_finished(ccf(&mut current_state.af), current_state),
+        0x30 => conditional_relative_jump(state, JumpCondition::CNotSet, memory),        
+        0x31 => instruction_finished(ld_imm_into_full(&mut state.sp, state.pc.get(), memory), state),
+        0x32 => instruction_finished(save_a_to_hl_dec(&mut state.af, &mut state.hl, memory), state),
+        0x33 => instruction_finished(increment_full(&mut state.sp), state),
+        0x34 => instruction_finished(increment_value(&mut state.af, &mut state.hl, memory), state),
+        0x35 => instruction_finished(decrement_at_hl(&mut state.af, &mut state.hl, memory), state),
+        0x36 => instruction_finished(save_imm_to_hl(&mut state.hl, state.pc.get(), memory), state),
+        0x37 => instruction_finished(scf(&mut state.af), state),
+        0x38 => conditional_relative_jump(state, JumpCondition::CSet, memory),
+        0x39 => instruction_finished(add_full(&mut state.hl, &mut state.sp, &mut state.af), state),
+        0x3A => instruction_finished(ld_a_from_hl_dec(&mut state.af, &mut state.hl, memory), state),
+        0x3B => instruction_finished(decrement_full(&mut state.sp), state),
+        0x3C => instruction_finished(increment_a(&mut state.af), state),
+        0x3D => instruction_finished(decrement_a(&mut state.af), state),
+        0x3E => instruction_finished(load_imm_into_hi(&mut state.af, state.pc.get(), memory), state),
+        0x3F => instruction_finished(ccf(&mut state.af), state),
 
-        0x40 => instruction_finished((1, 4), current_state),
-        0x41 => instruction_finished(load_low_into_hi(&mut current_state.bc), current_state),
-        0x42 => instruction_finished(load_into_hi(&mut current_state.bc, current_state.de.get_register_lb()), current_state),
-        0x43 => instruction_finished(load_into_hi(&mut current_state.bc, current_state.de.get_register_rb()), current_state),
-        0x44 => instruction_finished(load_into_hi(&mut current_state.bc, current_state.hl.get_register_lb()), current_state),
-        0x45 => instruction_finished(load_into_hi(&mut current_state.bc, current_state.hl.get_register_rb()), current_state),
-        0x46 => instruction_finished(load_hl_into_hi(&mut current_state.bc, current_state.hl.get_register(), memory), current_state),
-        0x47 => instruction_finished(load_into_hi(&mut current_state.bc, current_state.af.get_register_lb()), current_state),
-        0x48 => instruction_finished(load_hi_into_low(&mut current_state.bc), current_state),
-        0x49 => instruction_finished((1, 4), current_state),
-        0x4A => instruction_finished(load_into_low(&mut current_state.bc, current_state.de.get_register_lb()), current_state),
-        0x4B => instruction_finished(load_into_low(&mut current_state.bc, current_state.de.get_register_rb()), current_state),
-        0x4C => instruction_finished(load_into_low(&mut current_state.bc, current_state.hl.get_register_lb()), current_state),
-        0x4D => instruction_finished(load_into_low(&mut current_state.bc, current_state.hl.get_register_rb()), current_state),
-        0x4E => instruction_finished(load_hl_into_low(&mut current_state.bc, current_state.hl.get_register(), memory), current_state),
-        0x4F => instruction_finished(load_into_low(&mut current_state.bc, current_state.af.get_register_lb()), current_state),
+        0x40 => instruction_finished((1, 4), state),
+        0x41 => instruction_finished(load_low_into_hi(&mut state.bc), state),
+        0x42 => instruction_finished(load_into_hi(&mut state.bc, state.de.get_register_lb()), state),
+        0x43 => instruction_finished(load_into_hi(&mut state.bc, state.de.get_register_rb()), state),
+        0x44 => instruction_finished(load_into_hi(&mut state.bc, state.hl.get_register_lb()), state),
+        0x45 => instruction_finished(load_into_hi(&mut state.bc, state.hl.get_register_rb()), state),
+        0x46 => instruction_finished(load_hl_into_hi(&mut state.bc, state.hl.get_register(), memory), state),
+        0x47 => instruction_finished(load_into_hi(&mut state.bc, state.af.get_register_lb()), state),
+        0x48 => instruction_finished(load_hi_into_low(&mut state.bc), state),
+        0x49 => instruction_finished((1, 4), state),
+        0x4A => instruction_finished(load_into_low(&mut state.bc, state.de.get_register_lb()), state),
+        0x4B => instruction_finished(load_into_low(&mut state.bc, state.de.get_register_rb()), state),
+        0x4C => instruction_finished(load_into_low(&mut state.bc, state.hl.get_register_lb()), state),
+        0x4D => instruction_finished(load_into_low(&mut state.bc, state.hl.get_register_rb()), state),
+        0x4E => instruction_finished(load_hl_into_low(&mut state.bc, state.hl.get_register(), memory), state),
+        0x4F => instruction_finished(load_into_low(&mut state.bc, state.af.get_register_lb()), state),
 
-        0x50 => instruction_finished(load_into_hi(&mut current_state.de, current_state.bc.get_register_lb()), current_state),
-        0x51 => instruction_finished(load_into_hi(&mut current_state.de, current_state.bc.get_register_rb()), current_state),
-        0x52 => instruction_finished((1, 4), current_state),
-        0x53 => instruction_finished(load_low_into_hi(&mut current_state.de), current_state),
-        0x54 => instruction_finished(load_into_hi(&mut current_state.de, current_state.hl.get_register_lb()), current_state),
-        0x55 => instruction_finished(load_into_hi(&mut current_state.de, current_state.hl.get_register_rb()), current_state),
-        0x56 => instruction_finished(load_hl_into_hi(&mut current_state.de, current_state.hl.get_register(), memory), current_state),
-        0x57 => instruction_finished(load_into_hi(&mut current_state.de, current_state.af.get_register_lb()), current_state),
-        0x58 => instruction_finished(load_into_low(&mut current_state.de, current_state.bc.get_register_lb()), current_state),
-        0x59 => instruction_finished(load_into_low(&mut current_state.de, current_state.bc.get_register_rb()), current_state),
-        0x5A => instruction_finished(load_hi_into_low(&mut current_state.de), current_state),
-        0x5B => instruction_finished((1, 4), current_state),
-        0x5C => instruction_finished(load_into_low(&mut current_state.de, current_state.hl.get_register_lb()), current_state),
-        0x5D => instruction_finished(load_into_low(&mut current_state.de, current_state.hl.get_register_rb()), current_state),
-        0x5E => instruction_finished(load_hl_into_low(&mut current_state.de, current_state.hl.get_register(), memory), current_state),
-        0x5F => instruction_finished(load_into_low(&mut current_state.de, current_state.af.get_register_lb()), current_state),
+        0x50 => instruction_finished(load_into_hi(&mut state.de, state.bc.get_register_lb()), state),
+        0x51 => instruction_finished(load_into_hi(&mut state.de, state.bc.get_register_rb()), state),
+        0x52 => instruction_finished((1, 4), state),
+        0x53 => instruction_finished(load_low_into_hi(&mut state.de), state),
+        0x54 => instruction_finished(load_into_hi(&mut state.de, state.hl.get_register_lb()), state),
+        0x55 => instruction_finished(load_into_hi(&mut state.de, state.hl.get_register_rb()), state),
+        0x56 => instruction_finished(load_hl_into_hi(&mut state.de, state.hl.get_register(), memory), state),
+        0x57 => instruction_finished(load_into_hi(&mut state.de, state.af.get_register_lb()), state),
+        0x58 => instruction_finished(load_into_low(&mut state.de, state.bc.get_register_lb()), state),
+        0x59 => instruction_finished(load_into_low(&mut state.de, state.bc.get_register_rb()), state),
+        0x5A => instruction_finished(load_hi_into_low(&mut state.de), state),
+        0x5B => instruction_finished((1, 4), state),
+        0x5C => instruction_finished(load_into_low(&mut state.de, state.hl.get_register_lb()), state),
+        0x5D => instruction_finished(load_into_low(&mut state.de, state.hl.get_register_rb()), state),
+        0x5E => instruction_finished(load_hl_into_low(&mut state.de, state.hl.get_register(), memory), state),
+        0x5F => instruction_finished(load_into_low(&mut state.de, state.af.get_register_lb()), state),
 
-        0x60 => instruction_finished(load_into_hi(&mut current_state.hl, current_state.bc.get_register_lb()), current_state),
-        0x61 => instruction_finished(load_into_hi(&mut current_state.hl, current_state.bc.get_register_rb()), current_state),
-        0x62 => instruction_finished(load_into_hi(&mut current_state.hl, current_state.de.get_register_lb()), current_state),
-        0x63 => instruction_finished(load_into_hi(&mut current_state.hl, current_state.de.get_register_rb()), current_state),
-        0x64 => instruction_finished((1, 4), current_state),
-        0x65 => instruction_finished(load_low_into_hi(&mut current_state.hl), current_state),
-        0x66 => instruction_finished(load_hl_into_h(&mut current_state.hl, memory), current_state),
-        0x67 => instruction_finished(load_into_hi(&mut current_state.hl, current_state.af.get_register_lb()), current_state),
-        0x68 => instruction_finished(load_into_low(&mut current_state.hl, current_state.bc.get_register_lb()), current_state),
-        0x69 => instruction_finished(load_into_low(&mut current_state.hl, current_state.bc.get_register_rb()), current_state),
-        0x6A => instruction_finished(load_into_low(&mut current_state.hl, current_state.de.get_register_lb()), current_state),
-        0x6B => instruction_finished(load_into_low(&mut current_state.hl, current_state.de.get_register_rb()), current_state),
-        0x6C => instruction_finished(load_hi_into_low(&mut current_state.hl), current_state),
-        0x6D => instruction_finished((1, 4), current_state),
-        0x6E => instruction_finished(load_hl_into_l(&mut current_state.hl, memory), current_state),
-        0x6F => instruction_finished(load_into_low(&mut current_state.hl, current_state.af.get_register_lb()), current_state),
+        0x60 => instruction_finished(load_into_hi(&mut state.hl, state.bc.get_register_lb()), state),
+        0x61 => instruction_finished(load_into_hi(&mut state.hl, state.bc.get_register_rb()), state),
+        0x62 => instruction_finished(load_into_hi(&mut state.hl, state.de.get_register_lb()), state),
+        0x63 => instruction_finished(load_into_hi(&mut state.hl, state.de.get_register_rb()), state),
+        0x64 => instruction_finished((1, 4), state),
+        0x65 => instruction_finished(load_low_into_hi(&mut state.hl), state),
+        0x66 => instruction_finished(load_hl_into_h(&mut state.hl, memory), state),
+        0x67 => instruction_finished(load_into_hi(&mut state.hl, state.af.get_register_lb()), state),
+        0x68 => instruction_finished(load_into_low(&mut state.hl, state.bc.get_register_lb()), state),
+        0x69 => instruction_finished(load_into_low(&mut state.hl, state.bc.get_register_rb()), state),
+        0x6A => instruction_finished(load_into_low(&mut state.hl, state.de.get_register_lb()), state),
+        0x6B => instruction_finished(load_into_low(&mut state.hl, state.de.get_register_rb()), state),
+        0x6C => instruction_finished(load_hi_into_low(&mut state.hl), state),
+        0x6D => instruction_finished((1, 4), state),
+        0x6E => instruction_finished(load_hl_into_l(&mut state.hl, memory), state),
+        0x6F => instruction_finished(load_into_low(&mut state.hl, state.af.get_register_lb()), state),
 
-        0x70 => instruction_finished(save_value_to_hl(current_state.bc.get_register_lb(), current_state.hl.get_register(), memory), current_state),
-        0x71 => instruction_finished(save_value_to_hl(current_state.bc.get_register_rb(), current_state.hl.get_register(), memory), current_state),
-        0x72 => instruction_finished(save_value_to_hl(current_state.de.get_register_lb(), current_state.hl.get_register(), memory), current_state),
-        0x73 => instruction_finished(save_value_to_hl(current_state.de.get_register_rb(), current_state.hl.get_register(), memory), current_state),
-        0x74 => instruction_finished(save_hi_to_hl(&mut current_state.hl, memory), current_state),
-        0x75 => instruction_finished(save_low_to_hl(&mut current_state.hl, memory), current_state),
-        0x76 => result = halt(current_state, memory),
-        0x77 => instruction_finished(save_value_to_hl(current_state.af.get_register_lb(), current_state.hl.get_register(), memory), current_state),
-        0x78 => instruction_finished(load_into_hi(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
-        0x79 => instruction_finished(load_into_hi(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
-        0x7A => instruction_finished(load_into_hi(&mut current_state.af, current_state.de.get_register_lb()), current_state),
-        0x7B => instruction_finished(load_into_hi(&mut current_state.af, current_state.de.get_register_rb()), current_state),
-        0x7C => instruction_finished(load_into_hi(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
-        0x7D => instruction_finished(load_into_hi(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
-        0x7E => instruction_finished(load_hl_into_hi(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
-        0x7F => instruction_finished((1, 4), current_state),
+        0x70 => instruction_finished(save_value_to_hl(state.bc.get_register_lb(), state.hl.get_register(), memory), state),
+        0x71 => instruction_finished(save_value_to_hl(state.bc.get_register_rb(), state.hl.get_register(), memory), state),
+        0x72 => instruction_finished(save_value_to_hl(state.de.get_register_lb(), state.hl.get_register(), memory), state),
+        0x73 => instruction_finished(save_value_to_hl(state.de.get_register_rb(), state.hl.get_register(), memory), state),
+        0x74 => instruction_finished(save_hi_to_hl(&mut state.hl, memory), state),
+        0x75 => instruction_finished(save_low_to_hl(&mut state.hl, memory), state),
+        0x76 => result = halt(state, memory),
+        0x77 => instruction_finished(save_value_to_hl(state.af.get_register_lb(), state.hl.get_register(), memory), state),
+        0x78 => instruction_finished(load_into_hi(&mut state.af, state.bc.get_register_lb()), state),
+        0x79 => instruction_finished(load_into_hi(&mut state.af, state.bc.get_register_rb()), state),
+        0x7A => instruction_finished(load_into_hi(&mut state.af, state.de.get_register_lb()), state),
+        0x7B => instruction_finished(load_into_hi(&mut state.af, state.de.get_register_rb()), state),
+        0x7C => instruction_finished(load_into_hi(&mut state.af, state.hl.get_register_lb()), state),
+        0x7D => instruction_finished(load_into_hi(&mut state.af, state.hl.get_register_rb()), state),
+        0x7E => instruction_finished(load_hl_into_hi(&mut state.af, state.hl.get_register(), memory), state),
+        0x7F => instruction_finished((1, 4), state),
 
-        0x80 => instruction_finished(add(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
-        0x81 => instruction_finished(add(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
-        0x82 => instruction_finished(add(&mut current_state.af, current_state.de.get_register_lb()), current_state),
-        0x83 => instruction_finished(add(&mut current_state.af, current_state.de.get_register_rb()), current_state),
-        0x84 => instruction_finished(add(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
-        0x85 => instruction_finished(add(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
-        0x86 => instruction_finished(add_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
-        0x87 => instruction_finished(add_a(&mut current_state.af), current_state),
-        0x88 => instruction_finished(adc(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
-        0x89 => instruction_finished(adc(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
-        0x8A => instruction_finished(adc(&mut current_state.af, current_state.de.get_register_lb()), current_state),
-        0x8B => instruction_finished(adc(&mut current_state.af, current_state.de.get_register_rb()), current_state),
-        0x8C => instruction_finished(adc(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
-        0x8D => instruction_finished(adc(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
-        0x8E => instruction_finished(adc_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
-        0x8F => instruction_finished(adc_a(&mut current_state.af), current_state),
+        0x80 => instruction_finished(add(&mut state.af, state.bc.get_register_lb()), state),
+        0x81 => instruction_finished(add(&mut state.af, state.bc.get_register_rb()), state),
+        0x82 => instruction_finished(add(&mut state.af, state.de.get_register_lb()), state),
+        0x83 => instruction_finished(add(&mut state.af, state.de.get_register_rb()), state),
+        0x84 => instruction_finished(add(&mut state.af, state.hl.get_register_lb()), state),
+        0x85 => instruction_finished(add(&mut state.af, state.hl.get_register_rb()), state),
+        0x86 => instruction_finished(add_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0x87 => instruction_finished(add_a(&mut state.af), state),
+        0x88 => instruction_finished(adc(&mut state.af, state.bc.get_register_lb()), state),
+        0x89 => instruction_finished(adc(&mut state.af, state.bc.get_register_rb()), state),
+        0x8A => instruction_finished(adc(&mut state.af, state.de.get_register_lb()), state),
+        0x8B => instruction_finished(adc(&mut state.af, state.de.get_register_rb()), state),
+        0x8C => instruction_finished(adc(&mut state.af, state.hl.get_register_lb()), state),
+        0x8D => instruction_finished(adc(&mut state.af, state.hl.get_register_rb()), state),
+        0x8E => instruction_finished(adc_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0x8F => instruction_finished(adc_a(&mut state.af), state),
 
-        0x90 => instruction_finished(sub(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
-        0x91 => instruction_finished(sub(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
-        0x92 => instruction_finished(sub(&mut current_state.af, current_state.de.get_register_lb()), current_state),
-        0x93 => instruction_finished(sub(&mut current_state.af, current_state.de.get_register_rb()), current_state),
-        0x94 => instruction_finished(sub(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
-        0x95 => instruction_finished(sub(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
-        0x96 => instruction_finished(sub_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
-        0x97 => instruction_finished(sub_a(&mut current_state.af), current_state),
-        0x98 => instruction_finished(sbc(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
-        0x99 => instruction_finished(sbc(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
-        0x9A => instruction_finished(sbc(&mut current_state.af, current_state.de.get_register_lb()), current_state),
-        0x9B => instruction_finished(sbc(&mut current_state.af, current_state.de.get_register_rb()), current_state),
-        0x9C => instruction_finished(sbc(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
-        0x9D => instruction_finished(sbc(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
-        0x9E => instruction_finished(sbc_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
-        0x9F => instruction_finished(sbc_a(&mut current_state.af), current_state),
+        0x90 => instruction_finished(sub(&mut state.af, state.bc.get_register_lb()), state),
+        0x91 => instruction_finished(sub(&mut state.af, state.bc.get_register_rb()), state),
+        0x92 => instruction_finished(sub(&mut state.af, state.de.get_register_lb()), state),
+        0x93 => instruction_finished(sub(&mut state.af, state.de.get_register_rb()), state),
+        0x94 => instruction_finished(sub(&mut state.af, state.hl.get_register_lb()), state),
+        0x95 => instruction_finished(sub(&mut state.af, state.hl.get_register_rb()), state),
+        0x96 => instruction_finished(sub_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0x97 => instruction_finished(sub_a(&mut state.af), state),
+        0x98 => instruction_finished(sbc(&mut state.af, state.bc.get_register_lb()), state),
+        0x99 => instruction_finished(sbc(&mut state.af, state.bc.get_register_rb()), state),
+        0x9A => instruction_finished(sbc(&mut state.af, state.de.get_register_lb()), state),
+        0x9B => instruction_finished(sbc(&mut state.af, state.de.get_register_rb()), state),
+        0x9C => instruction_finished(sbc(&mut state.af, state.hl.get_register_lb()), state),
+        0x9D => instruction_finished(sbc(&mut state.af, state.hl.get_register_rb()), state),
+        0x9E => instruction_finished(sbc_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0x9F => instruction_finished(sbc_a(&mut state.af), state),
 
-        0xA0 => instruction_finished(and(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
-        0xA1 => instruction_finished(and(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
-        0xA2 => instruction_finished(and(&mut current_state.af, current_state.de.get_register_lb()), current_state),
-        0xA3 => instruction_finished(and(&mut current_state.af, current_state.de.get_register_rb()), current_state),
-        0xA4 => instruction_finished(and(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
-        0xA5 => instruction_finished(and(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
-        0xA6 => instruction_finished(and_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
-        0xA7 => instruction_finished(and_a(&mut current_state.af), current_state),
-        0xA8 => instruction_finished(xor(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
-        0xA9 => instruction_finished(xor(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
-        0xAA => instruction_finished(xor(&mut current_state.af, current_state.de.get_register_lb()), current_state),
-        0xAB => instruction_finished(xor(&mut current_state.af, current_state.de.get_register_rb()), current_state),
-        0xAC => instruction_finished(xor(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
-        0xAD => instruction_finished(xor(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
-        0xAE => instruction_finished(xor_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
-        0xAF => instruction_finished(xor_a(&mut current_state.af), current_state),
+        0xA0 => instruction_finished(and(&mut state.af, state.bc.get_register_lb()), state),
+        0xA1 => instruction_finished(and(&mut state.af, state.bc.get_register_rb()), state),
+        0xA2 => instruction_finished(and(&mut state.af, state.de.get_register_lb()), state),
+        0xA3 => instruction_finished(and(&mut state.af, state.de.get_register_rb()), state),
+        0xA4 => instruction_finished(and(&mut state.af, state.hl.get_register_lb()), state),
+        0xA5 => instruction_finished(and(&mut state.af, state.hl.get_register_rb()), state),
+        0xA6 => instruction_finished(and_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0xA7 => instruction_finished(and_a(&mut state.af), state),
+        0xA8 => instruction_finished(xor(&mut state.af, state.bc.get_register_lb()), state),
+        0xA9 => instruction_finished(xor(&mut state.af, state.bc.get_register_rb()), state),
+        0xAA => instruction_finished(xor(&mut state.af, state.de.get_register_lb()), state),
+        0xAB => instruction_finished(xor(&mut state.af, state.de.get_register_rb()), state),
+        0xAC => instruction_finished(xor(&mut state.af, state.hl.get_register_lb()), state),
+        0xAD => instruction_finished(xor(&mut state.af, state.hl.get_register_rb()), state),
+        0xAE => instruction_finished(xor_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0xAF => instruction_finished(xor_a(&mut state.af), state),
 
-        0xB0 => instruction_finished(or(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
-        0xB1 => instruction_finished(or(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
-        0xB2 => instruction_finished(or(&mut current_state.af, current_state.de.get_register_lb()), current_state),
-        0xB3 => instruction_finished(or(&mut current_state.af, current_state.de.get_register_rb()), current_state),
-        0xB4 => instruction_finished(or(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
-        0xB5 => instruction_finished(or(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
-        0xB6 => instruction_finished(or_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
-        0xB7 => instruction_finished(or_a(&mut current_state.af), current_state),
-        0xB8 => instruction_finished(cp(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
-        0xB9 => instruction_finished(cp(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
-        0xBA => instruction_finished(cp(&mut current_state.af, current_state.de.get_register_lb()), current_state),
-        0xBB => instruction_finished(cp(&mut current_state.af, current_state.de.get_register_rb()), current_state),
-        0xBC => instruction_finished(cp(&mut current_state.af, current_state.hl.get_register_lb()), current_state),
-        0xBD => instruction_finished(cp(&mut current_state.af, current_state.hl.get_register_rb()), current_state),
-        0xBE => instruction_finished(cp_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
-        0xBF => instruction_finished(cp_a(&mut current_state.af), current_state),
+        0xB0 => instruction_finished(or(&mut state.af, state.bc.get_register_lb()), state),
+        0xB1 => instruction_finished(or(&mut state.af, state.bc.get_register_rb()), state),
+        0xB2 => instruction_finished(or(&mut state.af, state.de.get_register_lb()), state),
+        0xB3 => instruction_finished(or(&mut state.af, state.de.get_register_rb()), state),
+        0xB4 => instruction_finished(or(&mut state.af, state.hl.get_register_lb()), state),
+        0xB5 => instruction_finished(or(&mut state.af, state.hl.get_register_rb()), state),
+        0xB6 => instruction_finished(or_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0xB7 => instruction_finished(or_a(&mut state.af), state),
+        0xB8 => instruction_finished(cp(&mut state.af, state.bc.get_register_lb()), state),
+        0xB9 => instruction_finished(cp(&mut state.af, state.bc.get_register_rb()), state),
+        0xBA => instruction_finished(cp(&mut state.af, state.de.get_register_lb()), state),
+        0xBB => instruction_finished(cp(&mut state.af, state.de.get_register_rb()), state),
+        0xBC => instruction_finished(cp(&mut state.af, state.hl.get_register_lb()), state),
+        0xBD => instruction_finished(cp(&mut state.af, state.hl.get_register_rb()), state),
+        0xBE => instruction_finished(cp_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0xBF => instruction_finished(cp_a(&mut state.af), state),
 
-        0xC0 => conditional_ret(current_state, JumpCondition::ZNotSet, memory),
-        0xC1 => instruction_finished(pop(&mut current_state.bc, &mut current_state.sp, memory), current_state),
-        0xC2 => conditional_jump(current_state, JumpCondition::ZNotSet, memory),
-        0xC3 => jump(current_state, memory),
-        0xC4 => conditional_call(current_state, JumpCondition::ZNotSet, memory),
-        0xC5 => instruction_finished(push(&mut current_state.bc, &mut current_state.sp, memory), current_state),
-        0xC6 => instruction_finished(add_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
-        0xC7 => rst(0x0000, memory, current_state),
-        0xC8 => conditional_ret(current_state, JumpCondition::ZSet, memory),
-        0xC9 => ret(current_state, memory),
-        0xCA => conditional_jump(current_state, JumpCondition::ZSet, memory),
+        0xC0 => conditional_ret(state, JumpCondition::ZNotSet, memory),
+        0xC1 => instruction_finished(pop(&mut state.bc, &mut state.sp, memory), state),
+        0xC2 => conditional_jump(state, JumpCondition::ZNotSet, memory),
+        0xC3 => jump(state, memory),
+        0xC4 => conditional_call(state, JumpCondition::ZNotSet, memory),
+        0xC5 => instruction_finished(push(&mut state.bc, &mut state.sp, memory), state),
+        0xC6 => instruction_finished(add_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
+        0xC7 => rst(0x0000, memory, state),
+        0xC8 => conditional_ret(state, JumpCondition::ZSet, memory),
+        0xC9 => ret(state, memory),
+        0xCA => conditional_jump(state, JumpCondition::ZSet, memory),
         0xCB => result = CycleResult::InvalidOp, // Shouldn't have a CB at this stage, so mark as invalid if it happens.
-        0xCC => conditional_call(current_state, JumpCondition::ZSet, memory),
-        0xCD => call(current_state, memory),
-        0xCE => instruction_finished(adc_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
-        0xCF => rst(0x0008, memory, current_state),
+        0xCC => conditional_call(state, JumpCondition::ZSet, memory),
+        0xCD => call(state, memory),
+        0xCE => instruction_finished(adc_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
+        0xCF => rst(0x0008, memory, state),
 
-        0xD0 => conditional_ret(current_state, JumpCondition::CNotSet, memory),
-        0xD1 => instruction_finished(pop(&mut current_state.de, &mut current_state.sp, memory), current_state),
-        0xD2 => conditional_jump(current_state, JumpCondition::CNotSet, memory),
+        0xD0 => conditional_ret(state, JumpCondition::CNotSet, memory),
+        0xD1 => instruction_finished(pop(&mut state.de, &mut state.sp, memory), state),
+        0xD2 => conditional_jump(state, JumpCondition::CNotSet, memory),
         0xD3 => result = CycleResult::InvalidOp,
-        0xD4 => conditional_call(current_state, JumpCondition::CNotSet, memory),
-        0xD5 => instruction_finished(push(&mut current_state.de, &mut current_state.sp, memory), current_state),
-        0xD6 => instruction_finished(sub_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
-        0xD7 => rst(0x0010, memory, current_state),
-        0xD8 => conditional_ret(current_state, JumpCondition::CSet, memory),
-        0xD9 => reti(current_state, memory),
-        0xDA => conditional_jump(current_state, JumpCondition::CSet, memory),
+        0xD4 => conditional_call(state, JumpCondition::CNotSet, memory),
+        0xD5 => instruction_finished(push(&mut state.de, &mut state.sp, memory), state),
+        0xD6 => instruction_finished(sub_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
+        0xD7 => rst(0x0010, memory, state),
+        0xD8 => conditional_ret(state, JumpCondition::CSet, memory),
+        0xD9 => reti(state, memory),
+        0xDA => conditional_jump(state, JumpCondition::CSet, memory),
         0xDB => result = CycleResult::InvalidOp,
-        0xDC => conditional_call(current_state, JumpCondition::CSet, memory),
+        0xDC => conditional_call(state, JumpCondition::CSet, memory),
         0xDD => result = CycleResult::InvalidOp,
-        0xDE => instruction_finished(sbc_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
-        0xDF => rst(0x0017, memory, current_state),
+        0xDE => instruction_finished(sbc_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
+        0xDF => rst(0x0017, memory, state),
 
-        0xE0 => instruction_finished(save_a_to_ff_imm(&mut current_state.af, current_state.pc.get(), memory), current_state),
-        0xE1 => instruction_finished(pop(&mut current_state.hl, &mut current_state.sp, memory), current_state),
-        0xE2 => instruction_finished(save_a_to_ff_c(&mut current_state.af, &mut current_state.bc, memory), current_state),
+        0xE0 => instruction_finished(save_a_to_ff_imm(&mut state.af, state.pc.get(), memory), state),
+        0xE1 => instruction_finished(pop(&mut state.hl, &mut state.sp, memory), state),
+        0xE2 => instruction_finished(save_a_to_ff_c(&mut state.af, &mut state.bc, memory), state),
         0xE3 => result = CycleResult::InvalidOp,
         0xE4 => result = CycleResult::InvalidOp,
-        0xE5 => instruction_finished(push(&mut current_state.hl, &mut current_state.sp, memory), current_state),
-        0xE6 => instruction_finished(and_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
-        0xE7 => rst(0x0020, memory, current_state),
-        0xE8 => instruction_finished(add_imm_to_sp(&mut current_state.af, &mut current_state.sp, &current_state.pc.get(), memory), current_state),
-        0xE9 => jump_to_hl(current_state),
-        0xEA => instruction_finished(save_a_to_nn(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xE5 => instruction_finished(push(&mut state.hl, &mut state.sp, memory), state),
+        0xE6 => instruction_finished(and_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
+        0xE7 => rst(0x0020, memory, state),
+        0xE8 => instruction_finished(add_imm_to_sp(&mut state.af, &mut state.sp, &state.pc.get(), memory), state),
+        0xE9 => jump_to_hl(state),
+        0xEA => instruction_finished(save_a_to_nn(&mut state.af, &state.pc.get(), memory), state),
         0xEB => result = CycleResult::InvalidOp,
         0xEC => result = CycleResult::InvalidOp,
         0xED => result = CycleResult::InvalidOp,
-        0xEE => instruction_finished(xor_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
-        0xEF => rst(0x0028, memory, current_state),
+        0xEE => instruction_finished(xor_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
+        0xEF => rst(0x0028, memory, state),
 
-        0xF0 => instruction_finished(ld_a_from_ff_imm(&mut current_state.af, current_state.pc.get(), memory), current_state),
-        0xF1 => instruction_finished(pop(&mut current_state.af, &mut current_state.sp, memory), current_state),
-        0xF2 => instruction_finished(ld_a_from_ff_c(&mut current_state.af, &mut current_state.bc, memory), current_state),
-        0xF3 => instruction_finished(di(current_state), current_state),
+        0xF0 => instruction_finished(ld_a_from_ff_imm(&mut state.af, state.pc.get(), memory), state),
+        0xF1 => instruction_finished(pop(&mut state.af, &mut state.sp, memory), state),
+        0xF2 => instruction_finished(ld_a_from_ff_c(&mut state.af, &mut state.bc, memory), state),
+        0xF3 => instruction_finished(di(state), state),
         0xF4 => result = CycleResult::InvalidOp,
-        0xF5 => instruction_finished(push(&mut current_state.af, &mut current_state.sp, memory), current_state),
-        0xF6 => instruction_finished(or_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
-        0xF7 => rst(0x0030, memory, current_state),
-        0xF8 => instruction_finished(add_imm_to_sp_save_to_hl(current_state, memory), current_state),
-        0xF9 => instruction_finished(ld_hl_into_sp(&mut current_state.sp, &mut current_state.hl), current_state),
-        0xFA => instruction_finished(ld_a_from_imm_addr(&mut current_state.af, current_state.pc.get(), memory), current_state),
-        0xFB => instruction_finished(ei(current_state), current_state),
+        0xF5 => instruction_finished(push(&mut state.af, &mut state.sp, memory), state),
+        0xF6 => instruction_finished(or_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
+        0xF7 => rst(0x0030, memory, state),
+        0xF8 => instruction_finished(add_imm_to_sp_save_to_hl(state, memory), state),
+        0xF9 => instruction_finished(ld_hl_into_sp(&mut state.sp, &mut state.hl), state),
+        0xFA => instruction_finished(ld_a_from_imm_addr(&mut state.af, state.pc.get(), memory), state),
+        0xFB => instruction_finished(ei(state), state),
         0xFC => result = CycleResult::InvalidOp,
         0xFD => result = CycleResult::InvalidOp,
-        0xFE => instruction_finished(cp_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
-        0xFF => rst(0x0038, memory, current_state),
+        0xFE => instruction_finished(cp_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
+        0xFF => rst(0x0038, memory, state),
     }
 
     result
@@ -362,11 +362,11 @@ fn daa(af: &mut CpuReg) -> (u16, u16) {
 
 // HALT and STOP
 
-fn halt(current_state: &mut CpuState, memory: &Arc<Mutex<Memory>>) -> CycleResult {
+fn halt(current_state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
 
     current_state.pc.add(1);
     current_state.cycles.add(4);
-    current_state.halt_bug = memory::read(0xFF0F, &memory.lock().unwrap()) != 0 && !current_state.interrupts.can_interrupt;
+    current_state.halt_bug = memory::cpu_read(0xFF0F, memory) != 0 && !current_state.interrupts.can_interrupt;
     CycleResult::Halt
 }
 
@@ -380,7 +380,7 @@ fn stop(current_state: &mut CpuState) -> CycleResult {
 
 // Jumps
 
-fn jump(state: &mut CpuState, memory: &Arc<Mutex<Memory>>) {
+fn jump(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let current_pc = state.pc.get();
     state.pc.set(cpu::read_u16(current_pc + 1, memory));
@@ -394,15 +394,15 @@ fn jump_to_hl(state: &mut CpuState) {
     state.cycles.add(4);
 }
 
-fn relative_jump(state: &mut CpuState, memory: &Arc<Mutex<Memory>>) {
+fn relative_jump(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let current_pc = state.pc.get();
-    let target = memory::read(current_pc + 1, &memory.lock().unwrap()) as i8;
+    let target = memory::cpu_read(current_pc + 1, memory) as i8;
     state.pc.set(current_pc.wrapping_add(target as u16) + 2);
     state.cycles.add(12);
 }
 
-fn conditional_jump(state: &mut CpuState, condition: JumpCondition, memory: &Arc<Mutex<Memory>>) {
+fn conditional_jump(state: &mut CpuState, condition: JumpCondition, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let should_jump: bool;
 
@@ -418,7 +418,7 @@ fn conditional_jump(state: &mut CpuState, condition: JumpCondition, memory: &Arc
     else { state.pc.add(3); state.cycles.add(12) }
 }
 
-fn conditional_relative_jump(state: &mut CpuState, condition: JumpCondition, memory: &Arc<Mutex<Memory>>) {
+fn conditional_relative_jump(state: &mut CpuState, condition: JumpCondition, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let should_jump: bool;
 
@@ -437,17 +437,17 @@ fn conditional_relative_jump(state: &mut CpuState, condition: JumpCondition, mem
 
 // Calls and Returns
 
-fn call(state: &mut CpuState, memory: &Arc<Mutex<Memory>>) {
+fn call(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let current_pc = state.pc.get();
     let next_pc = state.pc.get() + 3;
 
-    cpu::stack_write(&mut state.sp, next_pc, &memory);
+    cpu::stack_write(&mut state.sp, next_pc, memory);
     state.pc.set(cpu::read_u16(current_pc + 1, memory));
     state.cycles.add(24);
 }
 
-fn conditional_call(state: &mut CpuState, condition: JumpCondition, memory: &Arc<Mutex<Memory>>) {
+fn conditional_call(state: &mut CpuState, condition: JumpCondition, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let should_call: bool;
 
@@ -463,19 +463,19 @@ fn conditional_call(state: &mut CpuState, condition: JumpCondition, memory: &Arc
     else { state.pc.add(3); state.cycles.add(12) }
 }
 
-fn ret(state: &mut CpuState, memory: &Arc<Mutex<Memory>>) {
+fn ret(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
     
     state.pc.set(cpu::stack_read(&mut state.sp, memory));
     state.cycles.add(16);
 }
 
-fn reti(state: &mut CpuState, memory: &Arc<Mutex<Memory>>) {
+fn reti(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     cpu::toggle_interrupts(state, true);
     ret(state, memory);
 }
 
-fn conditional_ret(state: &mut CpuState, condition: JumpCondition, memory: &Arc<Mutex<Memory>>) {
+fn conditional_ret(state: &mut CpuState, condition: JumpCondition, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let should_ret: bool;
 
@@ -520,9 +520,9 @@ fn load_low_into_hi(register: &mut CpuReg) -> (u16, u16) {
     (1, 4)
 }
 
-fn add_imm_to_sp_save_to_hl(state: &mut CpuState, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn add_imm_to_sp_save_to_hl(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(state.pc.get() + 1, &memory.lock().unwrap()) as i8;
+    let value = memory::cpu_read(state.pc.get() + 1, memory) as i8;
     let result = state.sp.add_to_reg(value as u16);
 
     utils::set_zf(false, &mut state.af);
@@ -534,21 +534,21 @@ fn add_imm_to_sp_save_to_hl(state: &mut CpuState, memory: &Arc<Mutex<Memory>>) -
 
 // Load register from immediate
 
-fn load_imm_into_hi(register: &mut CpuReg, pc: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn load_imm_into_hi(register: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = cpu::read_immediate(pc, memory);
     register.set_register_lb(value);
     (2, 8)
 }
 
-fn load_imm_into_low(register: &mut CpuReg, pc: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn load_imm_into_low(register: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = cpu::read_immediate(pc, memory);
     register.set_register_rb(value);
     (2, 8)
 }
 
-fn ld_imm_into_full(register: &mut CpuReg, pc: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn ld_imm_into_full(register: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     register.set_register(cpu::read_u16(pc + 1, memory));
     (3, 12)
@@ -557,24 +557,24 @@ fn ld_imm_into_full(register: &mut CpuReg, pc: u16, memory: &Arc<Mutex<Memory>>)
 
 // Load register from address
 
-fn ld_a_from_imm_addr(af: &mut CpuReg, pc: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn ld_a_from_imm_addr(af: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let target_addr = cpu::read_u16(pc + 1, memory);
-    af.set_register_lb(memory::read(target_addr, &memory.lock().unwrap()));
+    af.set_register_lb(memory::cpu_read(target_addr, memory));
     (3, 16)
 }
 
-fn ld_a_from_ff_imm(af: &mut CpuReg, pc: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn ld_a_from_ff_imm(af: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let target_addr = 0xFF00 + cpu::read_immediate(pc, memory) as u16;
-    af.set_register_lb(memory::read(target_addr, &memory.lock().unwrap()));
+    af.set_register_lb(memory::cpu_read(target_addr, memory));
     (2, 12)
 }
 
-fn ld_a_from_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn ld_a_from_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let address = 0xFF00 + bc.get_register_rb() as u16;
-    let value = memory::read(address, &memory.lock().unwrap());
+    let value = memory::cpu_read(address, memory);
 
     af.set_register_lb(value);
 
@@ -583,58 +583,58 @@ fn ld_a_from_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &Arc<Mutex<Memory>>)
 
 // Load register from register address
 
-fn load_hl_into_hi(register: &mut CpuReg, hl: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn load_hl_into_hi(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(hl, &memory.lock().unwrap());
+    let value = memory::cpu_read(hl, memory);
     register.set_register_lb(value);
     (1, 8)
 }
 
-fn load_hl_into_low(register: &mut CpuReg, hl: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn load_hl_into_low(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(hl, &memory.lock().unwrap());
+    let value = memory::cpu_read(hl, memory);
     register.set_register_rb(value);
     (1, 8)
 }
 
-fn load_hl_into_h(register: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn load_hl_into_h(register: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let address = register.get_register();
-    register.set_register_lb(memory::read(address, &memory.lock().unwrap()));
+    register.set_register_lb(memory::cpu_read(address, memory));
     (1, 8)
 }
 
-fn load_hl_into_l(register: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn load_hl_into_l(register: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let address = register.get_register();
-    register.set_register_rb(memory::read(address, &memory.lock().unwrap()));
+    register.set_register_rb(memory::cpu_read(address, memory));
     (1, 8)
 }
 
-fn load_bc_into_a(register: &mut CpuReg, bc: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn load_bc_into_a(register: &mut CpuReg, bc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(bc, &memory.lock().unwrap());
+    let value = memory::cpu_read(bc, memory);
     register.set_register_lb(value);
     (1, 8)
 }
 
-fn load_de_into_a(register: &mut CpuReg, de: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn load_de_into_a(register: &mut CpuReg, de: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(de, &memory.lock().unwrap());
+    let value = memory::cpu_read(de, memory);
     register.set_register_lb(value);
     (1, 8)
 }
 
-fn ld_a_from_hl_inc(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn ld_a_from_hl_inc(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    af.set_register_lb(memory::read(hl.get_register(), &memory.lock().unwrap()));
+    af.set_register_lb(memory::cpu_read(hl.get_register(), memory));
     hl.increment();
     (1, 8)
 }
 
-fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
     
-    af.set_register_lb(memory::read(hl.get_register(), &memory.lock().unwrap()));
+    af.set_register_lb(memory::cpu_read(hl.get_register(), memory));
     hl.decrement();
     (1, 8)
 }
@@ -642,35 +642,35 @@ fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>
 
 // Save register to HL
 
-fn save_a_to_hl_inc(register: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn save_a_to_hl_inc(register: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::write(hl.get_register(), register.get_register_lb(), &mut memory.lock().unwrap());
+    memory::cpu_write(hl.get_register(), register.get_register_lb(), memory);
     hl.increment();
     (1, 8)
 }
 
-fn save_a_to_hl_dec(a: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn save_a_to_hl_dec(a: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::write(hl.get_register(), a.get_register_lb(), &mut memory.lock().unwrap());
+    memory::cpu_write(hl.get_register(), a.get_register_lb(), memory);
     hl.decrement();
     (1, 8)
 }
 
-fn save_value_to_hl(value: u8, hl: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn save_value_to_hl(value: u8, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::write(hl, value, &mut memory.lock().unwrap());
+    memory::cpu_write(hl, value, memory);
     (1, 8)
 }
 
-fn save_hi_to_hl(hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn save_hi_to_hl(hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::write(hl.get_register(), hl.get_register_lb(), &mut memory.lock().unwrap());
+    memory::cpu_write(hl.get_register(), hl.get_register_lb(), memory);
     (1, 8)
 }
 
-fn save_low_to_hl(hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn save_low_to_hl(hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::write(hl.get_register(), hl.get_register_rb(), &mut memory.lock().unwrap());
+    memory::cpu_write(hl.get_register(), hl.get_register_rb(), memory);
     (1, 8)
 }
 
@@ -680,54 +680,54 @@ fn ld_hl_into_sp(sp: &mut CpuReg, hl: &mut CpuReg) -> (u16, u16) {
     (1, 8)
 }
 
-fn save_a_to_full(register: &mut CpuReg, full: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn save_a_to_full(register: &mut CpuReg, full: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::write(full.get_register(), register.get_register_lb(), &mut memory.lock().unwrap());
+    memory::cpu_write(full.get_register(), register.get_register_lb(), memory);
     (1, 8)
 }
 
 
 // Save register to address
 
-fn save_a_to_ff_imm(af: &mut CpuReg, pc: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn save_a_to_ff_imm(af: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let target_addr = 0xFF00 + (cpu::read_immediate(pc, memory) as u16);
-    memory::write(target_addr, af.get_register_lb(), &mut memory.lock().unwrap());
+    memory::cpu_write(target_addr, af.get_register_lb(), memory);
     (2, 12)
 }
 
-fn save_a_to_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn save_a_to_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let target_addr = 0xFF00 + (bc.get_register_rb() as u16);
-    memory::write(target_addr, af.get_register_lb(), &mut memory.lock().unwrap());
+    memory::cpu_write(target_addr, af.get_register_lb(), memory);
     (1, 8)
 }
 
-fn save_a_to_nn(af: &mut CpuReg, pc: &u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn save_a_to_nn(af: &mut CpuReg, pc: &u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let target_addr = cpu::read_u16(pc + 1, memory);
-    memory::write(target_addr, af.get_register_lb(), &mut memory.lock().unwrap());
+    memory::cpu_write(target_addr, af.get_register_lb(), memory);
     (3, 16)
 }
 
 
 // Save value to HL
 
-fn save_imm_to_hl(hl: &mut CpuReg, pc: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn save_imm_to_hl(hl: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = cpu::read_immediate(pc, memory);
-    memory::write(hl.get_register(), value, &mut memory.lock().unwrap());
+    memory::cpu_write(hl.get_register(), value, memory);
     (2, 12)
 }
 
 
 // Save SP to immediate address
 
-fn save_sp_to_imm(sp: &mut CpuReg, pc: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn save_sp_to_imm(sp: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let target_addr = cpu::read_u16(pc + 1, memory);
-    memory::write(target_addr, sp.get_register_rb(), &mut memory.lock().unwrap());
-    memory::write(target_addr + 1, sp.get_register_lb(), &mut memory.lock().unwrap());
+    memory::cpu_write(target_addr, sp.get_register_rb(), memory);
+    memory::cpu_write(target_addr + 1, sp.get_register_lb(), memory);
     (3, 20)
 }
 
@@ -770,12 +770,12 @@ fn increment_a(register: &mut CpuReg) -> (u16, u16) {
 
 // Increment value at HL
 
-fn increment_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn increment_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
     
-    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
+    let value = memory::cpu_read(hl.get_register(), memory);
     let result = value.overflowing_add(1);
     let half_carry = (result.0 & 0x0F) == 0;
-    memory::write(hl.get_register(), result.0, &mut memory.lock().unwrap());
+    memory::cpu_write(hl.get_register(), result.0, memory);
     utils::set_zf(result.0 == 0, af); utils::set_nf(false, af);
     utils::set_hf(half_carry, af);
     (1, 12)
@@ -820,12 +820,12 @@ fn decrement_a(af: &mut CpuReg) -> (u16, u16) {
 
 // Decrement value at HL
 
-fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
     
-    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
+    let value = memory::cpu_read(hl.get_register(), memory);
     let result = value.overflowing_sub(1);
     let half_carry = (result.0 & 0x0F) == 0;
-    memory::write(hl.get_register(), result.0, &mut memory.lock().unwrap());
+    memory::cpu_write(hl.get_register(), result.0, memory);
     utils::set_zf(result.0 == 0, af); utils::set_nf(true, af);
     utils::set_hf(half_carry, af);
     (1, 12)
@@ -855,9 +855,9 @@ fn add_hl_to_hl(hl: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
     (1, 8)
 }
 
-fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: &u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: &u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(pc + 1, &memory.lock().unwrap()) as i8;
+    let value = memory::cpu_read(pc + 1, memory) as i8;
     sp.add_to_reg(value as u16);
     utils::set_zf(false, af);
     utils::set_nf(false, af);
@@ -885,9 +885,9 @@ fn add_a(register: &mut CpuReg) -> (u16, u16) {
     add(register, value)
 }
 
-fn add_hl(register: &mut CpuReg, hl: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn add_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(hl, &memory.lock().unwrap());
+    let value = memory::cpu_read(hl, memory);
     add(register, value);
     (1, 8)
 }
@@ -924,9 +924,9 @@ fn adc_a(register: &mut CpuReg) -> (u16, u16) {
     adc(register, value)
 }
 
-fn adc_hl(register: &mut CpuReg, hl: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn adc_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(hl, &memory.lock().unwrap());
+    let value = memory::cpu_read(hl, memory);
     adc(register, value);
     (1, 8)
 }
@@ -959,9 +959,9 @@ fn sub_a(register: &mut CpuReg) -> (u16, u16) {
     sub(register, value)
 }
 
-fn sub_hl(register: &mut CpuReg, hl: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn sub_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(hl, &memory.lock().unwrap());
+    let value = memory::cpu_read(hl, memory);
     sub(register, value);
     (1, 8)
 }
@@ -996,9 +996,9 @@ fn sbc_a(register: &mut CpuReg) -> (u16, u16) {
     sbc(register, value)
 }
 
-fn sbc_hl(register: &mut CpuReg, hl: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn sbc_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(hl, &memory.lock().unwrap());
+    let value = memory::cpu_read(hl, memory);
     sbc(register, value);
     (1, 8)
 }
@@ -1030,9 +1030,9 @@ fn and_a(register: &mut CpuReg) -> (u16, u16) {
     and(register, value)
 }
 
-fn and_hl(register: &mut CpuReg, hl: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn and_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(hl, &memory.lock().unwrap());
+    let value = memory::cpu_read(hl, memory);
     and(register, value);
     (1 ,8)
 }
@@ -1064,9 +1064,9 @@ fn or_a(register: &mut CpuReg) -> (u16, u16) {
     or(register, value)
 }
 
-fn or_hl(register: &mut CpuReg, hl: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn or_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
     
-    let value = memory::read(hl, &memory.lock().unwrap());
+    let value = memory::cpu_read(hl, memory);
     or(register, value);
     (1, 8)
 }
@@ -1098,9 +1098,9 @@ fn xor_a(register: &mut CpuReg) -> (u16, u16) {
     xor(register, value)
 }
 
-fn xor_hl(register: &mut CpuReg, hl: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn xor_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(hl, &memory.lock().unwrap());
+    let value = memory::cpu_read(hl, memory);
     xor(register, value);
     (1, 8)
 }
@@ -1144,9 +1144,9 @@ fn cp_a(register: &mut CpuReg) -> (u16, u16) {
     cp(register, value)
 }
 
-fn cp_hl(register: &mut CpuReg, hl: u16, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn cp_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::read(hl, &memory.lock().unwrap());
+    let value = memory::cpu_read(hl, memory);
     cp(register, value);
     (1, 8)
 }
@@ -1160,14 +1160,14 @@ fn cp_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
 // Push and Pop
 
-fn pop(reg: &mut CpuReg, sp: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn pop(reg: &mut CpuReg, sp: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = cpu::stack_read(sp, memory);
     reg.set_register(value);
     (1, 12)
 }
 
-fn push(reg: &mut CpuReg, sp: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
+fn push(reg: &mut CpuReg, sp: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     cpu::stack_write(sp, reg.get_register(), memory);
     (1, 16)
@@ -1271,9 +1271,9 @@ fn ccf(af: &mut CpuReg) -> (u16, u16) {
 
 // Reset opcode
 
-fn rst(target: u16, memory: &Arc<Mutex<Memory>>, state: &mut CpuState) {
+fn rst(target: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>), state: &mut CpuState) {
 
-    cpu::stack_write(&mut state.sp, state.pc.get() + 1, &memory);
+    cpu::stack_write(&mut state.sp, state.pc.get() + 1, memory);
     state.cycles.add(32);
     state.pc.set(target);
 }

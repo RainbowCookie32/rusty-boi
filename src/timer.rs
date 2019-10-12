@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use super::utils;
 
 use super::memory;
-use super::memory::Memory;
+use super::memory::CpuMemory;
 
 
 pub struct TimerState {
@@ -22,14 +22,11 @@ pub fn init_timer() -> TimerState {
     }
 }
 
-pub fn timer_cycle(timer_state: &mut TimerState, cycles: u16, memory: &Arc<Mutex<Memory>>) {
+pub fn timer_cycle(timer_state: &mut TimerState, cycles: u16, memory: &Arc<Mutex<CpuMemory>>) {
 
-    let mem = memory.lock().unwrap();
-    let tac_value = memory::read(0xFF07, &mem);
+    let tac_value = memory::timer_read(0xFF07, memory);
     let timer_enabled = utils::check_bit(tac_value, 2);
     let mut current_state = timer_state;
-
-    std::mem::drop(mem);
 
     if timer_enabled {
             
@@ -39,33 +36,28 @@ pub fn timer_cycle(timer_state: &mut TimerState, cycles: u16, memory: &Arc<Mutex
 
         if current_state.div_cycles >= 256 {
 
-            let mut mem = memory.lock().unwrap();
-            let div_value = memory::read(0xFF04, &mem);
+            let div_value = memory::timer_read(0xFF04, memory);
             let new_value = div_value.overflowing_add(1);
-            memory::write(0xFF04, new_value.0, &mut mem);
-            std::mem::drop(mem);
+            memory::timer_write(0xFF04, new_value.0, memory);
             current_state.div_cycles = 0;
         }
 
         if current_state.timer_cycles >= current_state.needed_cycles {
 
-            let mut mem = memory.lock().unwrap();
-            let tima_value = memory::read(0xFF05, &mem);
+            let tima_value = memory::timer_read(0xFF05, memory);
             let new_value = tima_value.overflowing_add(1);
             current_state.timer_cycles = 0;
 
             if new_value.1 {
                     
-                let if_value = memory::read(0xFF0F, &mem);
-                let modulo_value = memory::read(0xFF06, &mem);
-                memory::write(0xFF05, modulo_value, &mut mem);
-                memory::write(0xFF0F, utils::set_bit(if_value, 2), &mut mem);
+                let if_value = memory::timer_read(0xFF0F, memory);
+                let modulo_value = memory::timer_read(0xFF06, memory);
+                memory::timer_write(0xFF05, modulo_value, memory);
+                memory::timer_write(0xFF0F, utils::set_bit(if_value, 2), memory);
             }
             else {
-                memory::write(0xFF05, new_value.0, &mut mem);
+                memory::timer_write(0xFF05, new_value.0, memory);
             }
-
-            std::mem::drop(mem);
         }
     }
 }
