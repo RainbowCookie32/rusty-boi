@@ -84,7 +84,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x33 => instruction_finished(increment_full(&mut current_state.sp), current_state),
         0x34 => instruction_finished(increment_value(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x35 => instruction_finished(decrement_at_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
-        0x36 => instruction_finished(save_imm_to_hl(&mut current_state.hl, memory, &current_state.pc.get()), current_state),
+        0x36 => instruction_finished(save_imm_to_hl(&mut current_state.hl, current_state.pc.get(), memory), current_state),
         0x37 => instruction_finished(scf(&mut current_state.af), current_state),
         0x38 => conditional_relative_jump(JumpCondition::CSet, memory, current_state),
         0x39 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.sp, &mut current_state.af), current_state),
@@ -146,14 +146,14 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x6E => instruction_finished(load_hl_into_l(&mut current_state.hl, memory), current_state),
         0x6F => instruction_finished(load_into_low(&mut current_state.hl, current_state.af.get_register_lb()), current_state),
 
-        0x70 => instruction_finished(save_hi_to_hl(&mut current_state.bc, &mut current_state.hl, memory), current_state),
-        0x71 => instruction_finished(save_low_to_hl(&mut current_state.bc, &mut current_state.hl, memory), current_state),
-        0x72 => instruction_finished(save_hi_to_hl(&mut current_state.de, &mut current_state.hl, memory), current_state),
-        0x73 => instruction_finished(save_low_to_hl(&mut current_state.de, &mut current_state.hl, memory), current_state),
-        0x74 => instruction_finished(save_h_to_hl(&mut current_state.hl, memory), current_state),
-        0x75 => instruction_finished(save_l_to_hl(&mut current_state.hl, memory), current_state),
+        0x70 => instruction_finished(save_value_to_hl(current_state.bc.get_register_lb(), current_state.hl.get_register(), memory), current_state),
+        0x71 => instruction_finished(save_value_to_hl(current_state.bc.get_register_rb(), current_state.hl.get_register(), memory), current_state),
+        0x72 => instruction_finished(save_value_to_hl(current_state.de.get_register_lb(), current_state.hl.get_register(), memory), current_state),
+        0x73 => instruction_finished(save_value_to_hl(current_state.de.get_register_rb(), current_state.hl.get_register(), memory), current_state),
+        0x74 => instruction_finished(save_hi_to_hl(&mut current_state.hl, memory), current_state),
+        0x75 => instruction_finished(save_low_to_hl(&mut current_state.hl, memory), current_state),
         0x76 => result = halt(current_state, memory),
-        0x77 => instruction_finished(save_hi_to_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x77 => instruction_finished(save_value_to_hl(current_state.af.get_register_lb(), current_state.hl.get_register(), memory), current_state),
         0x78 => instruction_finished(load_into_hi(&mut current_state.af, current_state.bc.get_register_lb()), current_state),
         0x79 => instruction_finished(load_into_hi(&mut current_state.af, current_state.bc.get_register_rb()), current_state),
         0x7A => instruction_finished(load_into_hi(&mut current_state.af, current_state.de.get_register_lb()), current_state),
@@ -265,7 +265,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xDE => instruction_finished(sbc_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xDF => rst(0x0017, memory, current_state),
 
-        0xE0 => instruction_finished(save_a_to_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
+        0xE0 => instruction_finished(save_a_to_ff_imm(&mut current_state.af, current_state.pc.get(), memory), current_state),
         0xE1 => instruction_finished(pop(&mut current_state.hl, &mut current_state.sp, memory), current_state),
         0xE2 => instruction_finished(save_a_to_ff_c(&mut current_state.af, &mut current_state.bc, memory), current_state),
         0xE3 => result = CycleResult::InvalidOp,
@@ -522,13 +522,11 @@ fn load_low_into_hi(register: &mut CpuReg) -> (u16, u16) {
 fn add_imm_to_sp_save_to_hl(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
     let value = cpu::memory_read_u8(state.pc.get() + 1, memory) as i8;
-    let result = state.sp.get_register().overflowing_add(value as u16);
-
-    state.hl.set_register(result.0);
+    let result = state.sp.add_to_reg(value as u16);
 
     utils::set_zf(false, &mut state.af);
     utils::set_nf(false, &mut state.af);
-    utils::set_cf(result.1, &mut state.af);
+    utils::set_cf(result, &mut state.af);
     (2, 12)
 }
 
@@ -643,9 +641,9 @@ fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<Mem
 
 // Save register to HL
 
-fn save_a_to_hl_inc(a: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn save_a_to_hl_inc(register: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    cpu::memory_write(hl.get_register(), a.get_register_lb(), &memory.0);
+    cpu::memory_write(hl.get_register(), register.get_register_lb(), &memory.0);
     hl.increment();
     (1, 8)
 }
@@ -657,25 +655,19 @@ fn save_a_to_hl_dec(a: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<Memo
     (1, 8)
 }
 
-fn save_hi_to_hl(reg: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn save_value_to_hl(value: u8, hl: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    cpu::memory_write(hl.get_register(), reg.get_register_lb(), &memory.0);
+    cpu::memory_write(hl, value, &memory.0);
     (1, 8)
 }
 
-fn save_low_to_hl(reg: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
-
-    cpu::memory_write(hl.get_register(), reg.get_register_rb(), &memory.0);
-    (1, 8)
-}
-
-fn save_h_to_hl(hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn save_hi_to_hl(hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
     cpu::memory_write(hl.get_register(), hl.get_register_lb(), &memory.0);
     (1, 8)
 }
 
-fn save_l_to_hl(hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn save_low_to_hl(hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
     cpu::memory_write(hl.get_register(), hl.get_register_rb(), &memory.0);
     (1, 8)
@@ -687,18 +679,18 @@ fn ld_hl_into_sp(sp: &mut CpuReg, hl: &mut CpuReg) -> (u16, u16) {
     (1, 8)
 }
 
-fn save_a_to_full(a: &mut CpuReg, full: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn save_a_to_full(register: &mut CpuReg, full: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    cpu::memory_write(full.get_register(), a.get_register_lb(), &memory.0);
+    cpu::memory_write(full.get_register(), register.get_register_lb(), &memory.0);
     (1, 8)
 }
 
 
 // Save register to address
 
-fn save_a_to_ff_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn save_a_to_ff_imm(af: &mut CpuReg, pc: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let target_addr = 0xFF00 + (cpu::memory_read_u8(pc + 1, memory) as u16);
+    let target_addr = 0xFF00 + (cpu::read_immediate(pc, memory) as u16);
     cpu::memory_write(target_addr, af.get_register_lb(), &memory.0);
     (2, 12)
 }
@@ -720,9 +712,9 @@ fn save_a_to_nn(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>,
 
 // Save value to HL
 
-fn save_imm_to_hl(hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), pc: &u16) -> (u16, u16) {
+fn save_imm_to_hl(hl: &mut CpuReg, pc: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(pc + 1, memory);
+    let value = cpu::read_immediate(pc, memory);
     cpu::memory_write(hl.get_register(), value, &memory.0);
     (2, 12)
 }
@@ -741,36 +733,36 @@ fn save_sp_to_imm(sp: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::R
 
 // Increment registers
 
-fn increment_full(reg: &mut CpuReg) -> (u16, u16) {
+fn increment_full(register: &mut CpuReg) -> (u16, u16) {
 
-    reg.increment();
+    register.increment();
     (1, 8)
 }
 
-fn increment_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
+fn increment_lb(register: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
 
-    reg.increment_lb();
-    let half_carry = (reg.get_register_lb() & 0x0F) == 0;
-    utils::set_zf(reg.get_register_lb() == 0, af); utils::set_nf(false, af);
+    register.increment_lb();
+    let half_carry = (register.get_register_lb() & 0x0F) == 0;
+    utils::set_zf(register.get_register_lb() == 0, af); utils::set_nf(false, af);
     utils::set_hf(half_carry, af);
     (1, 4)
 }
 
-fn increment_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
+fn increment_rb(register: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
     
-    reg.increment_rb();
-    let half_carry = (reg.get_register_rb() & 0x0F) == 0;
-    utils::set_zf(reg.get_register_rb() == 0, af); utils::set_nf(false, af);
+    register.increment_rb();
+    let half_carry = (register.get_register_rb() & 0x0F) == 0;
+    utils::set_zf(register.get_register_rb() == 0, af); utils::set_nf(false, af);
     utils::set_hf(half_carry, af);
     (1, 4)
 }
 
-fn increment_a(af: &mut CpuReg) -> (u16, u16) {
+fn increment_a(register: &mut CpuReg) -> (u16, u16) {
 
-    af.increment_lb();
-    let half_carry = (af.get_register_lb() & 0x0F) == 0;
-    utils::set_zf(af.get_register_lb() == 0, af); utils::set_nf(false, af);
-    utils::set_hf(half_carry, af);
+    register.increment_lb();
+    let half_carry = (register.get_register_lb() & 0x0F) == 0;
+    utils::set_zf(register.get_register_lb() == 0, register); utils::set_nf(false, register);
+    utils::set_hf(half_carry, register);
     (1, 4)
 }
 
@@ -791,26 +783,26 @@ fn increment_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<Memo
 
 // Decrement registers
 
-fn decrement_full(reg: &mut CpuReg) -> (u16, u16) {
+fn decrement_full(register: &mut CpuReg) -> (u16, u16) {
     
-    reg.decrement();
+    register.decrement();
     (1, 4)
 }
 
-fn decrement_lb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
+fn decrement_lb(register: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
     
-    reg.decrement_lb();
-    let half_carry = (reg.get_register_lb() & 0x0F) == 0;
-    utils::set_zf(reg.get_register_lb() == 0, af); utils::set_nf(true, af);
+    register.decrement_lb();
+    let half_carry = (register.get_register_lb() & 0x0F) == 0;
+    utils::set_zf(register.get_register_lb() == 0, af); utils::set_nf(true, af);
     utils::set_hf(half_carry, af);
     (1, 4)
 }
 
-fn decrement_rb(reg: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
+fn decrement_rb(register: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
     
-    reg.decrement_rb();
-    let half_carry = (reg.get_register_rb() & 0x0F) == 0;
-    utils::set_zf(reg.get_register_rb() == 0, af); utils::set_nf(true, af);
+    register.decrement_rb();
+    let half_carry = (register.get_register_rb() & 0x0F) == 0;
+    utils::set_zf(register.get_register_rb() == 0, af); utils::set_nf(true, af);
     utils::set_hf(half_carry, af);
     (1, 4)
 }
