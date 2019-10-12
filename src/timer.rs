@@ -1,9 +1,9 @@
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::{Arc, Mutex};
 
 use super::utils;
 
-use super::memory::MemoryOp;
-use super::memory::MemoryAccess;
+use super::memory;
+use super::memory::Memory;
 
 
 pub struct TimerState {
@@ -22,11 +22,14 @@ pub fn init_timer() -> TimerState {
     }
 }
 
-pub fn timer_cycle(timer_state: &mut TimerState, cycles: u16, memory: &(Sender<MemoryAccess>, Receiver<u8>)) {
+pub fn timer_cycle(timer_state: &mut TimerState, cycles: u16, memory: &Arc<Mutex<Memory>>) {
 
-    let tac_value = memory_read(0xFF07, &memory);
+    let mem = memory.lock().unwrap();
+    let tac_value = memory::read(0xFF07, &mem);
     let timer_enabled = utils::check_bit(tac_value, 2);
     let mut current_state = timer_state;
+
+    std::mem::drop(mem);
 
     if timer_enabled {
             
@@ -36,28 +39,33 @@ pub fn timer_cycle(timer_state: &mut TimerState, cycles: u16, memory: &(Sender<M
 
         if current_state.div_cycles >= 256 {
 
-            let div_value = memory_read(0xFF04, &memory);
+            let mut mem = memory.lock().unwrap();
+            let div_value = memory::read(0xFF04, &mem);
             let new_value = div_value.overflowing_add(1);
-            memory_write(new_value.0, 0xFF04, &memory);
+            memory::write(0xFF04, new_value.0, &mut mem);
+            std::mem::drop(mem);
             current_state.div_cycles = 0;
         }
 
         if current_state.timer_cycles >= current_state.needed_cycles {
 
-            let tima_value = memory_read(0xFF05, &memory);
+            let mut mem = memory.lock().unwrap();
+            let tima_value = memory::read(0xFF05, &mem);
             let new_value = tima_value.overflowing_add(1);
             current_state.timer_cycles = 0;
 
             if new_value.1 {
                     
-                let if_value = memory_read(0xFF0F, &memory);
-                let modulo_value = memory_read(0xFF06, &memory);
-                memory_write(modulo_value, 0xFF05, &memory);
-                memory_write(utils::set_bit(if_value, 2), 0xFF0F, &memory);
+                let if_value = memory::read(0xFF0F, &mem);
+                let modulo_value = memory::read(0xFF06, &mem);
+                memory::write(0xFF05, modulo_value, &mut mem);
+                memory::write(0xFF0F, utils::set_bit(if_value, 2), &mut mem);
             }
             else {
-                memory_write(new_value.0, 0xFF05, &memory);
+                memory::write(0xFF05, new_value.0, &mut mem);
             }
+
+            std::mem::drop(mem);
         }
     }
 }
@@ -82,27 +90,4 @@ fn get_frequency(tac: u8) -> u16 {
     else {
         0
     }
-}
-
-fn memory_read(addr: u16, memory: &(Sender<MemoryAccess>, Receiver<u8>)) -> u8 {
-    
-    let mem_request = MemoryAccess {
-        operation: MemoryOp::Read,
-        address: addr,
-        value: 0,
-    };
-            
-    memory.0.send(mem_request).unwrap();
-    memory.1.recv().unwrap()
-}
-
-fn memory_write(value: u8, addr: u16, memory: &(Sender<MemoryAccess>, Receiver<u8>)) {
-
-    let mem_request = MemoryAccess {
-        operation: MemoryOp::Write,
-        address: addr,
-        value: value,
-    };
-            
-    memory.0.send(mem_request).unwrap();
 }

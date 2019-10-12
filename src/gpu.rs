@@ -1,4 +1,5 @@
 use std::ops::Neg;
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{Sender, Receiver};
 
 use log::info;
@@ -12,7 +13,8 @@ use sdl2::keyboard::Keycode;
 
 use super::utils;
 use super::emulator::InputEvent;
-use super::memory::{MemoryOp, GpuResponse, MemoryAccess};
+use super::memory;
+use super::memory::Memory;
 
 
 pub struct Tile {
@@ -38,7 +40,7 @@ pub struct GpuState {
     pub tiles_dirty: bool,
 }
 
-pub fn start_gpu(cpu_cycles: Receiver<u16>, memory: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>), input: Sender<InputEvent>) {
+pub fn start_gpu(cpu_cycles: Receiver<u16>, input: Sender<InputEvent>, memory: Arc<Mutex<Memory>>) {
 
     let mut current_state = GpuState {
         gpu_mode: 0,
@@ -49,7 +51,6 @@ pub fn start_gpu(cpu_cycles: Receiver<u16>, memory: (Sender<MemoryAccess>, Recei
         bg_dirty: false,
         tiles_dirty: false,
     };
-    let current_memory = (memory.0, memory.1);
         
     let sdl_ctx = sdl2::init().unwrap();
     let sdl_video = sdl_ctx.video().unwrap();
@@ -90,39 +91,32 @@ pub fn start_gpu(cpu_cycles: Receiver<u16>, memory: (Sender<MemoryAccess>, Recei
             }
         }
 
-        // This one isn't using memory_read in purpose. Having one full request
-        // on the beginning of the loop is useful so we can get the status of caches.
-        let mem_request = MemoryAccess {
-            operation: MemoryOp::Read,
-            address: 0xFF40,
-            value: 0,
-        };
-        let response: GpuResponse;
-        let display_enabled: bool;
+        let mem = memory.lock().unwrap();
+        let lcdc_stat = memory::read(0xFF40, &mem);
+        let display_enabled = utils::check_bit(lcdc_stat, 7);
 
-        current_memory.0.send(mem_request).unwrap();
-        response = current_memory.1.recv().unwrap();
-        display_enabled = utils::check_bit(response.read_value, 7);
-
-        current_state.bg_dirty = response.background_dirty;
-        current_state.tiles_dirty = response.tiles_dirty;
+        current_state.bg_dirty = mem.background_dirty;
+        current_state.tiles_dirty = mem.tiles_dirty;
+        std::mem::drop(mem);
 
         if display_enabled {
 
             current_state.gpu_cycles += cpu_cycles.recv().unwrap();
 
             if current_state.gpu_mode == 0 && current_state.gpu_cycles >= 204 {
-                hblank_mode(&mut current_state, &mut emu_canvas, &current_memory);
+                hblank_mode(&mut current_state, &mut emu_canvas, &memory);
             }
             else if current_state.gpu_mode == 1 && current_state.gpu_cycles >= 456 {
-                vblank_mode(&mut current_state, &mut emu_canvas, &current_memory);
+                vblank_mode(&mut current_state, &mut emu_canvas, &memory);
             }
             else if current_state.gpu_mode == 2 && current_state.gpu_cycles >= 80 {
-                oam_scan_mode(&mut current_state, &current_memory);
+                oam_scan_mode(&mut current_state, &memory);
             }
             else if current_state.gpu_mode == 3 && current_state.gpu_cycles >= 172 {
-                lcd_transfer_mode(&mut current_state, &current_memory);
-                memory.2.send(false).unwrap();
+                lcd_transfer_mode(&mut current_state, &memory);
+                let mut mem = memory.lock().unwrap();
+                mem.background_dirty = false;
+                mem.tiles_dirty = false;
             }
 
         }
@@ -131,13 +125,16 @@ pub fn start_gpu(cpu_cycles: Receiver<u16>, memory: (Sender<MemoryAccess>, Recei
 
 // GPU Modes
 
-fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>)) {
+fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<Mutex<Memory>>) {
 
-    let mut stat_value = memory_read(0xFF41, memory);
+    let mut mem = memory.lock().unwrap();
+    let mut stat_value = memory::read(0xFF41, &mem);
 
     stat_value = utils::reset_bit(stat_value, 1);
     stat_value = utils::reset_bit(stat_value, 0);
-    memory_write(stat_value, 0xFF41, memory);
+    memory::write(0xFF41, stat_value, &mut mem);
+
+    std::mem::drop(mem);
 
     if state.all_tiles.len() >= 128 && state.background_points.len() >= 65536 {
         draw(state, canvas, memory);
@@ -145,7 +142,8 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Send
 
     state.gpu_cycles = 0;
     state.line += 1;
-    memory_write(state.line, 0xFF44, memory);
+    let mut mem = memory.lock().unwrap();
+    memory::write(0xFF44, state.line, &mut mem);
     
     if state.line == 144 {
         state.gpu_mode = 1;
@@ -154,84 +152,91 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Send
 
     if utils::check_bit(stat_value, 3) {
 
-        let if_value = utils::set_bit(memory_read(0xFF0F, memory), 2);
-        memory_write(if_value, 0xFF0F, memory);
+        let if_value = utils::set_bit(memory::read(0xFF0F, &mem), 2);
+        memory::write(0xFF0F, if_value, &mut mem);
     }
 }
 
-fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>)) {
+fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<Mutex<Memory>>) {
 
-    let mut if_value = memory_read(0xFF0F, memory);
-    let mut stat_value = memory_read(0xFF41, memory);
+    let mut mem = memory.lock().unwrap();
+    let mut if_value = memory::read(0xFF0F, &mem);
+    let mut stat_value = memory::read(0xFF41, &mem);
 
     state.gpu_cycles = 0;
     state.line += 1;
-    memory_write(state.line, 0xFF44, memory);
+    memory::write(0xFF44, state.line, &mut mem);
     
     if_value = utils::set_bit(if_value, 0);
-    memory_write(if_value, 0xFF0F, memory);
+    memory::write(0xFF0F, if_value, &mut mem);
 
     stat_value = utils::reset_bit(stat_value, 1);
     stat_value = utils::set_bit(stat_value, 0);
-    memory_write(stat_value, 0xFF41, memory);
+    memory::write(0xFF41, stat_value, &mut mem);
 
     if state.line == 154 {
 
         state.gpu_mode = 2;
         state.line = 1;
 
-        memory_write(1, 0xFF44, memory);
+        memory::write(0xFF44, 1, &mut mem);
         canvas.clear();
     }
 }
 
-fn oam_scan_mode(state: &mut GpuState, memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>)) {
+fn oam_scan_mode(state: &mut GpuState, memory: &Arc<Mutex<Memory>>) {
 
-    let mut stat_value = memory_read(0xFF41, memory);
+    let mut mem = memory.lock().unwrap();
+    let mut stat_value = memory::read(0xFF41, &mem);
 
     state.gpu_cycles = 0;
     state.gpu_mode = 3;
     stat_value = utils::set_bit(stat_value, 1);
     stat_value = utils::reset_bit(stat_value, 0);
-    memory_write(stat_value, 0xFF41, memory);
+    memory::write(0xFF41, stat_value, &mut mem);
 
     if utils::check_bit(stat_value, 5) {
 
-        let if_value = utils::set_bit(memory_read(0xFF0F, memory), 2);
-        memory_write(if_value, 0xFF0F, memory);
+        let if_value = utils::set_bit(memory::read(0xFF0F, &mem), 2);
+        memory::write(0xFF0F, if_value, &mut mem);
     }
 }
 
-fn lcd_transfer_mode(state: &mut GpuState, memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>)) {
+fn lcd_transfer_mode(state: &mut GpuState, memory: &Arc<Mutex<Memory>>) {
 
-    let mut stat_value = memory_read(0xFF41, memory);
+    let mut mem = memory.lock().unwrap();
+    let mut stat_value = memory::read(0xFF41, &mem);
 
     stat_value = utils::set_bit(stat_value, 1);
     stat_value = utils::set_bit(stat_value, 0);
-    memory_write(stat_value, 0xFF41, memory);
+    memory::write(0xFF41, stat_value, &mut mem);
 
     state.gpu_cycles = 0;
     state.gpu_mode = 0;
 
+    std::mem::drop(mem);
+
     if state.tiles_dirty {
-        make_tiles(memory, state);
+        make_tiles(state, memory);
         state.tiles_dirty = false;
         state.bg_dirty = true;
     }
     if state.bg_dirty {
-        make_background(memory, state);
+        make_background(state, memory);
         state.bg_dirty = false;
     }
 }
 
 // Drawing to screen.
 
-fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>)) {
+fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<Mutex<Memory>>) {
 
-    let scroll_x = (memory_read(0xFF43, memory) as i32).neg();
-    let scroll_y = (memory_read(0xFF42, memory) as i32).neg();
+    let mem = memory.lock().unwrap();
+    let scroll_x = (memory::read(0xFF43, &mem) as i32).neg();
+    let scroll_y = (memory::read(0xFF42, &mem) as i32).neg();
     let mut point_idx: u16 = 0;
     let mut drawn_pixels: u16 = 0;
+    std::mem::drop(mem);
 
     // Index offset for the points array in case the current line is not 0.
     if state.line > 0 {
@@ -254,15 +259,17 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Sender<Memo
 
 // Tile and Background cache generation
 
-fn make_tiles(memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>), state: &mut GpuState) {
+fn make_tiles(state: &mut GpuState, memory: &Arc<Mutex<Memory>>) {
 
-    let tile_address = utils::check_bit(memory_read(0xFF40, memory), 4);
+    let mem = memory.lock().unwrap();
+    let tile_address = utils::check_bit(memory::read(0xFF40, &mem), 4);
     let start_position = if tile_address {0x8000} else {0x8800};
     let end_position = if tile_address {0x9000} else {0x9800};
     let mut memory_position = start_position;
     let mut tiles_position = 0;
     let mut new_tiles:Vec<Tile> = Vec::new();
 
+    std::mem::drop(mem);
     info!("GPU: Regenerating tile cache");
 
     while memory_position < end_position {
@@ -272,9 +279,11 @@ fn make_tiles(memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>), state: &mu
 
         while loaded_bytes < tile_bytes.len() {
 
-            tile_bytes[loaded_bytes] = memory_read(memory_position, memory);
+            let mem = memory.lock().unwrap();
+            tile_bytes[loaded_bytes] = memory::read(memory_position, &mem);
             memory_position += 1;
             loaded_bytes += 1;
+            std::mem::drop(mem);
         }
 
         new_tiles.insert(tiles_position, make_tile(&tile_bytes));
@@ -320,11 +329,14 @@ fn make_tile(bytes: &Vec<u8>) -> Tile {
     new_tile
 }
 
-fn make_background(memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>), state: &mut GpuState) {
+fn make_background(state: &mut GpuState, memory: &Arc<Mutex<Memory>>) {
 
+    let mem = memory.lock().unwrap();
     let mut generated_lines: u16 = 0;
     let mut new_points: Vec<BGPoint> = Vec::new();
-    let signed_mode = utils::check_bit(memory_read(0xFF40, memory), 3);
+    let signed_mode = utils::check_bit(memory::read(0xFF40, &mem), 3);
+
+    std::mem::drop(mem);
     
     info!("GPU: Regenerating background cache");
 
@@ -341,11 +353,13 @@ fn make_background(memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>), state
             // 32 tiles is the maximum amount of tiles per line in the background.
             while tiles.len() < 32 {
 
-                let target_tile = memory_read(current_background, memory) as i8;
+                let mem = memory.lock().unwrap();
+                let target_tile = memory::read(current_background, &mem) as i8;
 
                 tiles.insert(tile_idx, &state.all_tiles[target_tile as usize]);
                 tile_idx += 1;
                 current_background += 1;
+                std::mem::drop(mem);
             }
 
             let mut tile_line = 0;
@@ -371,11 +385,13 @@ fn make_background(memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>), state
             // 32 tiles is the maximum amount of tiles per line in the background.
             while tiles.len() < 32 {
 
-                let target_tile = memory_read(current_background, memory);
+                let mem = memory.lock().unwrap();
+                let target_tile = memory::read(current_background, &mem);
 
                 tiles.insert(tile_idx, &state.all_tiles[target_tile as usize]);
                 tile_idx += 1;
                 current_background += 1;
+                std::mem::drop(mem);
             }
 
             let mut tile_line = 0;
@@ -451,27 +467,4 @@ fn get_color(bytes: &Vec<u8>, bit: u8) -> Color {
     else {
         color_off
     }
-}
-
-fn memory_read(addr: u16, memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>)) -> u8 {
-    
-    let mem_request = MemoryAccess {
-        operation: MemoryOp::Read,
-        address: addr,
-        value: 0,
-    };
-            
-    memory.0.send(mem_request).unwrap();
-    memory.1.recv().unwrap().read_value
-}
-
-fn memory_write(value: u8, addr: u16, memory: &(Sender<MemoryAccess>, Receiver<GpuResponse>)) {
-
-    let mem_request = MemoryAccess {
-        operation: MemoryOp::Write,
-        address: addr,
-        value: value,
-    };
-            
-    memory.0.send(mem_request).unwrap();
 }

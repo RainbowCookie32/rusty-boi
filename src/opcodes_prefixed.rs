@@ -1,19 +1,19 @@
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 
 use super::utils;
 
-use super::cpu;
 use super::cpu::CpuState;
 use super::cpu::CycleResult;
 
-use super::memory::MemoryAccess;
+use super::memory;
+use super::memory::Memory;
 
 use super::register::CpuReg;
 use super::register::Register;
 use super::register::PcTrait;
 use super::register::CycleCounter;
 
-pub fn run_prefixed_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), opcode: u8) -> CycleResult {
+pub fn run_prefixed_instruction(current_state: &mut CpuState, opcode: u8, memory: &Arc<Mutex<Memory>>) -> CycleResult {
 
     let result = CycleResult::Success;
 
@@ -341,11 +341,11 @@ fn rlc_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rlc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn rlc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
+    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
     let result = rlc(af, value);
-    cpu::memory_write(hl.get_register(), result, &memory.0);
+    memory::write(hl.get_register(), result, &mut memory.lock().unwrap());
 
     (2, 16)
 }
@@ -391,11 +391,11 @@ fn rrc_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rrc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn rrc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
+    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
     let result = rrc(af, value);
-    cpu::memory_write(hl.get_register(), result, &memory.0);
+    memory::write(hl.get_register(), result, &mut memory.lock().unwrap());
     
     (2, 16)
 }
@@ -443,11 +443,11 @@ fn rl_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rl_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn rl_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
+    let value = memory::read(hl.get_register(), &mut memory.lock().unwrap());
     let result = rl(af, value);
-    cpu::memory_write(hl.get_register(), result, &memory.0);
+    memory::write(hl.get_register(), result, &mut memory.lock().unwrap());
 
     (2, 16)
 }
@@ -495,11 +495,11 @@ fn rr_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rr_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn rr_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
+    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
     let result = rr(af, value);
-    cpu::memory_write(hl.get_register(), result, &memory.0);
+    memory::write(hl.get_register(), result, &mut memory.lock().unwrap());
 
     (2, 16)
 }
@@ -545,11 +545,11 @@ fn sla_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn sla_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn sla_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
+    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
     let result = sla(af, value);
-    cpu::memory_write(hl.get_register(), result, &memory.0);
+    memory::write(hl.get_register(), result, &mut memory.lock().unwrap());
 
     (2, 16)
 }
@@ -598,11 +598,11 @@ fn sra_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn sra_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn sra_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
+    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
     let result = sra(af, value);
-    cpu::memory_write(hl.get_register(), result, &memory.0);
+    memory::write(hl.get_register(), result, &mut memory.lock().unwrap());
 
     (2, 16)
 }
@@ -647,11 +647,11 @@ fn swap_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn swap_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn swap_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
+    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
     let result = swap(af, value);
-    cpu::memory_write(hl.get_register(), result, &memory.0);
+    memory::write(hl.get_register(), result, &mut memory.lock().unwrap());
 
     (2, 16)
 }
@@ -697,11 +697,11 @@ fn srl_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn srl_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn srl_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
+    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
     let result = srl(af, value);
-    cpu::memory_write(hl.get_register(), result, &memory.0);
+    memory::write(hl.get_register(), result, &mut memory.lock().unwrap());
 
     (2, 16)
 }
@@ -736,9 +736,9 @@ fn bit_rb(reg: &mut CpuReg, checked_bit: u8, af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn bit_hl(checked_bit: u8, af: &mut CpuReg, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn bit_hl(checked_bit: u8, af: &mut CpuReg, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
+    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
     bit(af, value, checked_bit);
     (2, 16)
 }
@@ -764,11 +764,11 @@ fn res_rb(reg: &mut CpuReg, bit: u8) -> (u16, u16) {
     (2, 8)
 }
 
-fn res_hl(bit: u8, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn res_hl(bit: u8, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
+    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
     let result = res(value, bit);
-    cpu::memory_write(hl.get_register(), result, &memory.0);
+    memory::write(hl.get_register(), result, &mut memory.lock().unwrap());
     (2, 16)
 }
 
@@ -793,10 +793,10 @@ fn set_rb(reg: &mut CpuReg, bit: u8) -> (u16, u16) {
     (2, 8)
 }
 
-fn set_hl(bit: u8, hl: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn set_hl(bit: u8, hl: &mut CpuReg, memory: &Arc<Mutex<Memory>>) -> (u16, u16) {
 
-    let value = cpu::memory_read_u8(hl.get_register(), memory);
+    let value = memory::read(hl.get_register(), &memory.lock().unwrap());
     let result = set(value, bit);
-    cpu::memory_write(hl.get_register(), result, &memory.0);
+    memory::write(hl.get_register(), result, &mut memory.lock().unwrap());
     (2, 16)
 }

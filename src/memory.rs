@@ -1,5 +1,4 @@
-use std::sync::mpsc;
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::{Arc, Mutex};
 
 use log::{info, warn};
 
@@ -29,53 +28,7 @@ pub struct Memory {
     pub serial_buffer: Vec<u8>,
 }
 
-pub enum MemoryOp {
-    
-    Read,
-    Write,
-    BootromFinished,
-}
-
-pub struct MemoryAccess {
-
-    pub operation: MemoryOp,
-    pub address: u16,
-    pub value: u8,
-}
-
-pub struct GpuResponse {
-
-    pub tiles_dirty: bool,
-    pub background_dirty: bool,
-    pub read_value: u8,
-}
-
-// Not really *that* necessary, but it's a cleaner
-// approach when passing around all the receiver and transmitters.
-pub struct ThreadComms {
-
-    pub cpu: ((Sender<MemoryAccess>, Receiver<u8>)),
-    pub gpu: (Sender<MemoryAccess>, Receiver<GpuResponse>, Sender<bool>),
-    pub timer: ((Sender<MemoryAccess>, Receiver<u8>)),
-}
-
-pub fn start_memory(data: (Vec<u8>, Cart), sender: Sender<ThreadComms>) {
-
-    let (cpu_req_tx, cpu_req_rx) = mpsc::channel();
-    let (cpu_res_tx, cpu_res_rx) = mpsc::channel();
-    
-    let (timer_req_tx, timer_req_rx) = mpsc::channel();
-    let (timer_res_tx, timer_res_rx) = mpsc::channel();
-
-    let (gpu_req_tx, gpu_req_rx) = mpsc::channel();
-    let (gpu_res_tx, gpu_res_rx) = mpsc::channel();
-    let (gpu_cache_tx, gpu_cache_rx) = mpsc::channel();
-
-    let care_package = ThreadComms {
-        cpu: (cpu_req_tx, cpu_res_rx),
-        gpu: (gpu_req_tx, gpu_res_rx, gpu_cache_tx),
-        timer: (timer_req_tx, timer_res_rx),
-    };
+pub fn init_memory(data: (Vec<u8>, Cart)) -> Arc<Mutex<Memory>> {
 
     let initial_memory = Memory {
 
@@ -100,109 +53,10 @@ pub fn start_memory(data: (Vec<u8>, Cart), sender: Sender<ThreadComms>) {
         serial_buffer: Vec::new(),
     };
 
-    let mut current_memory = initial_memory;
-    sender.send(care_package).unwrap();
-
-    loop {
-
-        let cpu_request = cpu_req_rx.try_recv();
-        let gpu_request = gpu_req_rx.try_recv();
-        let gpu_cache = gpu_cache_rx.try_recv();
-
-        let timer_request = timer_req_rx.try_recv();
-
-        match cpu_request {
-            Ok(request) => handle_cpu_request(&request, &cpu_res_tx, &mut current_memory),
-            Err(_error) => {},
-        };
-
-        match gpu_request {
-            Ok(request) => handle_gpu_request(&request, &gpu_res_tx, &mut current_memory),
-            Err(_error) => {},
-        };
-
-        match timer_request {
-            Ok(request) => handle_timer_request(&request, &timer_res_tx, &mut current_memory),
-            Err(_error) => {},
-        };
-
-        match gpu_cache {
-            Ok(status) => {
-                current_memory.background_dirty = status;
-                current_memory.tiles_dirty = status;
-            },
-            Err(_error) => {},
-        }
-    }
+    Arc::new(Mutex::new(initial_memory))
 }
 
-fn handle_cpu_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &mut Memory) {
-
-    let result_value: u8;
-    
-    match request.operation {
-        MemoryOp::Read => {
-            result_value = memory_read(request.address, current_memory);
-            tx.send(result_value).unwrap();
-        },
-        MemoryOp::Write => {
-
-            if request.address == 0xFF04 || request.address == 0xFF44 { 
-                memory_write(request.address, 0, current_memory);
-            }
-            else {
-                memory_write(request.address, request.value, current_memory);
-            }
-        },
-        MemoryOp::BootromFinished => {
-            current_memory.bootrom_finished = true;
-        },
-    }
-}
-
-fn handle_gpu_request(request: &MemoryAccess, tx: &Sender<GpuResponse>, current_memory: &mut Memory) {
-
-    let result_value: u8;
-    
-    match request.operation {
-        MemoryOp::Read => {
-
-            result_value = memory_read(request.address, current_memory);
-            
-            let response = GpuResponse {
-                tiles_dirty: current_memory.tiles_dirty,
-                background_dirty: current_memory.background_dirty,
-                read_value: result_value,
-            };
-
-            tx.send(response).unwrap();
-        },
-        MemoryOp::Write => memory_write(request.address, request.value, current_memory),
-        MemoryOp::BootromFinished => {
-            warn!("Memory: GPU triggered a BootromFinished event for some reason");
-        },
-    }
-}
-
-fn handle_timer_request(request: &MemoryAccess, tx: &Sender<u8>, current_memory: &mut Memory) {
-
-    let result_value: u8;
-    
-    match request.operation {
-        MemoryOp::Read => {
-            result_value = memory_read(request.address, current_memory);
-            tx.send(result_value).unwrap();
-        },
-        MemoryOp::Write => {
-            memory_write(request.address, request.value, current_memory);
-        },
-        MemoryOp::BootromFinished => {
-            warn!("Memory: Timer triggered a BootromFinished event");
-        },
-    }
-}
-
-pub fn memory_read(address: u16, memory: &Memory) -> u8 {
+pub fn read(address: u16, memory: &Memory) -> u8 {
 
     if address < 0x0100 
     {
@@ -274,7 +128,7 @@ pub fn memory_read(address: u16, memory: &Memory) -> u8 {
     }
 }
 
-pub fn memory_write(address: u16, value: u8, memory: &mut Memory) {
+pub fn write(address: u16, value: u8, memory: &mut Memory) {
 
     if address <= 0x7FFF
     {

@@ -2,6 +2,7 @@ use std::io;
 use std::thread;
 use std::io::Read;
 use std::fs::File;
+use std::sync::Arc;
 use std::sync::mpsc;
 use std::iter::FromIterator;
 
@@ -10,7 +11,7 @@ use log::error;
 
 use super::cpu;
 use super::gpu;
-use super::memory::start_memory;
+use super::memory::init_memory;
 
 pub struct Cart {
 
@@ -60,26 +61,20 @@ pub fn init_emu() {
 fn execution_loop() {
     
     let rom_data = get_roms_data();
+    
+    let memory_arc = init_memory(rom_data);
+    let cpu_arc = Arc::clone(&memory_arc);
+    let gpu_arc = Arc::clone(&memory_arc);
 
     let (cycles_tx, cycles_rx) = mpsc::channel();
-    let (mem_init_tx, mem_init_rx) = mpsc::channel();
     let (input_tx, input_rx) = mpsc::channel();
 
-    let _memory_thread = thread::Builder::new().name("memory_thread".to_string()).spawn(move || {
-        start_memory(rom_data, mem_init_tx);
-    }).unwrap();
-
-    let mem_channels = mem_init_rx.recv().unwrap();
-    let cpu_channels = mem_channels.cpu;
-    let gpu_channels = mem_channels.gpu;
-    let timer_channels = mem_channels.timer;
-
     let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        cpu::cpu_loop(cycles_tx, timer_channels, input_rx, cpu_channels);
+        cpu::cpu_loop(cycles_tx, input_rx, cpu_arc);
     }).unwrap();
 
     let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
-        gpu::start_gpu(cycles_rx, gpu_channels, input_tx);
+        gpu::start_gpu(cycles_rx, input_tx, gpu_arc);
     }).unwrap();
 
     cpu_thread.join().unwrap();
