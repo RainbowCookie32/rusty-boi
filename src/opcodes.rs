@@ -28,14 +28,14 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
     match opcode {
 
         0x00 => instruction_finished(nop(), current_state),
-        0x01 => instruction_finished(ld_imm_into_full(&mut current_state.bc, memory, &current_state.pc.get()), current_state),
+        0x01 => instruction_finished(ld_imm_into_full(&mut current_state.bc, current_state.pc.get(), memory), current_state),
         0x02 => instruction_finished(save_a_to_full(&mut current_state.af, &mut current_state.bc, memory), current_state),
         0x03 => instruction_finished(increment_full(&mut current_state.bc), current_state),
         0x04 => instruction_finished(increment_lb(&mut current_state.bc, &mut current_state.af), current_state),
         0x05 => instruction_finished(decrement_lb(&mut current_state.bc, &mut current_state.af), current_state),
         0x06 => instruction_finished(load_imm_into_hi(&mut current_state.bc, current_state.pc.get(), memory), current_state),
         0x07 => instruction_finished(rlc_a(&mut current_state.af), current_state),
-        0x08 => instruction_finished(save_sp_to_imm(&mut current_state.sp, memory, &current_state.pc.get()), current_state),
+        0x08 => instruction_finished(save_sp_to_imm(&mut current_state.sp, current_state.pc.get(), memory), current_state),
         0x09 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.bc, &mut current_state.af), current_state),
         0x0A => instruction_finished(load_bc_into_a(&mut current_state.af, current_state.bc.get_register(), memory), current_state),
         0x0B => instruction_finished(decrement_full(&mut current_state.bc), current_state),
@@ -45,14 +45,14 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x0F => instruction_finished(rrc_a(&mut current_state.af), current_state),
 
         0x10 => result = stop(current_state),
-        0x11 => instruction_finished(ld_imm_into_full(&mut current_state.de, memory, &current_state.pc.get()), current_state),
+        0x11 => instruction_finished(ld_imm_into_full(&mut current_state.de, current_state.pc.get(), memory), current_state),
         0x12 => instruction_finished(save_a_to_full(&mut current_state.af, &mut current_state.de, memory), current_state),
         0x13 => instruction_finished(increment_full(&mut current_state.de), current_state),
         0x14 => instruction_finished(increment_lb(&mut current_state.de, &mut current_state.af), current_state),
         0x15 => instruction_finished(decrement_lb(&mut current_state.de, &mut current_state.af), current_state),
         0x16 => instruction_finished(load_imm_into_hi(&mut current_state.de, current_state.pc.get(), memory), current_state),
         0x17 => instruction_finished(rla(&mut current_state.af), current_state),
-        0x18 => relative_jump(memory, current_state),
+        0x18 => relative_jump(current_state, memory),
         0x19 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.de, &mut current_state.af), current_state),
         0x1A => instruction_finished(load_de_into_a(&mut current_state.af, current_state.de.get_register(), memory), current_state),
         0x1B => instruction_finished(decrement_full(&mut current_state.de), current_state),
@@ -61,15 +61,15 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x1E => instruction_finished(load_imm_into_low(&mut current_state.de, current_state.pc.get(), memory), current_state),
         0x1F => instruction_finished(rr_a(&mut current_state.af), current_state),
 
-        0x20 => conditional_relative_jump(JumpCondition::ZNotSet, memory, current_state),
-        0x21 => instruction_finished(ld_imm_into_full(&mut current_state.hl, memory, &current_state.pc.get()), current_state),
+        0x20 => conditional_relative_jump(current_state, JumpCondition::ZNotSet, memory),
+        0x21 => instruction_finished(ld_imm_into_full(&mut current_state.hl, current_state.pc.get(), memory), current_state),
         0x22 => instruction_finished(save_a_to_hl_inc(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x23 => instruction_finished(increment_full(&mut current_state.hl), current_state),
         0x24 => instruction_finished(increment_lb(&mut current_state.hl, &mut current_state.af), current_state),
         0x25 => instruction_finished(decrement_lb(&mut current_state.hl, &mut current_state.af), current_state),
         0x26 => instruction_finished(load_imm_into_hi(&mut current_state.hl, current_state.pc.get(), memory), current_state),
         0x27 => instruction_finished(daa(&mut current_state.af), current_state),
-        0x28 => conditional_relative_jump(JumpCondition::ZSet, memory, current_state),
+        0x28 => conditional_relative_jump(current_state, JumpCondition::ZSet, memory),
         0x29 => instruction_finished(add_hl_to_hl(&mut current_state.hl, &mut current_state.af), current_state),
         0x2A => instruction_finished(ld_a_from_hl_inc(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x2B => instruction_finished(decrement_full(&mut current_state.hl), current_state),
@@ -78,15 +78,15 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0x2E => instruction_finished(load_imm_into_low(&mut current_state.hl, current_state.pc.get(), memory), current_state),
         0x2F => instruction_finished(cpl(&mut current_state.af), current_state),
 
-        0x30 => conditional_relative_jump(JumpCondition::CNotSet, memory, current_state),        
-        0x31 => instruction_finished(ld_imm_into_full(&mut current_state.sp, memory, &current_state.pc.get()), current_state),
+        0x30 => conditional_relative_jump(current_state, JumpCondition::CNotSet, memory),        
+        0x31 => instruction_finished(ld_imm_into_full(&mut current_state.sp, current_state.pc.get(), memory), current_state),
         0x32 => instruction_finished(save_a_to_hl_dec(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x33 => instruction_finished(increment_full(&mut current_state.sp), current_state),
         0x34 => instruction_finished(increment_value(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x35 => instruction_finished(decrement_at_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x36 => instruction_finished(save_imm_to_hl(&mut current_state.hl, current_state.pc.get(), memory), current_state),
         0x37 => instruction_finished(scf(&mut current_state.af), current_state),
-        0x38 => conditional_relative_jump(JumpCondition::CSet, memory, current_state),
+        0x38 => conditional_relative_jump(current_state, JumpCondition::CSet, memory),
         0x39 => instruction_finished(add_full(&mut current_state.hl, &mut current_state.sp, &mut current_state.af), current_state),
         0x3A => instruction_finished(ld_a_from_hl_dec(&mut current_state.af, &mut current_state.hl, memory), current_state),
         0x3B => instruction_finished(decrement_full(&mut current_state.sp), current_state),
@@ -231,36 +231,36 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xBE => instruction_finished(cp_hl(&mut current_state.af, current_state.hl.get_register(), memory), current_state),
         0xBF => instruction_finished(cp_a(&mut current_state.af), current_state),
 
-        0xC0 => conditional_ret(current_state, memory, JumpCondition::ZNotSet),
+        0xC0 => conditional_ret(current_state, JumpCondition::ZNotSet, memory),
         0xC1 => instruction_finished(pop(&mut current_state.bc, &mut current_state.sp, memory), current_state),
-        0xC2 => conditional_jump(JumpCondition::ZNotSet, memory, current_state),
-        0xC3 => jump(memory, current_state),
-        0xC4 => conditional_call(memory, current_state, JumpCondition::ZNotSet),
+        0xC2 => conditional_jump(current_state, JumpCondition::ZNotSet, memory),
+        0xC3 => jump(current_state, memory),
+        0xC4 => conditional_call(current_state, JumpCondition::ZNotSet, memory),
         0xC5 => instruction_finished(push(&mut current_state.bc, &mut current_state.sp, memory), current_state),
         0xC6 => instruction_finished(add_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xC7 => rst(0x0000, memory, current_state),
-        0xC8 => conditional_ret(current_state, memory, JumpCondition::ZSet),
+        0xC8 => conditional_ret(current_state, JumpCondition::ZSet, memory),
         0xC9 => ret(current_state, memory),
-        0xCA => conditional_jump(JumpCondition::ZSet, memory, current_state),
+        0xCA => conditional_jump(current_state, JumpCondition::ZSet, memory),
         0xCB => result = CycleResult::InvalidOp, // Shouldn't have a CB at this stage, so mark as invalid if it happens.
-        0xCC => conditional_call(memory, current_state, JumpCondition::ZSet),
-        0xCD => call(memory, current_state),
+        0xCC => conditional_call(current_state, JumpCondition::ZSet, memory),
+        0xCD => call(current_state, memory),
         0xCE => instruction_finished(adc_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xCF => rst(0x0008, memory, current_state),
 
-        0xD0 => conditional_ret(current_state, memory, JumpCondition::CNotSet),
+        0xD0 => conditional_ret(current_state, JumpCondition::CNotSet, memory),
         0xD1 => instruction_finished(pop(&mut current_state.de, &mut current_state.sp, memory), current_state),
-        0xD2 => conditional_jump(JumpCondition::CNotSet, memory, current_state),
+        0xD2 => conditional_jump(current_state, JumpCondition::CNotSet, memory),
         0xD3 => result = CycleResult::InvalidOp,
-        0xD4 => conditional_call(memory, current_state, JumpCondition::CNotSet),
+        0xD4 => conditional_call(current_state, JumpCondition::CNotSet, memory),
         0xD5 => instruction_finished(push(&mut current_state.de, &mut current_state.sp, memory), current_state),
         0xD6 => instruction_finished(sub_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xD7 => rst(0x0010, memory, current_state),
-        0xD8 => conditional_ret(current_state, memory, JumpCondition::CSet),
+        0xD8 => conditional_ret(current_state, JumpCondition::CSet, memory),
         0xD9 => reti(current_state, memory),
-        0xDA => conditional_jump(JumpCondition::CSet, memory, current_state),
+        0xDA => conditional_jump(current_state, JumpCondition::CSet, memory),
         0xDB => result = CycleResult::InvalidOp,
-        0xDC => conditional_call(memory, current_state, JumpCondition::CSet),
+        0xDC => conditional_call(current_state, JumpCondition::CSet, memory),
         0xDD => result = CycleResult::InvalidOp,
         0xDE => instruction_finished(sbc_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xDF => rst(0x0017, memory, current_state),
@@ -282,7 +282,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xEE => instruction_finished(xor_imm(&mut current_state.af, cpu::read_immediate(current_state.pc.get(), memory)), current_state),
         0xEF => rst(0x0028, memory, current_state),
 
-        0xF0 => instruction_finished(ld_a_from_ff_imm(&mut current_state.af, &mut current_state.pc.get(), memory), current_state),
+        0xF0 => instruction_finished(ld_a_from_ff_imm(&mut current_state.af, current_state.pc.get(), memory), current_state),
         0xF1 => instruction_finished(pop(&mut current_state.af, &mut current_state.sp, memory), current_state),
         0xF2 => instruction_finished(ld_a_from_ff_c(&mut current_state.af, &mut current_state.bc, memory), current_state),
         0xF3 => instruction_finished(di(current_state), current_state),
@@ -292,7 +292,7 @@ pub fn run_instruction(current_state: &mut CpuState, memory: &(mpsc::Sender<Memo
         0xF7 => rst(0x0030, memory, current_state),
         0xF8 => instruction_finished(add_imm_to_sp_save_to_hl(current_state, memory), current_state),
         0xF9 => instruction_finished(ld_hl_into_sp(&mut current_state.sp, &mut current_state.hl), current_state),
-        0xFA => instruction_finished(ld_a_from_imm_addr(&mut current_state.af, &current_state.pc.get(), memory), current_state),
+        0xFA => instruction_finished(ld_a_from_imm_addr(&mut current_state.af, current_state.pc.get(), memory), current_state),
         0xFB => instruction_finished(ei(current_state), current_state),
         0xFC => result = CycleResult::InvalidOp,
         0xFD => result = CycleResult::InvalidOp,
@@ -379,7 +379,7 @@ fn stop(current_state: &mut CpuState) -> CycleResult {
 
 // Jumps
 
-fn jump(memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), state: &mut CpuState) {
+fn jump(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) {
 
     let current_pc = state.pc.get();
     state.pc.set(cpu::memory_read_u16(current_pc + 1, memory));
@@ -393,7 +393,7 @@ fn jump_to_hl(state: &mut CpuState) {
     state.cycles.add(4);
 }
 
-fn relative_jump(memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), state: &mut CpuState) {
+fn relative_jump(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) {
 
     let current_pc = state.pc.get();
     let target = cpu::memory_read_u8(current_pc + 1, memory) as i8;
@@ -401,7 +401,7 @@ fn relative_jump(memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), stat
     state.cycles.add(12);
 }
 
-fn conditional_jump(condition: JumpCondition, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), state: &mut CpuState) {
+fn conditional_jump(state: &mut CpuState, condition: JumpCondition, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) {
 
     let should_jump: bool;
 
@@ -413,11 +413,11 @@ fn conditional_jump(condition: JumpCondition, memory: &(mpsc::Sender<MemoryAcces
         JumpCondition::CSet => should_jump = utils::get_cf(&mut state.af),
     }
 
-    if should_jump { jump(memory, state) ;}
+    if should_jump { jump(state, memory) ;}
     else { state.pc.add(3); state.cycles.add(12) }
 }
 
-fn conditional_relative_jump(condition: JumpCondition, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), state: &mut CpuState) {
+fn conditional_relative_jump(state: &mut CpuState, condition: JumpCondition, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) {
 
     let should_jump: bool;
 
@@ -429,14 +429,14 @@ fn conditional_relative_jump(condition: JumpCondition, memory: &(mpsc::Sender<Me
         JumpCondition::CSet => should_jump = utils::get_cf(&mut state.af),
     }
 
-    if should_jump { relative_jump(memory, state) ;}
+    if should_jump { relative_jump(state, memory) ;}
     else { state.pc.add(2); state.cycles.add(8) }
 }
 
 
 // Calls and Returns
 
-fn call(memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), state: &mut CpuState) {
+fn call(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) {
 
     let current_pc = state.pc.get();
     let next_pc = state.pc.get() + 3;
@@ -446,7 +446,7 @@ fn call(memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), state: &mut C
     state.cycles.add(24);
 }
 
-fn conditional_call(memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), state: &mut CpuState, condition: JumpCondition) {
+fn conditional_call(state: &mut CpuState, condition: JumpCondition, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) {
 
     let should_call: bool;
 
@@ -458,7 +458,7 @@ fn conditional_call(memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), s
         JumpCondition::CSet => should_call = utils::get_cf(&mut state.af),
     }
 
-    if should_call { call(memory, state) ;}
+    if should_call { call(state, memory) ;}
     else { state.pc.add(3); state.cycles.add(12) }
 }
 
@@ -474,7 +474,7 @@ fn reti(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiv
     ret(state, memory);
 }
 
-fn conditional_ret(state: &mut CpuState, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), condition: JumpCondition) {
+fn conditional_ret(state: &mut CpuState, condition: JumpCondition, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) {
 
     let should_ret: bool;
 
@@ -547,25 +547,25 @@ fn load_imm_into_low(register: &mut CpuReg, pc: u16, memory: &(mpsc::Sender<Memo
     (2, 8)
 }
 
-fn ld_imm_into_full(target_reg: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), pc: &u16) -> (u16, u16) {
+fn ld_imm_into_full(register: &mut CpuReg, pc: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    target_reg.set_register(cpu::memory_read_u16(pc + 1, memory));
+    register.set_register(cpu::memory_read_u16(pc + 1, memory));
     (3, 12)
 }
 
 
 // Load register from address
 
-fn ld_a_from_imm_addr(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn ld_a_from_imm_addr(af: &mut CpuReg, pc: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
     let target_addr = cpu::memory_read_u16(pc + 1, memory);
     af.set_register_lb(cpu::memory_read_u8(target_addr, memory));
     (3, 16)
 }
 
-fn ld_a_from_ff_imm(af: &mut CpuReg, pc: &u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
+fn ld_a_from_ff_imm(af: &mut CpuReg, pc: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
-    let target_addr = 0xFF00 + cpu::memory_read_u8(pc + 1, memory) as u16;
+    let target_addr = 0xFF00 + cpu::read_immediate(pc, memory) as u16;
     af.set_register_lb(cpu::memory_read_u8(target_addr, memory));
     (2, 12)
 }
@@ -722,7 +722,7 @@ fn save_imm_to_hl(hl: &mut CpuReg, pc: u16, memory: &(mpsc::Sender<MemoryAccess>
 
 // Save SP to immediate address
 
-fn save_sp_to_imm(sp: &mut CpuReg, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>), pc: &u16) -> (u16, u16) {
+fn save_sp_to_imm(sp: &mut CpuReg, pc: u16, memory: &(mpsc::Sender<MemoryAccess>, mpsc::Receiver<u8>)) -> (u16, u16) {
 
     let target_addr = cpu::memory_read_u16(pc + 1, memory);
     cpu::memory_write(target_addr, sp.get_register_rb(), &memory.0);
