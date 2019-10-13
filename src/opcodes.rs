@@ -274,9 +274,9 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0xE5 => instruction_finished(push(&mut state.hl, &mut state.sp, memory), state),
         0xE6 => instruction_finished(and_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
         0xE7 => rst(0x0020, memory, state),
-        0xE8 => instruction_finished(add_imm_to_sp(&mut state.af, &mut state.sp, &state.pc.get(), memory), state),
+        0xE8 => instruction_finished(add_imm_to_sp(&mut state.af, &mut state.sp, state.pc.get(), memory), state),
         0xE9 => jump_to_hl(state),
-        0xEA => instruction_finished(save_a_to_nn(&mut state.af, &state.pc.get(), memory), state),
+        0xEA => instruction_finished(save_a_to_nn(&mut state.af, state.pc.get(), memory), state),
         0xEB => result = CycleResult::InvalidOp,
         0xEC => result = CycleResult::InvalidOp,
         0xED => result = CycleResult::InvalidOp,
@@ -291,7 +291,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0xF5 => instruction_finished(push(&mut state.af, &mut state.sp, memory), state),
         0xF6 => instruction_finished(or_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
         0xF7 => rst(0x0030, memory, state),
-        0xF8 => instruction_finished(add_imm_to_sp_save_to_hl(state, memory), state),
+        0xF8 => instruction_finished(add_imm_to_sp_save_in_hl(state, memory), state),
         0xF9 => instruction_finished(ld_hl_into_sp(&mut state.sp, &mut state.hl), state),
         0xFA => instruction_finished(ld_a_from_imm_addr(&mut state.af, state.pc.get(), memory), state),
         0xFB => instruction_finished(ei(state), state),
@@ -520,14 +520,16 @@ fn load_low_into_hi(register: &mut CpuReg) -> (u16, u16) {
     (1, 4)
 }
 
-fn add_imm_to_sp_save_to_hl(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn add_imm_to_sp_save_in_hl(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(state.pc.get() + 1, memory) as i8;
-    let result = state.sp.add_to_reg(value as u16);
+    let result = state.sp.get_register().overflowing_add(value as u16);
+
+    state.hl.set_register(result.0);
 
     utils::set_zf(false, &mut state.af);
     utils::set_nf(false, &mut state.af);
-    utils::set_cf(result, &mut state.af);
+    utils::set_cf(result.1, &mut state.af);
     (2, 12)
 }
 
@@ -703,7 +705,7 @@ fn save_a_to_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &(Arc<Mutex<RomMemor
     (1, 8)
 }
 
-fn save_a_to_nn(af: &mut CpuReg, pc: &u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_nn(af: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let target_addr = cpu::read_u16(pc + 1, memory);
     memory::cpu_write(target_addr, af.get_register_lb(), memory);
@@ -855,9 +857,9 @@ fn add_hl_to_hl(hl: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
     (1, 8)
 }
 
-fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: &u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(pc + 1, memory) as i8;
+    let value = cpu::read_immediate(pc, memory) as i8;
     sp.add_to_reg(value as u16);
     utils::set_zf(false, af);
     utils::set_nf(false, af);
