@@ -172,16 +172,15 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Arc<Mutex<RomMemory>
         }
         else if input_value & 0x20 == 0x20 {
 
-            info!("Input: Pressed button at P15 row");
             match received_message {
-                InputEvent::RightPressed => { input_value = utils::set_bit(input_value, 0); should_interrupt = true; },
-                InputEvent::RightReleased => { input_value = utils::reset_bit(input_value, 0); },
-                InputEvent::LeftPressed => { input_value = utils::set_bit(input_value, 1); should_interrupt = true; },
-                InputEvent::LeftReleased => { input_value = utils::reset_bit(input_value, 1); },
-                InputEvent::UpPressed => { input_value = utils::set_bit(input_value, 2); should_interrupt = true; },
-                InputEvent::UpReleased => { input_value = utils::reset_bit(input_value, 2); },
-                InputEvent::DownPressed => { input_value = utils::set_bit(input_value, 3); should_interrupt = true; },
-                InputEvent::DownReleased => { input_value = utils::reset_bit(input_value, 3); },
+                InputEvent::RightPressed => { input_value = utils::reset_bit(input_value, 0); should_interrupt = true; },
+                InputEvent::RightReleased => { input_value = utils::set_bit(input_value, 0); },
+                InputEvent::LeftPressed => { input_value = utils::reset_bit(input_value, 1); should_interrupt = true; },
+                InputEvent::LeftReleased => { input_value = utils::set_bit(input_value, 1); },
+                InputEvent::UpPressed => { input_value = utils::reset_bit(input_value, 2); should_interrupt = true; },
+                InputEvent::UpReleased => { input_value = utils::set_bit(input_value, 2); },
+                InputEvent::DownPressed => { input_value = utils::reset_bit(input_value, 3); should_interrupt = true; },
+                InputEvent::DownReleased => { input_value = utils::set_bit(input_value, 3); },
                 _ => {}
             }
 
@@ -190,14 +189,14 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Arc<Mutex<RomMemory>
 
             info!("Input: Pressed button at P14 row");
             match received_message {
-                InputEvent::APressed => { input_value = utils::set_bit(input_value, 0); should_interrupt = true; },
-                InputEvent::AReleased => { input_value = utils::reset_bit(input_value, 0) },
-                InputEvent::BPressed => { input_value = utils::set_bit(input_value, 1); should_interrupt = true; },
-                InputEvent::BReleased => { input_value = utils::reset_bit(input_value, 1) },
-                InputEvent::SelectPressed => { input_value = utils::set_bit(input_value, 2); should_interrupt = true; },
-                InputEvent::SelectReleased => { input_value = utils::reset_bit(input_value, 2) },
-                InputEvent::StartPressed => { input_value = utils::set_bit(input_value, 3); should_interrupt = true; },
-                InputEvent::StartReleased => { input_value = utils::reset_bit(input_value, 3) },
+                InputEvent::APressed => { input_value = utils::reset_bit(input_value, 0); should_interrupt = true; },
+                InputEvent::AReleased => { input_value = utils::set_bit(input_value, 0) },
+                InputEvent::BPressed => { input_value = utils::reset_bit(input_value, 1); should_interrupt = true; },
+                InputEvent::BReleased => { input_value = utils::set_bit(input_value, 1) },
+                InputEvent::SelectPressed => { input_value = utils::reset_bit(input_value, 2); should_interrupt = true; },
+                InputEvent::SelectReleased => { input_value = utils::set_bit(input_value, 2) },
+                InputEvent::StartPressed => { input_value = utils::reset_bit(input_value, 3); should_interrupt = true; },
+                InputEvent::StartReleased => { input_value = utils::set_bit(input_value, 3) },
                 _ => {}
             }
         }
