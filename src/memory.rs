@@ -228,10 +228,10 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
         // According to the docs, writing any value to DIV (FF04) ot LY (FF44) from the CPU
         // resets the value back to 0, so check if it's either of those before writing.
         else if address == 0xFF04 {
-            mem.io_regs[0xFF04] = 0;
+            mem.io_regs[0xFF04 - 0xFF00] = 0;
         }
         else if address == 0xFF44 {
-            mem.io_regs[0xFF44] = 0;
+            mem.io_regs[0xFF44 - 0xFF00] = 0;
         }
         else {
             mem.io_regs[(address - 0xFF00) as usize] = value;

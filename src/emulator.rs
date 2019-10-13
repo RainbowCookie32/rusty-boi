@@ -2,7 +2,7 @@ use std::io;
 use std::thread;
 use std::io::Read;
 use std::fs::File;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::iter::FromIterator;
 
@@ -41,7 +41,7 @@ pub enum InputEvent {
     SelectPressed,
 
     // Buttons being released.
-    // TODO: Double check, does the GameBoy care? Does it trigger
+    // TODO: Double check, how much does the GameBoy care? Does it trigger
     // another interrupt, or it's just a value change in the I/O register?
     AReleased,
     BReleased,
@@ -62,19 +62,22 @@ fn execution_loop() {
     
     let rom_data = get_roms_data();
     
+    let cycles_arc = Arc::new(Mutex::new(0 as u16));
     let memory_arc = init_memory(rom_data);
     let cpu_arc = (Arc::clone(&memory_arc.0), Arc::clone(&memory_arc.1), Arc::clone(&memory_arc.2));
     let gpu_arc = (Arc::clone(&memory_arc.1), Arc::clone(&memory_arc.2));
     
-    let (cycles_tx, cycles_rx) = mpsc::channel();
+    let cpu_cycles = Arc::clone(&cycles_arc);
+    let gpu_cycles = Arc::clone(&cycles_arc);
+    
     let (input_tx, input_rx) = mpsc::channel();
 
     let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        cpu::cpu_loop(cycles_tx, input_rx, cpu_arc);
+        cpu::cpu_loop(cpu_cycles, input_rx, cpu_arc);
     }).unwrap();
 
     let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
-        gpu::start_gpu(cycles_rx, input_tx, gpu_arc);
+        gpu::start_gpu(gpu_cycles, input_tx, gpu_arc);
     }).unwrap();
 
     cpu_thread.join().unwrap();

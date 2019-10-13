@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::Receiver;
 
 use log::{info, error};
 use byteorder::{ByteOrder, LittleEndian};
@@ -88,7 +88,7 @@ pub fn init_cpu() -> CpuState {
     initial_state
 }
 
-pub fn cpu_loop(cycles_tx: Sender<u16>, input: Receiver<InputEvent>, memory: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+pub fn cpu_loop(cycles: Arc<Mutex<u16>>, input: Receiver<InputEvent>, memory: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut current_state = init_cpu();
     let mut timer_state = timer::init_timer();
@@ -140,7 +140,8 @@ pub fn cpu_loop(cycles_tx: Sender<u16>, input: Receiver<InputEvent>, memory: (Ar
             break;
         }
 
-        cycles_tx.send(current_state.cycles.get()).unwrap();
+        let mut cyc_mut = cycles.lock().unwrap();
+        *cyc_mut = cyc_mut.overflowing_add(current_state.cycles.get()).0;
         timer::timer_cycle(&mut timer_state, current_state.cycles.get(), &memory.1);
         if update_inputs(&input, &memory) {break}
     }

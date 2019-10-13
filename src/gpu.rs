@@ -1,6 +1,6 @@
 use std::ops::Neg;
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::Sender;
 
 use log::info;
 
@@ -40,7 +40,7 @@ pub struct GpuState {
     pub tiles_dirty: bool,
 }
 
-pub fn start_gpu(cpu_cycles: Receiver<u16>, input: Sender<InputEvent>, memory: (Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+pub fn start_gpu(cycles: Arc<Mutex<u16>>, input: Sender<InputEvent>, memory: (Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut current_state = GpuState {
         gpu_mode: 0,
@@ -99,7 +99,9 @@ pub fn start_gpu(cpu_cycles: Receiver<u16>, input: Sender<InputEvent>, memory: (
         current_state.tiles_dirty = mem.tiles_dirty;
         std::mem::drop(mem);
 
-        current_state.gpu_cycles = current_state.gpu_cycles.overflowing_add(cpu_cycles.recv().unwrap()).0;
+        let cyc_mut = cycles.lock().unwrap();
+        current_state.gpu_cycles = current_state.gpu_cycles.overflowing_add(*cyc_mut).0;
+        std::mem::drop(cyc_mut);
 
         if display_enabled {
 
