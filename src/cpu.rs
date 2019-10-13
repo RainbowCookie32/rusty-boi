@@ -107,10 +107,6 @@ pub fn cpu_loop(cycles: Arc<Mutex<u16>>, input: Receiver<InputEvent>, memory: (A
                 info!("CPU: Bootrom execution finished, starting loaded ROM.");
                 mem.bootrom_finished = true;
             }
-
-            if current_state.pc.get() == 0xC642 {
-                //info!("CPU: Test finished.");
-            }
         
             if opcode == 0xCB {
                 opcode = read_immediate(current_state.pc.get(), &memory);
@@ -238,6 +234,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Arc<Mutex<RomMemory
             memory::cpu_write(0xFF0F, if_value, memory);
             stack_write(&mut current_state.sp, current_state.pc.get(), memory);
             current_state.pc.set(0x0040);
+            current_state.interrupts.can_interrupt = false;
         }
         current_state.halted = false;
     }
@@ -248,6 +245,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Arc<Mutex<RomMemory
             memory::cpu_write(0xFF0F, if_value, memory);
             stack_write(&mut current_state.sp, current_state.pc.get(), memory);
             current_state.pc.set(0x0048);
+            current_state.interrupts.can_interrupt = false;
         }
         current_state.halted = false;
     }
@@ -258,6 +256,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Arc<Mutex<RomMemory
             memory::cpu_write(0xFF0F, if_value, memory);
             stack_write(&mut current_state.sp, current_state.pc.get(), memory);
             current_state.pc.set(0x0050);
+            current_state.interrupts.can_interrupt = false;
         }
         current_state.halted = false;
     }
@@ -268,6 +267,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Arc<Mutex<RomMemory
             memory::cpu_write(0xFF0F, if_value, memory);
             stack_write(&mut current_state.sp, current_state.pc.get(), memory);
             current_state.pc.set(0x0058);
+            current_state.interrupts.can_interrupt = false;
         }
         current_state.halted = false;
     }
@@ -278,6 +278,7 @@ fn handle_interrupts(current_state: &mut CpuState, memory: &(Arc<Mutex<RomMemory
             memory::cpu_write(0xFF0F, if_value, memory);
             stack_write(&mut current_state.sp, current_state.pc.get(), memory);
             current_state.pc.set(0x0060);
+            current_state.interrupts.can_interrupt = false;
         }
         current_state.halted = false;
     }
