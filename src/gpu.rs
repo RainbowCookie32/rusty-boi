@@ -1,18 +1,14 @@
 use std::ops::Neg;
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::Sender;
 
 use log::info;
 
 use sdl2::rect::Point;
-use sdl2::event::Event;
 use sdl2::video::Window;
 use sdl2::pixels::Color;
 use sdl2::render::Canvas;
-use sdl2::keyboard::Keycode;
 
 use super::utils;
-use super::emulator::InputEvent;
 use super::memory;
 use super::memory::{CpuMemory, GpuMemory};
 
@@ -40,9 +36,9 @@ pub struct GpuState {
     pub tiles_dirty: bool,
 }
 
-pub fn start_gpu(cycles: Arc<Mutex<u16>>, input: Sender<InputEvent>, memory: (Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+pub fn init_gpu() -> GpuState {
 
-    let mut current_state = GpuState {
+    GpuState {
         gpu_mode: 0,
         gpu_cycles: 0,
         line: 0,
@@ -50,78 +46,41 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input: Sender<InputEvent>, memory: (Ar
         background_points: Vec::new(),
         bg_dirty: false,
         tiles_dirty: false,
-    };
-        
-    let sdl_ctx = sdl2::init().unwrap();
-    let sdl_video = sdl_ctx.video().unwrap();
-    let mut sdl_events = sdl_ctx.event_pump().unwrap();
-    let emu_window = sdl_video.window("Rusty Boi", 160 * 3, 144 * 3).position_centered().build().unwrap();
-    let mut emu_canvas = emu_window.into_canvas().present_vsync().build().unwrap();
+    }
+}
 
-    // TODO: Add a way to change scaling without having to change it from code.
-    // Maybe as an argument, or request a scale multiplier after loading the ROMs.
-    emu_canvas.set_scale(3.0, 3.0).unwrap();
-    emu_canvas.set_draw_color(Color::RGB(255, 255, 255));
-    emu_canvas.clear();
-    emu_canvas.present();
+pub fn gpu_loop(cycles: &Arc<Mutex<u16>>, state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
-    loop {
+    let lcdc_stat = memory::gpu_read(0xFF40, &memory);
+    let display_enabled = utils::check_bit(lcdc_stat, 7);
 
-        for event in sdl_events.poll_iter() {
+    let mem = memory.1.lock().unwrap();
+    state.bg_dirty = mem.background_dirty;
+    state.tiles_dirty = mem.tiles_dirty;
+    std::mem::drop(mem);
 
-            match event {
-                Event::Quit {..} => { input.send(InputEvent::Quit).unwrap() },
-                Event::KeyDown { keycode: Some(Keycode::A), .. } => { input.send(InputEvent::APressed).unwrap() },
-                Event::KeyUp  { keycode: Some(Keycode::A), .. } => { input.send(InputEvent::AReleased).unwrap() },
-                Event::KeyDown { keycode: Some(Keycode::S), .. } => { input.send(InputEvent::BPressed).unwrap() },
-                Event::KeyUp  { keycode: Some(Keycode::S), .. } => { input.send(InputEvent::BReleased).unwrap() },
-                Event::KeyDown { keycode: Some(Keycode::Up), .. } => { input.send(InputEvent::UpPressed).unwrap() },
-                Event::KeyUp  { keycode: Some(Keycode::Up), .. } => { input.send(InputEvent::UpReleased).unwrap() },
-                Event::KeyDown { keycode: Some(Keycode::Left), .. } => { input.send(InputEvent::LeftPressed).unwrap() },
-                Event::KeyUp  { keycode: Some(Keycode::Left), .. } => { input.send(InputEvent::LeftReleased).unwrap() },
-                Event::KeyDown { keycode: Some(Keycode::Right), .. } => { input.send(InputEvent::RightPressed).unwrap() },
-                Event::KeyUp  { keycode: Some(Keycode::Right), .. } => { input.send(InputEvent::RightReleased).unwrap() },
-                Event::KeyDown { keycode: Some(Keycode::Down), .. } => { input.send(InputEvent::DownPressed).unwrap() },
-                Event::KeyUp  { keycode: Some(Keycode::Down), .. } => { input.send(InputEvent::DownReleased).unwrap() },
-                Event::KeyDown { keycode: Some(Keycode::Return), .. } => { input.send(InputEvent::StartPressed).unwrap() },
-                Event::KeyUp  { keycode: Some(Keycode::Return), .. } => { input.send(InputEvent::StartReleased).unwrap() },
-                Event::KeyDown { keycode: Some(Keycode::Backspace), .. } => { input.send(InputEvent::SelectPressed).unwrap() },
-                Event::KeyUp  { keycode: Some(Keycode::Backspace), .. } => { input.send(InputEvent::SelectReleased).unwrap() },
-                _ => {}
-            }
+    let cyc_mut = cycles.lock().unwrap();
+    state.gpu_cycles = state.gpu_cycles.overflowing_add(*cyc_mut).0;
+    std::mem::drop(cyc_mut);
+
+    if display_enabled {
+
+        if state.gpu_mode == 0 && state.gpu_cycles >= 204 {
+            hblank_mode(state, canvas, &memory);
+        }
+        else if state.gpu_mode == 1 && state.gpu_cycles >= 456 {
+            vblank_mode(state, canvas, &memory);
+        }
+        else if state.gpu_mode == 2 && state.gpu_cycles >= 80 {
+            oam_scan_mode(state, &memory);
+        }
+        else if state.gpu_mode == 3 && state.gpu_cycles >= 172 {
+            lcd_transfer_mode(state, &memory);
+            let mut mem = memory.1.lock().unwrap();
+            mem.background_dirty = false;
+            mem.tiles_dirty = false;
         }
 
-        let lcdc_stat = memory::gpu_read(0xFF40, &memory);
-        let display_enabled = utils::check_bit(lcdc_stat, 7);
-
-        let mem = memory.1.lock().unwrap();
-        current_state.bg_dirty = mem.background_dirty;
-        current_state.tiles_dirty = mem.tiles_dirty;
-        std::mem::drop(mem);
-
-        let cyc_mut = cycles.lock().unwrap();
-        current_state.gpu_cycles = current_state.gpu_cycles.overflowing_add(*cyc_mut).0;
-        std::mem::drop(cyc_mut);
-
-        if display_enabled {
-
-            if current_state.gpu_mode == 0 && current_state.gpu_cycles >= 204 {
-                hblank_mode(&mut current_state, &mut emu_canvas, &memory);
-            }
-            else if current_state.gpu_mode == 1 && current_state.gpu_cycles >= 456 {
-                vblank_mode(&mut current_state, &mut emu_canvas, &memory);
-            }
-            else if current_state.gpu_mode == 2 && current_state.gpu_cycles >= 80 {
-                oam_scan_mode(&mut current_state, &memory);
-            }
-            else if current_state.gpu_mode == 3 && current_state.gpu_cycles >= 172 {
-                lcd_transfer_mode(&mut current_state, &memory);
-                let mut mem = memory.1.lock().unwrap();
-                mem.background_dirty = false;
-                mem.tiles_dirty = false;
-            }
-
-        }
     }
 }
 
