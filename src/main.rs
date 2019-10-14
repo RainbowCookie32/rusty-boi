@@ -113,7 +113,7 @@ fn main() {
                 imgui_ui.text_colored([1.0, 0.0, 0.0, 1.0], im_str!("Can't locate Bootrom!"));
             }
             imgui_ui.separator();
-            Slider::new(im_str!("Scale factor"), 1.0 ..= 50.0).display_format(im_str!("%.0f")).build(&imgui_ui, &mut scale_factor);
+            Slider::new(im_str!("Scale factor"), 1.0 ..= 10.0).display_format(im_str!("%.0f")).build(&imgui_ui, &mut scale_factor);
         });
 
         unsafe {
