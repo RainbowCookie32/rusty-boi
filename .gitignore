@@ -12,3 +12,5 @@ Cargo.lock
 .vscode/
 
 *.o
+*.gb
+imgui.ini

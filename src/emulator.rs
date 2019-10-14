@@ -1,7 +1,7 @@
-use std::io;
 use std::thread;
 use std::io::Read;
 use std::fs::File;
+use std::fs::DirEntry;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::iter::FromIterator;
@@ -53,14 +53,14 @@ pub enum InputEvent {
     SelectReleased,
 }
 
-pub fn init_emu() {
+pub fn init_emu(file: &DirEntry) {
 
-    execution_loop();
+    execution_loop(file);
 }
 
-fn execution_loop() {
+fn execution_loop(file: &DirEntry) {
     
-    let rom_data = get_roms_data();
+    let rom_data = get_roms_data(file);
     
     let cycles_arc = Arc::new(Mutex::new(0 as u16));
     let memory_arc = init_memory(rom_data);
@@ -84,31 +84,20 @@ fn execution_loop() {
     info!("Emu: Stopped emulation.");
 }
 
-fn get_roms_data() -> (Vec<u8>, Cart) {
+fn get_roms_data(file: &DirEntry) -> (Vec<u8>, Cart) {
 
-    let mut rom_path = String::new();
-    let mut bootrom_path = String::new();
     let bootrom: Vec<u8>;
     let rom: Cart;
     
-    info!("Emu: Point me to a GameBoy Bootrom");
-
-    io::stdin().read_line(&mut bootrom_path).expect("Loader: Error while reading path to ROM");
-    bootrom_path = bootrom_path.trim().to_string();
-    bootrom = load_bootrom(bootrom_path);
-
-    info!("Emu: Point me to a GameBoy ROM");
-
-    io::stdin().read_line(&mut rom_path).expect("Loader: Error while reading path to Bootrom");
-    rom_path = rom_path.trim().to_string();
-    rom = load_rom(rom_path);
+    bootrom = load_bootrom();
+    rom = load_rom(file);
 
     (bootrom, rom)
 }
 
-fn load_bootrom(path: String) -> Vec<u8> {
+fn load_bootrom() -> Vec<u8> {
     
-    let mut rom_file = File::open(path).expect("Loader: Failed to open Bootrom");
+    let mut rom_file = File::open("Bootrom.gb").expect("Loader: Failed to open Bootrom");
     let mut data = Vec::new();
 
     match rom_file.read_to_end(&mut data){
@@ -119,9 +108,9 @@ fn load_bootrom(path: String) -> Vec<u8> {
     data
 }
 
-fn load_rom(path: String) -> Cart {
+fn load_rom(rom_file: &DirEntry) -> Cart {
     
-    let mut rom_file = File::open(path).expect("Loader: Failed to open ROM");
+    let mut rom_file = File::open(rom_file.path()).expect("Loader: Failed to open ROM");
     let mut data = Vec::new();
 
     match rom_file.read_to_end(&mut data){
