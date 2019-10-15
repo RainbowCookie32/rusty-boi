@@ -83,13 +83,13 @@ pub fn initialize(path: &PathBuf) -> EmuInit {
     }
 }
 
-pub fn start_emulation(arcs: &EmuInit) {
+pub fn start_emulation(arcs: &EmuInit, input: Receiver<InputEvent>) {
         
     let cpu_cycles = Arc::clone(&arcs.cycles_arc);
     let cpu_arc = (Arc::clone(&arcs.cpu.0), Arc::clone(&arcs.cpu.1), Arc::clone(&arcs.cpu.2));
 
     let _cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        cpu::cpu_loop(cpu_cycles, cpu_arc);
+        cpu::cpu_loop(cpu_cycles, cpu_arc, input);
     }).unwrap();
 
     info!("Emu: Stopped emulation.");

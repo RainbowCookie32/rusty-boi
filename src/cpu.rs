@@ -88,7 +88,7 @@ pub fn init_cpu() -> CpuState {
     initial_state
 }
 
-pub fn cpu_loop(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+pub fn cpu_loop(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>), input: Receiver<InputEvent>) {
 
     let mut current_state = init_cpu();
     let mut timer_state = timer::init_timer();
@@ -139,7 +139,7 @@ pub fn cpu_loop(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<RomMemory>>, Arc<Mut
         let mut cyc_mut = cycles.lock().unwrap();
         *cyc_mut = cyc_mut.overflowing_add(current_state.cycles.get()).0;
         timer::timer_cycle(&mut timer_state, current_state.cycles.get(), &memory.1);
-        //if update_inputs(&input, &memory) {break}
+        if update_inputs(&input, &memory) {break}
     }
 }
 

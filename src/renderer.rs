@@ -1,5 +1,6 @@
 use sdl2;
 use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 
 use imgui::*;
@@ -10,10 +11,12 @@ use log::error;
 
 use std::io;
 use std::fs;
+use std::sync::mpsc;
 use std::path::PathBuf;
 
 use super::gpu;
 use super::emulator;
+use super::emulator::InputEvent;
 
 struct State {
     pub emu_running: bool,
@@ -39,7 +42,7 @@ pub fn init_renderer() {
     let sdl_context = sdl2::init().unwrap();
     let sdl_video = sdl_context.video().unwrap();
     let mut sdl_events = sdl_context.event_pump().unwrap();
-    let main_window = sdl_video.window("Rusty Boi - Main Window", 600, 400).position_centered().opengl().build().unwrap();
+    let main_window = sdl_video.window("Rusty Boi - Main Window", 600, 400).position_centered().opengl().resizable().build().unwrap();
     let _gl_context = main_window.gl_create_context().expect("Failed to create OpenGL context");
     gl::load_with(|s| sdl_video.gl_get_proc_address(s) as _);
 
@@ -62,9 +65,10 @@ pub fn init_renderer() {
 
             let mut gpu_state = gpu::init_gpu();
             let game_window = sdl_video.window("Rusty Boi - Game Window", 160 * emu_state.game_scale as u32, 144 * emu_state.game_scale as u32)
-            .position_centered().build().unwrap();
+            .position_centered().opengl().resizable().build().unwrap();
             let mut game_canvas = game_window.into_canvas().present_vsync().build().unwrap();
 
+            let (input_tx, input_rx) = mpsc::channel();
             let emulator_locks = emulator::initialize(&emu_state.booted_rom);
 
             game_canvas.set_scale(emu_state.game_scale, emu_state.game_scale).unwrap();
@@ -72,21 +76,38 @@ pub fn init_renderer() {
             game_canvas.clear();
             game_canvas.present();
 
-            emulator::start_emulation(&emulator_locks);
+            emulator::start_emulation(&emulator_locks, input_rx);
 
             'game_loop: loop {
 
                 for event in sdl_events.poll_iter() {
 
                     imgui_sys.sdl_imgui.handle_event(&mut imgui_sys.context, &event);
+                    if !imgui_sys.sdl_imgui.ignore_event(&event) { continue }
                     match event {
                         Event::Quit {..} => { emu_state.emu_running = false }
+                        Event::KeyDown { keycode: Some(Keycode::A), .. } => { input_tx.send(InputEvent::APressed).unwrap() },
+                        Event::KeyUp  { keycode: Some(Keycode::A), .. } => { input_tx.send(InputEvent::AReleased).unwrap() },
+                        Event::KeyDown { keycode: Some(Keycode::S), .. } => { input_tx.send(InputEvent::BPressed).unwrap() },
+                        Event::KeyUp  { keycode: Some(Keycode::S), .. } => { input_tx.send(InputEvent::BReleased).unwrap() },
+                        Event::KeyDown { keycode: Some(Keycode::Up), .. } => { input_tx.send(InputEvent::UpPressed).unwrap() },
+                        Event::KeyUp  { keycode: Some(Keycode::Up), .. } => { input_tx.send(InputEvent::UpReleased).unwrap() },
+                        Event::KeyDown { keycode: Some(Keycode::Left), .. } => { input_tx.send(InputEvent::LeftPressed).unwrap() },
+                        Event::KeyUp  { keycode: Some(Keycode::Left), .. } => { input_tx.send(InputEvent::LeftReleased).unwrap() },
+                        Event::KeyDown { keycode: Some(Keycode::Right), .. } => { input_tx.send(InputEvent::RightPressed).unwrap() },
+                        Event::KeyUp  { keycode: Some(Keycode::Right), .. } => { input_tx.send(InputEvent::RightReleased).unwrap() },
+                        Event::KeyDown { keycode: Some(Keycode::Down), .. } => { input_tx.send(InputEvent::DownPressed).unwrap() },
+                        Event::KeyUp  { keycode: Some(Keycode::Down), .. } => { input_tx.send(InputEvent::DownReleased).unwrap() },
+                        Event::KeyDown { keycode: Some(Keycode::Return), .. } => { input_tx.send(InputEvent::StartPressed).unwrap() },
+                        Event::KeyUp  { keycode: Some(Keycode::Return), .. } => { input_tx.send(InputEvent::StartReleased).unwrap() },
+                        Event::KeyDown { keycode: Some(Keycode::Backspace), .. } => { input_tx.send(InputEvent::SelectPressed).unwrap() },
+                        Event::KeyUp  { keycode: Some(Keycode::Backspace), .. } => { input_tx.send(InputEvent::SelectReleased).unwrap() },
                         _ => {}
                     }
                 }
 
                 gpu::gpu_loop(&emulator_locks.cycles_arc, &mut gpu_state, &mut game_canvas, &emulator_locks.gpu);
-                ui_loop(&mut imgui_sys, &main_window, &sdl_events.mouse_state(), &all_roms, &mut emu_state);
+                //ui_loop(&mut imgui_sys, &main_window, &sdl_events.mouse_state(), &all_roms, &mut emu_state);
                 if !emu_state.emu_running {break 'game_loop}
             }
         }
@@ -97,6 +118,7 @@ pub fn init_renderer() {
                 for event in sdl_events.poll_iter() {
 
                     imgui_sys.sdl_imgui.handle_event(&mut imgui_sys.context, &event);
+                    if !imgui_sys.sdl_imgui.ignore_event(&event) { continue }
                     match event {
                         Event::Quit {..} => { break 'render_loop }
                         _ => {}
@@ -149,8 +171,9 @@ fn ui_loop(sys: &mut ImguiSys, window: &sdl2::video::Window, mouse_state: &sdl2:
         Slider::new(im_str!("Scale factor"), 1.0 ..= 10.0).display_format(im_str!("%.0f")).build(&imgui_ui, &mut emu.game_scale);
     });
 
+    
+
     unsafe {
-        gl::ClearColor(0.2, 0.2, 0.2, 1.0);
         gl::Clear(gl::COLOR_BUFFER_BIT);
     }
 
