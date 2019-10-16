@@ -2,6 +2,7 @@ use sdl2;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
+use sdl2::video;
 
 use imgui::*;
 use imgui_sdl2;
@@ -54,7 +55,7 @@ pub fn init_renderer() {
     let mut imgui_sys = ImguiSys {
         context: imgui,
         sdl_imgui: sdl2_imgui,
-        renderer: imgui_renderer
+        renderer: imgui_renderer,
     };
 
     let all_roms = get_all_roms();
@@ -63,10 +64,11 @@ pub fn init_renderer() {
 
         if emu_state.emu_running {
 
+            sdl_video.vulkan_load_library_default().unwrap();
             let mut gpu_state = gpu::init_gpu();
             let game_window = sdl_video.window("Rusty Boi - Game Window", 160 * emu_state.game_scale as u32, 144 * emu_state.game_scale as u32)
-            .position_centered().opengl().resizable().build().unwrap();
-            let mut game_canvas = game_window.into_canvas().present_vsync().build().unwrap();
+            .position_centered().vulkan().resizable().build().unwrap();
+            let mut game_canvas = game_window.into_canvas().build().unwrap();
 
             let (input_tx, input_rx) = mpsc::channel();
             let emulator_locks = emulator::initialize(&emu_state.booted_rom);
@@ -85,7 +87,6 @@ pub fn init_renderer() {
                     imgui_sys.sdl_imgui.handle_event(&mut imgui_sys.context, &event);
                     if !imgui_sys.sdl_imgui.ignore_event(&event) { continue }
                     match event {
-                        Event::Quit {..} => { emu_state.emu_running = false }
                         Event::KeyDown { keycode: Some(Keycode::A), .. } => { input_tx.send(InputEvent::APressed).unwrap() },
                         Event::KeyUp  { keycode: Some(Keycode::A), .. } => { input_tx.send(InputEvent::AReleased).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::S), .. } => { input_tx.send(InputEvent::BPressed).unwrap() },
@@ -102,12 +103,13 @@ pub fn init_renderer() {
                         Event::KeyUp  { keycode: Some(Keycode::Return), .. } => { input_tx.send(InputEvent::StartReleased).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::Backspace), .. } => { input_tx.send(InputEvent::SelectPressed).unwrap() },
                         Event::KeyUp  { keycode: Some(Keycode::Backspace), .. } => { input_tx.send(InputEvent::SelectReleased).unwrap() },
+                        Event::Quit {..} => { emu_state.emu_running = false }
                         _ => {}
                     }
                 }
 
                 gpu::gpu_loop(&emulator_locks.cycles_arc, &mut gpu_state, &mut game_canvas, &emulator_locks.gpu);
-                //ui_loop(&mut imgui_sys, &main_window, &sdl_events.mouse_state(), &all_roms, &mut emu_state);
+                ui_loop(&mut imgui_sys, &main_window, &sdl_events.mouse_state(), &all_roms, &mut emu_state);
                 if !emu_state.emu_running {break 'game_loop}
             }
         }
@@ -132,7 +134,7 @@ pub fn init_renderer() {
 
 }
 
-fn ui_loop(sys: &mut ImguiSys, window: &sdl2::video::Window, mouse_state: &sdl2::mouse::MouseState, all_roms: &Vec<fs::DirEntry>, emu: &mut State) {
+fn ui_loop(sys: &mut ImguiSys, window: &video::Window, mouse_state: &sdl2::mouse::MouseState, all_roms: &Vec<fs::DirEntry>, emu: &mut State) {
 
     sys.sdl_imgui.prepare_frame(sys.context.io_mut(), window, mouse_state);
     let imgui_ui = sys.context.frame();
@@ -171,13 +173,12 @@ fn ui_loop(sys: &mut ImguiSys, window: &sdl2::video::Window, mouse_state: &sdl2:
         Slider::new(im_str!("Scale factor"), 1.0 ..= 10.0).display_format(im_str!("%.0f")).build(&imgui_ui, &mut emu.game_scale);
     });
 
-    
-
     unsafe {
-        gl::Clear(gl::COLOR_BUFFER_BIT);
+      gl::ClearColor(0.2, 0.2, 0.2, 1.0);
+      gl::Clear(gl::COLOR_BUFFER_BIT);
     }
 
-    sys.sdl_imgui.prepare_render(&imgui_ui, &window);
+    sys.sdl_imgui.prepare_render(&imgui_ui, window);
     sys.renderer.render(imgui_ui);
     window.gl_swap_window();
 }
