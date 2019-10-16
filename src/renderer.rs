@@ -72,6 +72,7 @@ pub fn init_renderer() {
 
             let (input_tx, input_rx) = mpsc::channel();
             let emulator_locks = emulator::initialize(&emu_state.booted_rom);
+            let mut update_ui = false;
 
             game_canvas.set_scale(emu_state.game_scale, emu_state.game_scale).unwrap();
             game_canvas.set_draw_color(Color::RGB(255, 255, 255));
@@ -86,7 +87,7 @@ pub fn init_renderer() {
 
                     imgui_sys.sdl_imgui.handle_event(&mut imgui_sys.context, &event);
                     match event {
-                        Event::Window { timestamp, window_id, win_event} => {
+                        Event::Window { timestamp: _, window_id, win_event} => {
                             match win_event {
                                 WindowEvent::Close => {
                                     emu_state.emu_running = false;
@@ -95,6 +96,14 @@ pub fn init_renderer() {
                                     } 
                                     else {
                                         break 'render_loop
+                                    }
+                                },
+                                WindowEvent::FocusGained => {
+                                    if window_id == game_canvas.window().id() {
+                                        update_ui = false;
+                                    }
+                                    else {
+                                        update_ui = true;
                                     }
                                 },
                                 _ => {},
@@ -122,8 +131,8 @@ pub fn init_renderer() {
                 }
 
                 gpu::gpu_loop(&emulator_locks.cycles_arc, &mut gpu_state, &mut game_canvas, &emulator_locks.gpu);
-                ui_loop(&mut imgui_sys, &main_window, &sdl_events.mouse_state(), &all_roms, &mut emu_state);
-                if !emu_state.emu_running {break 'game_loop}
+                if update_ui { ui_loop(&mut imgui_sys, &main_window, &sdl_events.mouse_state(), &all_roms, &mut emu_state) }
+                if !emu_state.emu_running { break 'game_loop }
             }
         }
         else {
