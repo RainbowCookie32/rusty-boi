@@ -1,5 +1,6 @@
 use sdl2;
 use sdl2::event::Event;
+use sdl2::event::WindowEvent;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::video;
@@ -64,7 +65,6 @@ pub fn init_renderer() {
 
         if emu_state.emu_running {
 
-            sdl_video.vulkan_load_library_default().unwrap();
             let mut gpu_state = gpu::init_gpu();
             let game_window = sdl_video.window("Rusty Boi - Game Window", 160 * emu_state.game_scale as u32, 144 * emu_state.game_scale as u32)
             .position_centered().vulkan().resizable().build().unwrap();
@@ -85,8 +85,21 @@ pub fn init_renderer() {
                 for event in sdl_events.poll_iter() {
 
                     imgui_sys.sdl_imgui.handle_event(&mut imgui_sys.context, &event);
-                    if !imgui_sys.sdl_imgui.ignore_event(&event) { continue }
                     match event {
+                        Event::Window { timestamp, window_id, win_event} => {
+                            match win_event {
+                                WindowEvent::Close => {
+                                    emu_state.emu_running = false;
+                                    if window_id == game_canvas.window().id() { 
+                                        break 'game_loop 
+                                    } 
+                                    else {
+                                        break 'render_loop
+                                    }
+                                },
+                                _ => {},
+                            }
+                        }
                         Event::KeyDown { keycode: Some(Keycode::A), .. } => { input_tx.send(InputEvent::APressed).unwrap() },
                         Event::KeyUp  { keycode: Some(Keycode::A), .. } => { input_tx.send(InputEvent::AReleased).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::S), .. } => { input_tx.send(InputEvent::BPressed).unwrap() },
@@ -120,7 +133,6 @@ pub fn init_renderer() {
                 for event in sdl_events.poll_iter() {
 
                     imgui_sys.sdl_imgui.handle_event(&mut imgui_sys.context, &event);
-                    if !imgui_sys.sdl_imgui.ignore_event(&event) { continue }
                     match event {
                         Event::Quit {..} => { break 'render_loop }
                         _ => {}
@@ -150,7 +162,7 @@ fn ui_loop(sys: &mut ImguiSys, window: &video::Window, mouse_state: &sdl2::mouse
 
                     if MenuItem::new(&filename).build_with_ref(&imgui_ui, &mut false) { 
 
-                        if PathBuf::from("Bootrom.gb").exists() && !emu.emu_running {
+                        if PathBuf::from("Bootrom.gb").exists() {
                             emu.emu_running = true;
                             emu.booted_rom = file.path();
                         }
@@ -178,7 +190,6 @@ fn ui_loop(sys: &mut ImguiSys, window: &video::Window, mouse_state: &sdl2::mouse
       gl::Clear(gl::COLOR_BUFFER_BIT);
     }
 
-    sys.sdl_imgui.prepare_render(&imgui_ui, window);
     sys.renderer.render(imgui_ui);
     window.gl_swap_window();
 }
