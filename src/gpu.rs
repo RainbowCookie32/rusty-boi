@@ -94,7 +94,6 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
     stat_value = utils::reset_bit(stat_value, 0);
     memory::gpu_write(0xFF41, stat_value, memory);
 
-
     if state.all_tiles.len() >= 128 && state.background_points.len() >= 65536 {
         draw(state, canvas, memory);
     }
@@ -190,11 +189,9 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<C
     let mut drawn_pixels: u16 = 0;
 
     // Index offset for the points array in case the current line is not 0.
-    if state.line > 0 {
-        point_idx += 256 * state.line as u16;
-    }
+    point_idx += 256 * state.line as u16;
 
-    // Draw a whole line from the background map, skipping points that are outside the screen.
+    // Draw a whole line from the background map.
     while drawn_pixels < 256 {
 
         let current_point = &state.background_points[point_idx as usize];
