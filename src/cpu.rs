@@ -94,8 +94,6 @@ pub fn cpu_loop(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<RomMemory>>, Arc<Mut
     let mut timer_state = timer::init_timer();
 
     loop {
-
-        if current_state.cycles.get() > 200 {current_state.cycles.set(0)}
         
         handle_interrupts(&mut current_state, &memory);
         let mut opcode = memory::cpu_read(current_state.pc.get(), &memory);

@@ -157,7 +157,7 @@ impl PcTrait for Pc {
 impl CycleCounter for Cycles {
 
     fn add(&mut self, value: u16) {
-        self.value += value;
+        self.value = self.value.overflowing_add(value).0;
     }
 
     fn get(&self) -> u16 {
