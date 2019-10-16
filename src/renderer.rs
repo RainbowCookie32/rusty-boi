@@ -207,14 +207,15 @@ fn get_all_roms() -> Vec<fs::DirEntry> {
 
     init_dirs();
     let mut all_roms: Vec<fs::DirEntry> = Vec::new();
+    let mut read_files: Vec<_> = fs::read_dir("roms").unwrap().map(|r| r.unwrap()).collect();
+    read_files.sort_by_key(|dir| dir.path());
     
-    for entry in fs::read_dir("roms").unwrap() {
+    for entry in read_files {
         
-        let file = entry.unwrap();
-        let file_name = file.file_name().into_string().unwrap();
+        let file_name = entry.file_name().into_string().unwrap();
         
         if file_name.contains(".gb") {
-            all_roms.push(file);
+            all_roms.push(entry);
         }
     }
 
