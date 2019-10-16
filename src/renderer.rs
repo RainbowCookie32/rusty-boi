@@ -208,7 +208,7 @@ fn get_all_roms() -> Vec<fs::DirEntry> {
     init_dirs();
     let mut all_roms: Vec<fs::DirEntry> = Vec::new();
     let mut read_files: Vec<_> = fs::read_dir("roms").unwrap().map(|r| r.unwrap()).collect();
-    read_files.sort_by_key(|dir| dir.path());
+    read_files.sort_by_key(|dir| dir.path().to_str().unwrap().to_lowercase());
     
     for entry in read_files {
         
