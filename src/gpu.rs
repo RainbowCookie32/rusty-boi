@@ -210,9 +210,8 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<C
 
 fn make_tiles(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
-    let tile_address = utils::check_bit(memory::gpu_read(0xFF40, memory), 4);
-    let start_position = if tile_address {0x8000} else {0x8800};
-    let end_position = if tile_address {0x9000} else {0x9800};
+    let start_position = 0x8000;
+    let end_position = 0x97FF;
     let mut memory_position = start_position;
     let mut tiles_position = 0;
     let mut new_tiles:Vec<Tile> = Vec::new();
