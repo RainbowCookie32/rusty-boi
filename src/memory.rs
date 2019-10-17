@@ -205,37 +205,41 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
     }
     else if address >= 0xFF00 && address <= 0xFF7F
     {
-        let mut mem = memory.1.lock().unwrap();
-        // Basically here to print the output of blargg's tests.
-        // Holds the values stored in FF01 until a line break, then prints them.
-        if address == 0xFF01 {
-            if value == 0xA {
-
-                let mut idx: usize = 0;
-                let mut new_string = String::from("");
-                while idx < mem.serial_buffer.len() {
-                    new_string.push(mem.serial_buffer[idx] as char);
-                    idx += 1;
-                }
-
-                info!("Serial:  {} ", new_string);
-                mem.serial_buffer = Vec::new();
-            }
-            else {
-                mem.serial_buffer.push(value);
-            }
-        }
-        // According to the docs, writing any value to DIV (FF04) ot LY (FF44) from the CPU
-        // resets the value back to 0, so check if it's either of those before writing.
-        else if address == 0xFF04 {
-            mem.io_regs[0xFF04 - 0xFF00] = 0;
-        }
-        else if address == 0xFF44 {
-            mem.io_regs[0xFF44 - 0xFF00] = 0;
+        if address == 0xFF46 {
+            do_dma_transfer(value, memory);
         }
         else {
-            mem.io_regs[(address - 0xFF00) as usize] = value;
+            let mut mem = memory.1.lock().unwrap();
+
+            // Basically here to print the output of blargg's tests.
+            // Holds the values stored in FF01 until a line break, then prints them.
+            if address == 0xFF01 {
+                if value == 0xA {
+
+                    let mut idx: usize = 0;
+                    let mut new_string = String::from("");
+                    while idx < mem.serial_buffer.len() {
+                        new_string.push(mem.serial_buffer[idx] as char);
+                        idx += 1;
+                    }
+
+                    info!("Serial:  {} ", new_string);
+                    mem.serial_buffer = Vec::new();
+                }
+                else {
+                    mem.serial_buffer.push(value);
+                }
+            }
+            // According to the docs, writing any value to DIV (FF04) ot LY (FF44) from the CPU
+            // resets the value back to 0, so check if it's either of those before writing.
+            else if address == 0xFF04 || address == 0xFF44 {
+                mem.io_regs[(address - 0xFF00) as usize] = 0;
+            }
+            else {
+                mem.io_regs[(address - 0xFF00) as usize] = value;
+            }
         }
+        
     }
     else if address >= 0xFF80 && address <= 0xFFFE 
     {
@@ -326,5 +330,20 @@ fn check_write(old_value: &u8, new_value: &u8) -> bool {
     }
     else {
         true
+    }
+}
+
+fn do_dma_transfer(value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+
+    let start_addr: u16 = (value as u16) << 8;
+    let end_addr: u16 = start_addr + 0x009F;
+
+    let mut current_addr = (start_addr, 0xFE00);
+
+    while current_addr.0 < end_addr {
+        let value = cpu_read(current_addr.0, memory);
+        cpu_write(current_addr.1, value, memory);
+        current_addr.0 += 1;
+        current_addr.1 += 1;
     }
 }
