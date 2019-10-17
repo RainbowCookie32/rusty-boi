@@ -173,7 +173,8 @@ fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<
         state.tiles_dirty = false;
         state.bg_dirty = true;
     }
-    if state.bg_dirty {
+    if state.bg_dirty && state.all_tiles.len() != 0 {
+        make_tiles(state, memory);
         make_background(state, memory);
         state.bg_dirty = false;
     }
