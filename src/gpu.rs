@@ -277,67 +277,32 @@ fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mu
 
     let mut generated_lines: u16 = 0;
     let mut new_points: Vec<BGPoint> = Vec::new();
-    let signed_mode = utils::check_bit(memory::gpu_read(0xFF40, memory), 3);
-
+    let mut current_background = if utils::check_bit(memory::gpu_read(0xFF40, memory), 3) {0x9C00} else {0x9800};
     
     info!("GPU: Regenerating background cache");
-
-    if signed_mode {
-
-        let mut current_background = 0x9C00;
     
-        while generated_lines < 256 {
+    while generated_lines < 256 {
 
-            let mut tiles: Vec<&Tile> = Vec::new();
-            let mut tile_idx: usize = 0;
+        let mut tiles: Vec<&Tile> = Vec::new();
+        let mut tile_idx: usize = 0;
 
-            // Loads tile indexes from memory, then gets the tile from GPU State and saves it to tiles.
-            // 32 tiles is the maximum amount of tiles per line in the background.
-            while tiles.len() < 32 {
+        // Loads tile indexes from memory, then gets the tile from GPU State and saves it to tiles.
+        // 32 tiles is the maximum amount of tiles per line in the background.
+        while tiles.len() < 32 {
 
-                let target_tile = memory::gpu_read(current_background, memory) as i8;
-                tiles.insert(tile_idx, &state.all_tiles[target_tile as usize]);
-                tile_idx += 1;
-                current_background += 1;
-            }
-
-            let mut tile_line = 0;
-
-            while tile_line < 8 {
-
-                new_points.append(&mut make_background_line(&tiles, tile_line, generated_lines as u8));
-                tile_line += 1;
-                generated_lines += 1;
-            }
+            let target_tile = memory::gpu_read(current_background, memory) as i8;
+            tiles.insert(tile_idx, &state.all_tiles[target_tile as usize]);
+            tile_idx += 1;
+            current_background += 1;
         }
-    }
-    else {
 
-        let mut current_background = 0x9800;
-    
-        while generated_lines < 256 {
+        let mut tile_line = 0;
 
-            let mut tiles: Vec<&Tile> = Vec::new();
-            let mut tile_idx: usize = 0;
+        while tile_line < 8 {
 
-            // Loads tile indexes from memory, then gets the tile from GPU State and saves it to tiles.
-            // 32 tiles is the maximum amount of tiles per line in the background.
-            while tiles.len() < 32 {
-
-                let target_tile = memory::gpu_read(current_background, memory);
-                tiles.insert(tile_idx, &state.all_tiles[target_tile as usize]);
-                tile_idx += 1;
-                current_background += 1;
-            }
-
-            let mut tile_line = 0;
-
-            while tile_line < 8 {
-
-                new_points.append(&mut make_background_line(&tiles, tile_line, generated_lines as u8));
-                tile_line += 1;
-                generated_lines += 1;
-            }
+            new_points.append(&mut make_background_line(&tiles, tile_line, generated_lines as u8));
+            tile_line += 1;
+            generated_lines += 1;
         }
     }
 
