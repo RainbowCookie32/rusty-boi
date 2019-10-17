@@ -95,6 +95,7 @@ pub fn cpu_loop(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<RomMemory>>, Arc<Mut
 
     loop {
         
+        if update_inputs(&input, &memory) {break}
         handle_interrupts(&mut current_state, &memory);
         let mut opcode = memory::cpu_read(current_state.pc.get(), &memory);
 
@@ -137,7 +138,6 @@ pub fn cpu_loop(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<RomMemory>>, Arc<Mut
         let mut cyc_mut = cycles.lock().unwrap();
         *cyc_mut = cyc_mut.overflowing_add(current_state.cycles.get()).0;
         timer::timer_cycle(&mut timer_state, current_state.cycles.get(), &memory.1);
-        if update_inputs(&input, &memory) {break}
     }
 }
 
@@ -148,7 +148,9 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Arc<Mutex<RomMemory>
 
     let mut should_break = false;
     let mut received_message = InputEvent::APressed;
-    let mut input_value = memory::cpu_read(0xFF00, &memory);
+    // Read the value of the input register, and default all input bits to 1.
+    // The lower 4 bits are set when there's no input, and reset when there's a button press.
+    let mut input_value = memory::cpu_read(0xFF00, &memory) | 0xF;
 
     match input_event {
         Ok(message) => {
@@ -171,29 +173,30 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Arc<Mutex<RomMemory>
         else if input_value & 0x20 == 0x20 {
 
             match received_message {
-                InputEvent::RightPressed => { input_value = utils::reset_bit(input_value, 0); should_interrupt = true; },
-                InputEvent::RightReleased => { input_value = utils::set_bit(input_value, 0); },
-                InputEvent::LeftPressed => { input_value = utils::reset_bit(input_value, 1); should_interrupt = true; },
-                InputEvent::LeftReleased => { input_value = utils::set_bit(input_value, 1); },
-                InputEvent::UpPressed => { input_value = utils::reset_bit(input_value, 2); should_interrupt = true; },
-                InputEvent::UpReleased => { input_value = utils::set_bit(input_value, 2); },
-                InputEvent::DownPressed => { input_value = utils::reset_bit(input_value, 3); should_interrupt = true; },
-                InputEvent::DownReleased => { input_value = utils::set_bit(input_value, 3); },
+                InputEvent::RightPressed => { input_value = 0x2E; should_interrupt = true; },
+                InputEvent::RightReleased => { },
+                InputEvent::LeftPressed => { input_value = 0x2D; should_interrupt = true; },
+                InputEvent::LeftReleased => { },
+                InputEvent::UpPressed => { input_value = 0x2B; should_interrupt = true; },
+                InputEvent::UpReleased => { },
+                InputEvent::DownPressed => { input_value = 0x27; should_interrupt = true; },
+                InputEvent::DownReleased => { },
                 _ => {}
             }
 
         }
         else if input_value & 0x10 == 0x10 {
 
+            input_value = 0x1F;
             match received_message {
-                InputEvent::APressed => { input_value = utils::reset_bit(input_value, 0); should_interrupt = true; },
-                InputEvent::AReleased => { input_value = utils::set_bit(input_value, 0) },
-                InputEvent::BPressed => { input_value = utils::reset_bit(input_value, 1); should_interrupt = true; },
-                InputEvent::BReleased => { input_value = utils::set_bit(input_value, 1) },
-                InputEvent::SelectPressed => { input_value = utils::reset_bit(input_value, 2); should_interrupt = true; },
-                InputEvent::SelectReleased => { input_value = utils::set_bit(input_value, 2) },
-                InputEvent::StartPressed => { input_value = utils::reset_bit(input_value, 3); should_interrupt = true; },
-                InputEvent::StartReleased => { input_value = utils::set_bit(input_value, 3) },
+                InputEvent::APressed => { input_value = 0x1E; should_interrupt = true; },
+                InputEvent::AReleased => { },
+                InputEvent::BPressed => { input_value = 0x1D; should_interrupt = true; },
+                InputEvent::BReleased => { },
+                InputEvent::SelectPressed => { input_value = 0x1B; should_interrupt = true; },
+                InputEvent::SelectReleased => { },
+                InputEvent::StartPressed => { input_value = 0x17; should_interrupt = true; },
+                InputEvent::StartReleased => { },
                 _ => {}
             }
         }
@@ -205,7 +208,7 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Arc<Mutex<RomMemory>
         }
     }
     else {
-        memory::cpu_write(0xFF00, input_value | 0xF, memory);
+        memory::cpu_write(0xFF00, input_value, memory);
     }
 
     should_break
