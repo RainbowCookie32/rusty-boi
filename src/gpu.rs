@@ -291,7 +291,7 @@ fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mu
         // 32 tiles is the maximum amount of tiles per line in the background.
         while tiles.len() < 32 {
 
-            let target_tile = memory::gpu_read(current_background, memory) as i8;
+            let target_tile = memory::gpu_read(current_background, memory);
             tiles.insert(tile_idx, &state.all_tiles[target_tile as usize]);
             tile_idx += 1;
             current_background += 1;
