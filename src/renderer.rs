@@ -24,7 +24,8 @@ use super::emulator::InputEvent;
 
 struct State {
     pub emu_running: bool,
-    pub booted_rom: PathBuf,
+    pub rom_selected: bool,
+    pub selected_rom: PathBuf,
     pub game_scale: f32,
     pub header_data: HeaderData,
 }
@@ -47,7 +48,8 @@ pub fn init_renderer() {
 
     let mut emu_state = State {
         emu_running: false,
-        booted_rom: PathBuf::new(),
+        rom_selected: false,
+        selected_rom: PathBuf::new(),
         game_scale: 1.0,
         header_data: HeaderData {
             title: String::from(""),
@@ -89,7 +91,7 @@ pub fn init_renderer() {
             let mut game_canvas = game_window.into_canvas().build().unwrap();
 
             let (input_tx, input_rx) = mpsc::channel();
-            let emulator_locks = emulator::initialize(&emu_state.booted_rom);
+            let emulator_locks = emulator::initialize(&emu_state.selected_rom);
             let mut update_ui = false;
 
             game_canvas.set_scale(emu_state.game_scale, emu_state.game_scale).unwrap();
@@ -183,17 +185,14 @@ fn ui_loop(sys: &mut ImguiSys, window: &video::Window, mouse_state: &sdl2::mouse
     .build(&imgui_ui, || {
         if let Some(menu) = imgui_ui.begin_menu(im_str!("Detected ROMs"), true) {
             if all_roms.len() > 0 && !emu.emu_running {
-
                 for file in all_roms.iter() {
                     let filename = ImString::new(file.file_name().into_string().unwrap());
 
                     if MenuItem::new(&filename).build_with_ref(&imgui_ui, &mut false) { 
 
                         emu.header_data = parse_header(&file.path());
-                        if PathBuf::from("Bootrom.gb").exists() {
-                            emu.emu_running = true;
-                            emu.booted_rom = file.path();
-                        }
+                        emu.rom_selected = true;
+                        emu.selected_rom = file.path();
                     }
                 }
             }
@@ -215,6 +214,12 @@ fn ui_loop(sys: &mut ImguiSys, window: &video::Window, mouse_state: &sdl2::mouse
         imgui_ui.separator();
         if PathBuf::from("Bootrom.gb").exists() {
             imgui_ui.text_colored([0.0, 1.0, 0.0, 1.0], im_str!("Bootrom located, everything's ready"));
+            if emu.rom_selected {
+                if imgui_ui.button(im_str!("Boot ROM"), [90.0, 20.0]) {
+                    emu.rom_selected = false;
+                    emu.emu_running = true;
+                }
+            }
         }
         else {
             imgui_ui.text_colored([1.0, 0.0, 0.0, 1.0], im_str!("Can't locate Bootrom!"));
