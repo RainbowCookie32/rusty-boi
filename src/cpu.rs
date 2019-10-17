@@ -185,7 +185,6 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Arc<Mutex<RomMemory>
         }
         else if input_value & 0x10 == 0x10 {
 
-            info!("Input: Pressed button at P14 row");
             match received_message {
                 InputEvent::APressed => { input_value = utils::reset_bit(input_value, 0); should_interrupt = true; },
                 InputEvent::AReleased => { input_value = utils::set_bit(input_value, 0) },

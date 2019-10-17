@@ -112,6 +112,7 @@ pub fn init_renderer() {
                                 WindowEvent::Close => {
                                     emu_state.emu_running = false;
                                     if window_id == game_canvas.window().id() { 
+                                        input_tx.send(InputEvent::Quit).unwrap();
                                         break 'game_loop 
                                     } 
                                     else {
@@ -152,7 +153,10 @@ pub fn init_renderer() {
 
                 gpu::gpu_loop(&emulator_locks.cycles_arc, &mut gpu_state, &mut game_canvas, &emulator_locks.gpu);
                 if update_ui { ui_loop(&mut imgui_sys, &main_window, &sdl_events.mouse_state(), &all_roms, &mut emu_state) }
-                if !emu_state.emu_running { break 'game_loop }
+                if !emu_state.emu_running { 
+                    input_tx.send(InputEvent::Quit).unwrap();
+                    break 'game_loop;
+                }
             }
         }
         else {
