@@ -1,13 +1,9 @@
-extern crate sdl2;
-extern crate log;
-extern crate simple_logger;
-
 mod cpu;
 mod gpu;
 mod timer;
 mod memory;
 mod register;
-
+mod renderer;
 mod utils;
 mod emulator;
 
@@ -16,9 +12,12 @@ mod opcodes_prefixed;
 
 use log::info;
 
+
 fn main() {
 
+    // Initialize the logger
     simple_logger::init_with_level(log::Level::Info).unwrap();
     info!("Rusty Boi");
-    emulator::init_emu();
+
+    renderer::init_renderer();
 }
