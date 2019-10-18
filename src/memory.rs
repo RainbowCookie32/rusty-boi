@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use log::{info, warn};
+use log::{trace, info, warn};
 
 use super::emulator::Cart;
 
@@ -155,20 +155,20 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
 
     if address <= 0x7FFF
     {
-        info!("Memory: Switching ROM Bank to {}", value);
+        trace!("Memory: Switching ROM Bank to {}", value);
         let mut mem = memory.0.lock().unwrap();
         mem.selected_bank = value;
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
         let mut mem = memory.2.lock().unwrap();
-        mem.tiles_dirty = check_write(&mem.char_ram[(address - 0x8000) as usize], &value);
+        mem.tiles_dirty = check_write(mem.char_ram[(address - 0x8000) as usize], value);
         mem.char_ram[(address - 0x8000) as usize] = value;
     }
     else if address >= 0x9800 && address <= 0x9FFF
     {
         let mut mem = memory.2.lock().unwrap();
-        mem.background_dirty = check_write(&mem.bg_map[(address - 0x9800) as usize], &value);
+        mem.background_dirty = check_write(mem.bg_map[(address - 0x9800) as usize], value);
         mem.bg_map[(address - 0x9800) as usize] = value;
     }
     else if address >= 0xA000 && address <= 0xBFFF 
@@ -323,14 +323,9 @@ pub fn gpu_write(address: u16, value: u8, memory: &(Arc<Mutex<CpuMemory>>, Arc<M
     }
 }
 
-fn check_write(old_value: &u8, new_value: &u8) -> bool {
+fn check_write(old_value: u8, new_value: u8) -> bool {
 
-    if old_value == new_value {
-        false
-    }
-    else {
-        true
-    }
+    old_value != new_value
 }
 
 fn do_dma_transfer(value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
