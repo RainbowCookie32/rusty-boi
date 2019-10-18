@@ -29,7 +29,8 @@ pub struct GpuState {
     pub gpu_mode: u8,
     pub gpu_cycles: u16,
     pub line: u8,
-    pub all_tiles: Vec<Tile>,
+    pub tiles_0: Vec<Tile>,
+    pub tiles_1: Vec<Tile>,
     pub background_points: Vec<BGPoint>,
 
     pub bg_dirty: bool,
@@ -42,7 +43,8 @@ pub fn init_gpu() -> GpuState {
         gpu_mode: 0,
         gpu_cycles: 0,
         line: 0,
-        all_tiles: Vec::new(),
+        tiles_0: Vec::new(),
+        tiles_1: Vec::new(),
         background_points: Vec::new(),
         bg_dirty: false,
         tiles_dirty: false,
@@ -94,7 +96,7 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
     stat_value = utils::reset_bit(stat_value, 0);
     memory::gpu_write(0xFF41, stat_value, memory);
 
-    if state.all_tiles.len() >= 128 && state.background_points.len() >= 65536 {
+    if state.background_points.len() >= 65536 {
         draw(state, canvas, memory);
     }
 
@@ -133,7 +135,7 @@ fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
     if state.line == 154 {
 
         state.gpu_mode = 2;
-        state.line = 1;
+        state.line = 0;
 
         memory::gpu_write(0xFF44, 1, memory);
         canvas.clear();
@@ -173,7 +175,7 @@ fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<
         state.tiles_dirty = false;
         state.bg_dirty = true;
     }
-    if state.bg_dirty && state.all_tiles.len() != 0 {
+    if state.bg_dirty && state.tiles_0.len() != 0 {
         make_tiles(state, memory);
         make_background(state, memory);
         state.bg_dirty = false;
@@ -210,8 +212,8 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<C
 
 fn make_tiles(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
-    let start_position = 0x8000;
-    let end_position = 0x97FF;
+    let mut start_position = 0x8000;
+    let mut end_position = 0x8FFF;
     let mut memory_position = start_position;
     let mut tiles_position = 0;
     let mut new_tiles:Vec<Tile> = Vec::new();
@@ -234,7 +236,31 @@ fn make_tiles(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<G
         tiles_position += 1;
     }
 
-    state.all_tiles = new_tiles;
+    state.tiles_0 = new_tiles;
+
+    start_position = 0x8800;
+    end_position = 0x97FF;
+    memory_position = start_position;
+    tiles_position = 0;
+    new_tiles = Vec::new();
+
+    while memory_position < end_position {
+
+        let mut loaded_bytes = 0;
+        let mut tile_bytes: Vec<u8> = vec![0; 16];
+
+        while loaded_bytes < tile_bytes.len() {
+
+            tile_bytes[loaded_bytes] = memory::gpu_read(memory_position, memory);
+            memory_position += 1;
+            loaded_bytes += 1;
+        }
+
+        new_tiles.insert(tiles_position, make_tile(&tile_bytes));
+        tiles_position += 1;
+    }
+
+    state.tiles_1 = new_tiles;
 }
 
 fn make_tile(bytes: &Vec<u8>) -> Tile {
@@ -278,6 +304,9 @@ fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mu
     let mut generated_lines: u16 = 0;
     let mut new_points: Vec<BGPoint> = Vec::new();
     let mut current_background = if utils::check_bit(memory::gpu_read(0xFF40, memory), 3) {0x9C00} else {0x9800};
+
+    let lcdc_value =  utils::check_bit(memory::gpu_read(0xFF40, memory), 4);
+    let tile_bank = if lcdc_value {&state.tiles_0} else {&state.tiles_1};
     
     info!("GPU: Regenerating background cache");
     
@@ -290,10 +319,20 @@ fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mu
         // 32 tiles is the maximum amount of tiles per line in the background.
         while tiles.len() < 32 {
 
-            let target_tile = memory::gpu_read(current_background, memory);
-            tiles.insert(tile_idx, &state.all_tiles[target_tile as usize]);
-            tile_idx += 1;
-            current_background += 1;
+            let bg_value = memory::gpu_read(current_background, memory);
+            if lcdc_value {
+                let target_tile = bg_value;
+                tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
+                tile_idx += 1;
+                current_background += 1;
+            }
+            else {
+                let target_tile = (bg_value as i8 as i16 + 128) as u16;
+                tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
+                tile_idx += 1;
+                current_background += 1;
+            }
+            
         }
 
         let mut tile_line = 0;
