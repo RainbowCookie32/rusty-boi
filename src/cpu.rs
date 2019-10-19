@@ -164,48 +164,48 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Arc<Mutex<RomMemory>
 
     if received_input {
 
-        // Not fully sure if it should also trigger an interrupt on release.
-        let mut should_interrupt = false;
-
         if received_message == InputEvent::Quit {
             should_break = true;
         }
-        else if input_value & 0x20 == 0x20 {
+        else if input_value == 0x3F {
 
             match received_message {
-                InputEvent::RightPressed => { input_value = 0x2E; should_interrupt = true; },
-                InputEvent::RightReleased => { },
-                InputEvent::LeftPressed => { input_value = 0x2D; should_interrupt = true; },
-                InputEvent::LeftReleased => { },
-                InputEvent::UpPressed => { input_value = 0x2B; should_interrupt = true; },
-                InputEvent::UpReleased => { },
-                InputEvent::DownPressed => { input_value = 0x27; should_interrupt = true; },
-                InputEvent::DownReleased => { },
+                InputEvent::RightPressed => { input_value = 0x3E },
+                InputEvent::LeftPressed => { input_value = 0x3D },
+                InputEvent::UpPressed => { input_value = 0x3B },
+                InputEvent::DownPressed => { input_value = 0x37 },
+                InputEvent::APressed => { input_value = 0x3E },
+                InputEvent::BPressed => { input_value = 0x3D },
+                InputEvent::SelectPressed => { input_value = 0x3B },
+                InputEvent::StartPressed => { input_value = 0x37 },
+                _ => {}
+            }
+        }
+        else if input_value == 0x2F {
+
+            match received_message {
+                InputEvent::RightPressed => { input_value = 0x2E },
+                InputEvent::LeftPressed => { input_value = 0x2D },
+                InputEvent::UpPressed => { input_value = 0x2B },
+                InputEvent::DownPressed => { input_value = 0x27 },
                 _ => {}
             }
 
         }
-        else if input_value & 0x10 == 0x10 {
+        else if input_value == 0x1F {
 
-            input_value = 0x1F;
             match received_message {
-                InputEvent::APressed => { input_value = 0x1E; should_interrupt = true; },
-                InputEvent::AReleased => { },
-                InputEvent::BPressed => { input_value = 0x1D; should_interrupt = true; },
-                InputEvent::BReleased => { },
-                InputEvent::SelectPressed => { input_value = 0x1B; should_interrupt = true; },
-                InputEvent::SelectReleased => { },
-                InputEvent::StartPressed => { input_value = 0x17; should_interrupt = true; },
-                InputEvent::StartReleased => { },
+                InputEvent::APressed => { input_value = 0x1E },
+                InputEvent::BPressed => { input_value = 0x1D },
+                InputEvent::SelectPressed => { input_value = 0x1B },
+                InputEvent::StartPressed => { input_value = 0x17 },
                 _ => {}
             }
         }
 
         memory::cpu_write(0xFF00, input_value, memory);
-        if should_interrupt {
-            let current_if = memory::cpu_read(0xFF0F, memory);
-            memory::cpu_write(0xFF0F, utils::set_bit(current_if, 4), memory);
-        }
+        let current_if = memory::cpu_read(0xFF0F, memory);
+        memory::cpu_write(0xFF0F, utils::set_bit(current_if, 4), memory);
     }
     else {
         memory::cpu_write(0xFF00, input_value, memory);

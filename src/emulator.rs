@@ -40,18 +40,6 @@ pub enum InputEvent {
     RightPressed,
     StartPressed,
     SelectPressed,
-
-    // Buttons being released.
-    // TODO: Double check, how much does the GameBoy care? Does it trigger
-    // another interrupt, or it's just a value change in the I/O register?
-    AReleased,
-    BReleased,
-    UpReleased,
-    DownReleased,
-    LeftReleased,
-    RightReleased,
-    StartReleased,
-    SelectReleased,
 }
 
 pub struct EmuInit {

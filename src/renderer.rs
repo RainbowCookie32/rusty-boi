@@ -132,21 +132,13 @@ pub fn init_renderer() {
                             }
                         }
                         Event::KeyDown { keycode: Some(Keycode::A), .. } => { input_tx.send(InputEvent::APressed).unwrap() },
-                        Event::KeyUp  { keycode: Some(Keycode::A), .. } => { input_tx.send(InputEvent::AReleased).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::S), .. } => { input_tx.send(InputEvent::BPressed).unwrap() },
-                        Event::KeyUp  { keycode: Some(Keycode::S), .. } => { input_tx.send(InputEvent::BReleased).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::Up), .. } => { input_tx.send(InputEvent::UpPressed).unwrap() },
-                        Event::KeyUp  { keycode: Some(Keycode::Up), .. } => { input_tx.send(InputEvent::UpReleased).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::Left), .. } => { input_tx.send(InputEvent::LeftPressed).unwrap() },
-                        Event::KeyUp  { keycode: Some(Keycode::Left), .. } => { input_tx.send(InputEvent::LeftReleased).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::Right), .. } => { input_tx.send(InputEvent::RightPressed).unwrap() },
-                        Event::KeyUp  { keycode: Some(Keycode::Right), .. } => { input_tx.send(InputEvent::RightReleased).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::Down), .. } => { input_tx.send(InputEvent::DownPressed).unwrap() },
-                        Event::KeyUp  { keycode: Some(Keycode::Down), .. } => { input_tx.send(InputEvent::DownReleased).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::Return), .. } => { input_tx.send(InputEvent::StartPressed).unwrap() },
-                        Event::KeyUp  { keycode: Some(Keycode::Return), .. } => { input_tx.send(InputEvent::StartReleased).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::Backspace), .. } => { input_tx.send(InputEvent::SelectPressed).unwrap() },
-                        Event::KeyUp  { keycode: Some(Keycode::Backspace), .. } => { input_tx.send(InputEvent::SelectReleased).unwrap() },
                         Event::Quit {..} => { emu_state.emu_running = false }
                         _ => {}
                     }
