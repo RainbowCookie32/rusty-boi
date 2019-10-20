@@ -64,7 +64,7 @@ pub fn init_renderer() {
     let sdl_context = sdl2::init().unwrap();
     let sdl_video = sdl_context.video().unwrap();
     let mut sdl_events = sdl_context.event_pump().unwrap();
-    let main_window = sdl_video.window("Rusty Boi - Main Window", 600, 400).position_centered().opengl().resizable().build().unwrap();
+    let main_window = sdl_video.window("Rusty Boi - Main Window", 650, 450).position_centered().opengl().resizable().build().unwrap();
     let _gl_context = main_window.gl_create_context().expect("Failed to create OpenGL context");
     gl::load_with(|s| sdl_video.gl_get_proc_address(s) as _);
     sdl_video.gl_set_swap_interval(0).unwrap();
