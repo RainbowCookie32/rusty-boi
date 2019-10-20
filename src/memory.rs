@@ -1,15 +1,14 @@
 use std::sync::{Arc, Mutex};
 
-use log::{trace, info, warn};
+use log::{info, warn};
 
-use super::emulator::Cart;
+use super::cart::CartData;
 
 
 pub struct RomMemory {
 
     pub loaded_bootrom: Vec<u8>,
-    pub loaded_cart: Cart,
-    pub selected_bank: u8,
+    pub loaded_cart: CartData,
     pub bootrom_finished: bool,
 }
 
@@ -34,13 +33,12 @@ pub struct GpuMemory {
     pub background_dirty: bool,
 }
 
-pub fn init_memory(data: (Vec<u8>, Cart)) -> (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>) {
+pub fn init_memory(data: (Vec<u8>, CartData)) -> (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>) {
 
     let rom_memory = RomMemory {
 
         loaded_bootrom: data.0,
         loaded_cart: data.1,
-        selected_bank: 1,
         bootrom_finished: false,
     };
     
@@ -73,21 +71,16 @@ pub fn cpu_read(address: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemo
     {
         let mem = memory.0.lock().unwrap();
         if mem.bootrom_finished {
-            mem.loaded_cart.rom_banks[0][address as usize]
+            mem.loaded_cart.read(address)
         }
         else {
             mem.loaded_bootrom[address as usize]
         }
     }
-    else if address >= 0x0100 && address <= 0x3FFF
+    else if address <= 0x7FFF
     {
         let mem = memory.0.lock().unwrap();
-        mem.loaded_cart.rom_banks[0][address as usize]
-    }
-    else if address >= 0x4000 && address <= 0x7FFF
-    {
-        let mem = memory.0.lock().unwrap();
-        mem.loaded_cart.rom_banks[mem.selected_bank as usize][(address - 0x4000) as usize]
+        mem.loaded_cart.read(address)
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
@@ -102,13 +95,7 @@ pub fn cpu_read(address: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemo
     else if address >= 0xA000 && address <= 0xBFFF 
     {
         let mem = memory.0.lock().unwrap();
-        if mem.loaded_cart.has_ram {
-            mem.loaded_cart.cart_ram[(address - 0xA000) as usize]
-        }
-        else {
-            info!("Memory: Cart has no external RAM, returning 0.");
-            0
-        }
+        mem.loaded_cart.read(address)
     }
     else if address >= 0xC000 && address <= 0xDFFF
     {
@@ -155,9 +142,8 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
 
     if address <= 0x7FFF
     {
-        trace!("Memory: Switching ROM Bank to {}", value);
         let mut mem = memory.0.lock().unwrap();
-        mem.selected_bank = value;
+        mem.loaded_cart.write(address, value);
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
@@ -174,12 +160,7 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
     else if address >= 0xA000 && address <= 0xBFFF 
     {
         let mut mem = memory.0.lock().unwrap();
-        if mem.loaded_cart.has_ram {
-            mem.loaded_cart.cart_ram[(address - 0xA000) as usize] = value;
-        }
-        else {
-            info!("Memory: Cart has no external RAM, ignoring write.");
-        }
+        mem.loaded_cart.write(address, value);
     }
     else if address >= 0xC000 && address <= 0xDFFF
     {
@@ -211,7 +192,7 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
         else {
             let mut mem = memory.1.lock().unwrap();
 
-            // Basically here to print the output of blargg's tests.
+            // Basically here to print the output of tests.
             // Holds the values stored in FF01 until a line break, then prints them.
             if address == 0xFF01 {
                 if value == 0xA {

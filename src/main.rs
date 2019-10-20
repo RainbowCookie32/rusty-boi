@@ -1,5 +1,6 @@
 mod cpu;
 mod gpu;
+mod cart;
 mod timer;
 mod memory;
 mod register;
