@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+use log::warn;
+
 use super::utils;
 
 use super::cpu;
@@ -299,6 +301,10 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0xFD => result = CycleResult::InvalidOp,
         0xFE => instruction_finished(cp_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
         0xFF => rst(0x0038, memory, state),
+    }
+
+    if result == CycleResult::InvalidOp {
+        warn!("CPU: Tried to run invalid opcode {}", format!("{:?}", opcode));
     }
 
     result
