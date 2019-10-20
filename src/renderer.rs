@@ -138,7 +138,7 @@ pub fn init_renderer() {
                         Event::KeyDown { keycode: Some(Keycode::Right), .. } => { input_tx.send(InputEvent::RightPressed).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::Down), .. } => { input_tx.send(InputEvent::DownPressed).unwrap() },
                         Event::KeyDown { keycode: Some(Keycode::Return), .. } => { input_tx.send(InputEvent::StartPressed).unwrap() },
-                        Event::KeyDown { keycode: Some(Keycode::Backspace), .. } => { input_tx.send(InputEvent::SelectPressed).unwrap() },
+                        Event::KeyDown { keycode: Some(Keycode::RShift), .. } => { input_tx.send(InputEvent::SelectPressed).unwrap() },
                         Event::Quit {..} => { emu_state.emu_running = false }
                         _ => {}
                     }
