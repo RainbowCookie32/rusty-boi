@@ -95,7 +95,10 @@ pub fn cpu_loop(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<RomMemory>>, Arc<Mut
 
     loop {
         
-        if update_inputs(&input, &memory) {break}
+        let input_value = memory::cpu_read(0xFF00, &memory);
+        if input_value == 0x30 || input_value == 0x20 || input_value == 0x10 {
+            if update_inputs(&input, &memory) {break}
+        }
         handle_interrupts(&mut current_state, &memory);
         let mut opcode = memory::cpu_read(current_state.pc.get(), &memory);
 
@@ -150,7 +153,7 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Arc<Mutex<RomMemory>
     let mut received_message = InputEvent::APressed;
     // Read the value of the input register, and default all input bits to 1.
     // The lower 4 bits are set when there's no input, and reset when there's a button press.
-    let mut input_value = memory::cpu_read(0xFF00, &memory) | 0xF;
+    let mut input_value = memory::cpu_read(0xFF00, &memory) | 0xCF;
 
     match input_event {
         Ok(message) => {
@@ -167,38 +170,38 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, memory: &(Arc<Mutex<RomMemory>
         if received_message == InputEvent::Quit {
             should_break = true;
         }
-        else if input_value == 0x3F {
+        else if input_value == 0xFF {
 
             match received_message {
-                InputEvent::RightPressed => { input_value = 0x3E },
-                InputEvent::LeftPressed => { input_value = 0x3D },
-                InputEvent::UpPressed => { input_value = 0x3B },
-                InputEvent::DownPressed => { input_value = 0x37 },
-                InputEvent::APressed => { input_value = 0x3E },
-                InputEvent::BPressed => { input_value = 0x3D },
-                InputEvent::SelectPressed => { input_value = 0x3B },
-                InputEvent::StartPressed => { input_value = 0x37 },
+                InputEvent::RightPressed => { input_value = 0xFE },
+                InputEvent::LeftPressed => { input_value = 0xFD },
+                InputEvent::UpPressed => { input_value = 0xFB },
+                InputEvent::DownPressed => { input_value = 0xF7 },
+                InputEvent::APressed => { input_value = 0xFE },
+                InputEvent::BPressed => { input_value = 0xFD },
+                InputEvent::SelectPressed => { input_value = 0xFB },
+                InputEvent::StartPressed => { input_value = 0xF7 },
                 _ => {}
             }
         }
-        else if input_value == 0x2F {
+        else if input_value == 0xEF {
 
             match received_message {
-                InputEvent::RightPressed => { input_value = 0x2E },
-                InputEvent::LeftPressed => { input_value = 0x2D },
-                InputEvent::UpPressed => { input_value = 0x2B },
-                InputEvent::DownPressed => { input_value = 0x27 },
+                InputEvent::RightPressed => { input_value = 0xEE },
+                InputEvent::LeftPressed => { input_value = 0xED },
+                InputEvent::UpPressed => { input_value = 0xEB },
+                InputEvent::DownPressed => { input_value = 0xE7 },
                 _ => {}
             }
 
         }
-        else if input_value == 0x1F {
+        else if input_value == 0xDF {
 
             match received_message {
-                InputEvent::APressed => { input_value = 0x1E },
-                InputEvent::BPressed => { input_value = 0x1D },
-                InputEvent::SelectPressed => { input_value = 0x1B },
-                InputEvent::StartPressed => { input_value = 0x17 },
+                InputEvent::APressed => { input_value = 0xDE },
+                InputEvent::BPressed => { input_value = 0xDD },
+                InputEvent::SelectPressed => { input_value = 0xDB },
+                InputEvent::StartPressed => { input_value = 0xD7 },
                 _ => {}
             }
         }
