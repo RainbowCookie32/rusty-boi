@@ -33,6 +33,39 @@ pub struct CpuState {
     pub nops: u8,
 }
 
+impl CpuState {
+
+    pub fn new() -> CpuState {
+    
+        CpuState {
+            af: CpuReg{value: 0x0000},
+            bc: CpuReg{value: 0x0000},
+            de: CpuReg{value: 0x0000},
+            hl: CpuReg{value: 0x0000},
+            sp: CpuReg{value: 0x0000},
+
+            pc: Pc{value: 0x0}, // 0x0100 is the start PC for ROMs, 0x00 is for the bootrom
+            cycles: Cycles{value: 0},
+
+            halted: false,
+            stopped: false,
+            halt_bug: false,
+            last_result: CycleResult::Success,
+
+            interrupts: InterruptState {
+                can_interrupt: false, 
+                vblank_enabled: false,
+                lcdc_enabled: false,
+                timer_enabled: false,
+                serial_enabled: false,
+                input_enabled: false,
+            },
+
+            nops: 0,
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct InterruptState {
 
@@ -54,43 +87,9 @@ pub enum CycleResult {
     Success,
 }
 
-pub fn init_cpu() -> CpuState {
-
-    let initial_state = CpuState {
-        af: CpuReg{value: 0x0000},
-        bc: CpuReg{value: 0x0000},
-        de: CpuReg{value: 0x0000},
-        hl: CpuReg{value: 0x0000},
-        sp: CpuReg{value: 0x0000},
-
-        pc: Pc{value: 0x0}, // 0x0100 is the start PC for ROMs, 0x00 is for the bootrom
-        cycles: Cycles{value: 0},
-
-        halted: false,
-        stopped: false,
-        halt_bug: false,
-        last_result: CycleResult::Success,
-
-        interrupts: InterruptState {
-            can_interrupt: false, 
-            vblank_enabled: false,
-            lcdc_enabled: false,
-            timer_enabled: false,
-            serial_enabled: false,
-            input_enabled: false,
-        },
-
-        nops: 0,
-    };
-
-    info!("CPU: CPU initialized");
-
-    initial_state
-}
-
 pub fn cpu_loop(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>), input: Receiver<InputEvent>) {
 
-    let mut current_state = init_cpu();
+    let mut current_state = CpuState::new();
     let mut timer_state = timer::init_timer();
 
     loop {
