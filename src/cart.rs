@@ -102,11 +102,25 @@ impl CartData {
             self.rom_banks[0][address as usize]
         }
         else if address >= 0x4000 && address <= 0x7FFF {
-            self.rom_banks[self.selected_rom_bank as usize][(address - 0x4000) as usize]
+            let result = self.rom_banks.get(self.selected_rom_bank as usize);
+            match result {
+                Some(value) => value[(address - 0x4000) as usize],
+                None => {
+                    warn!("Memory: ROM Bank selection was out of bounds, returning 0");
+                    0
+                }
+            }
         }
         else if address >= 0xA000 && address <= 0xBFFF {
             if self.ram_enabled {
-                self.ram_banks[self.selected_ram_bank as usize][(address - 0xA000) as usize]
+                let result = self.ram_banks.get(self.selected_ram_bank as usize);
+                match result {
+                    Some(value) => value[(address - 0xA000) as usize],
+                    None => {
+                        warn!("Memory: RAM Bank selection was out of bounds, returning 0");
+                        0
+                    }
+                }
             }
             else {
                 0
@@ -117,6 +131,7 @@ impl CartData {
         }
     }
 
+    // TODO: Use get() for RAM banks writes
     pub fn write(&mut self, address: u16, value: u8) {
         
         match self.mbc {
