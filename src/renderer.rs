@@ -113,7 +113,11 @@ pub fn init_renderer() {
                                 WindowEvent::Close => {
                                     emu_state.emu_running = false;
                                     if window_id == game_canvas.window().id() { 
-                                        input_tx.send(InputEvent::Quit).unwrap();
+                                        let result = input_tx.send(InputEvent::Quit);
+                                        match result {
+                                            Ok(_) => {},
+                                            Err(error) => {error!("Renderer: Failed to send input event to CPU thread. Error: {}", error)},
+                                        };
                                         break 'game_loop 
                                     } 
                                     else {
@@ -131,14 +135,86 @@ pub fn init_renderer() {
                                 _ => {},
                             }
                         }
-                        Event::KeyDown { keycode: Some(Keycode::A), .. } => { input_tx.send(InputEvent::APressed).unwrap() },
-                        Event::KeyDown { keycode: Some(Keycode::S), .. } => { input_tx.send(InputEvent::BPressed).unwrap() },
-                        Event::KeyDown { keycode: Some(Keycode::Up), .. } => { input_tx.send(InputEvent::UpPressed).unwrap() },
-                        Event::KeyDown { keycode: Some(Keycode::Left), .. } => { input_tx.send(InputEvent::LeftPressed).unwrap() },
-                        Event::KeyDown { keycode: Some(Keycode::Right), .. } => { input_tx.send(InputEvent::RightPressed).unwrap() },
-                        Event::KeyDown { keycode: Some(Keycode::Down), .. } => { input_tx.send(InputEvent::DownPressed).unwrap() },
-                        Event::KeyDown { keycode: Some(Keycode::Return), .. } => { input_tx.send(InputEvent::StartPressed).unwrap() },
-                        Event::KeyDown { keycode: Some(Keycode::RShift), .. } => { input_tx.send(InputEvent::SelectPressed).unwrap() },
+                        Event::KeyDown { keycode: Some(Keycode::A), .. } => { 
+                            let result = input_tx.send(InputEvent::APressed);
+                            match result {
+                                Ok(_) => {},
+                                Err(error) => {
+                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
+                                    break 'render_loop
+                                },
+                            };
+                        },
+                        Event::KeyDown { keycode: Some(Keycode::S), .. } => { 
+                            let result = input_tx.send(InputEvent::BPressed);
+                            match result {
+                                Ok(_) => {},
+                                Err(error) => {
+                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
+                                    break 'render_loop
+                                },
+                            };
+                        },
+                        Event::KeyDown { keycode: Some(Keycode::Up), .. } => { 
+                            let result = input_tx.send(InputEvent::UpPressed);
+                            match result {
+                                Ok(_) => {},
+                                Err(error) => {
+                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
+                                    break 'render_loop
+                                },
+                            };
+                        },
+                        Event::KeyDown { keycode: Some(Keycode::Left), .. } => { 
+                            let result = input_tx.send(InputEvent::LeftPressed);
+                            match result {
+                                Ok(_) => {},
+                                Err(error) => {
+                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
+                                    break 'render_loop
+                                },
+                            };
+                        },
+                        Event::KeyDown { keycode: Some(Keycode::Right), .. } => { 
+                            let result = input_tx.send(InputEvent::RightPressed);
+                            match result {
+                                Ok(_) => {},
+                                Err(error) => {
+                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
+                                    break 'render_loop
+                                },
+                            };
+                        },
+                        Event::KeyDown { keycode: Some(Keycode::Down), .. } => { 
+                            let result = input_tx.send(InputEvent::DownPressed);
+                            match result {
+                                Ok(_) => {},
+                                Err(error) => {
+                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
+                                    break 'render_loop
+                                },
+                            };
+                        },
+                        Event::KeyDown { keycode: Some(Keycode::Return), .. } => { 
+                            let result = input_tx.send(InputEvent::StartPressed);
+                            match result {
+                                Ok(_) => {},
+                                Err(error) => {
+                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
+                                    break 'render_loop
+                                },
+                            };
+                        },
+                        Event::KeyDown { keycode: Some(Keycode::RShift), .. } => { 
+                            let result = input_tx.send(InputEvent::SelectPressed);
+                            match result {
+                                Ok(_) => {},
+                                Err(error) => {
+                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
+                                    break 'render_loop
+                                },
+                            };
+                        },
                         Event::Quit {..} => { emu_state.emu_running = false }
                         _ => {}
                     }
