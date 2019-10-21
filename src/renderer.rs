@@ -9,7 +9,7 @@ use imgui::*;
 use imgui_sdl2;
 use imgui_opengl_renderer;
 
-use log::error;
+use log::{info, error};
 
 use std::io;
 use std::io::Read;
@@ -116,9 +116,8 @@ pub fn init_renderer() {
                                         let result = input_tx.send(InputEvent::Quit);
                                         match result {
                                             Ok(_) => {},
-                                            Err(error) => {error!("Renderer: Failed to send input event to CPU thread. Error: {}", error)},
+                                            Err(error) => {error!("Emulator: Failed to send input event to CPU thread. Error: {}", error)},
                                         };
-                                        break 'game_loop 
                                     } 
                                     else {
                                         break 'render_loop
@@ -140,8 +139,8 @@ pub fn init_renderer() {
                             match result {
                                 Ok(_) => {},
                                 Err(error) => {
-                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'game_loop
+                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                    emu_state.emu_running = false;
                                 },
                             };
                         },
@@ -150,8 +149,8 @@ pub fn init_renderer() {
                             match result {
                                 Ok(_) => {},
                                 Err(error) => {
-                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'game_loop
+                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                    emu_state.emu_running = false;
                                 },
                             };
                         },
@@ -160,8 +159,8 @@ pub fn init_renderer() {
                             match result {
                                 Ok(_) => {},
                                 Err(error) => {
-                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'game_loop
+                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                    emu_state.emu_running = false;
                                 },
                             };
                         },
@@ -170,8 +169,8 @@ pub fn init_renderer() {
                             match result {
                                 Ok(_) => {},
                                 Err(error) => {
-                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'game_loop
+                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                    emu_state.emu_running = false;
                                 },
                             };
                         },
@@ -180,8 +179,8 @@ pub fn init_renderer() {
                             match result {
                                 Ok(_) => {},
                                 Err(error) => {
-                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'game_loop
+                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                    emu_state.emu_running = false;
                                 },
                             };
                         },
@@ -190,8 +189,8 @@ pub fn init_renderer() {
                             match result {
                                 Ok(_) => {},
                                 Err(error) => {
-                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'game_loop
+                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                    emu_state.emu_running = false;
                                 },
                             };
                         },
@@ -200,8 +199,8 @@ pub fn init_renderer() {
                             match result {
                                 Ok(_) => {},
                                 Err(error) => {
-                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'game_loop
+                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                    emu_state.emu_running = false;
                                 },
                             };
                         },
@@ -210,8 +209,8 @@ pub fn init_renderer() {
                             match result {
                                 Ok(_) => {},
                                 Err(error) => {
-                                    error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'game_loop
+                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                    emu_state.emu_running = false;
                                 },
                             };
                         },
@@ -223,7 +222,11 @@ pub fn init_renderer() {
                 gpu::gpu_loop(&emulator_locks.cycles_arc, &mut gpu_state, &mut game_canvas, &emulator_locks.gpu);
                 if update_ui { ui_loop(&mut imgui_sys, &main_window, &sdl_events.mouse_state(), &all_roms, &mut emu_state) }
                 if !emu_state.emu_running { 
-                    input_tx.send(InputEvent::Quit).unwrap();
+                    let result = input_tx.send(InputEvent::Quit);
+                    match result {
+                        Ok(_) => info!("Emulator: Sending Quit signal to CPU"),
+                        Err(error) => error!("Emulator: Failed to send Quit signal to CPU, the thread probably panicked. Error: {}", error),
+                    };
                     break 'game_loop;
                 }
             }
