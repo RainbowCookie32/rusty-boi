@@ -134,7 +134,7 @@ impl CartData {
         if address <= 0x1FFF {
             self.ram_enabled = (value & 0x0A) == 0x0A;
         }
-        else if address >= 0x2000 || address <= 0x3FFF {
+        else if address >= 0x2000 && address <= 0x3FFF {
             if value == 0x0 {self.selected_rom_bank = 0x01}
             else if value == 0x20 {self.selected_rom_bank = 0x21}
             else if value == 0x40 {self.selected_rom_bank = 0x41}
@@ -167,14 +167,14 @@ impl CartData {
         if address < 0x1FFF {
             self.ram_enabled = value == 0x1;
         }
-        else if address >= 0x2000 || address <= 0x3FFF {
+        else if address >= 0x2000 && address <= 0x3FFF {
             if value == 0x0 {self.selected_rom_bank = 0x01}
             else if value == 0x20 {self.selected_rom_bank = 0x21}
             else if value == 0x40 {self.selected_rom_bank = 0x41}
             else if value == 0x60 {self.selected_rom_bank = 0x61}
             else {self.selected_rom_bank = value}
         }
-        else if address >= 0xA000 || address <= 0xA1FF {
+        else if address >= 0xA000 && address <= 0xA1FF {
             // TODO: Implement MBC2 RAM.
             warn!("Memory: MBC2 RAM is unimplemented, ignoring write.");
         }
@@ -186,15 +186,15 @@ impl CartData {
             // TODO: Also enables R/W to RTC registers.
             self.ram_enabled = (value & 0x0A) == 0x0A;
         }
-        else if address >= 0x2000 || address <= 0x3FFF {
+        else if address >= 0x2000 && address <= 0x3FFF {
             if value == 0x0 {self.selected_rom_bank = 0x1}
             else {self.selected_rom_bank = value}
         }
-        else if address >= 0x4000 || address <= 0x5FFF {
+        else if address >= 0x4000 && address <= 0x5FFF {
             // TODO: Can be either RAM bank, or RTC register selection
             self.selected_ram_bank = value;
         }
-        else if address >= 0xA000 || address <= 0xBFFF {
+        else if address >= 0xA000 && address <= 0xBFFF {
             if self.ram_enabled && self.has_ram {
                 self.ram_banks[self.selected_ram_bank as usize][(address - 0xA000) as usize] = value;
             }
