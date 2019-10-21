@@ -141,7 +141,7 @@ pub fn init_renderer() {
                                 Ok(_) => {},
                                 Err(error) => {
                                     error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'render_loop
+                                    break 'game_loop
                                 },
                             };
                         },
@@ -151,7 +151,7 @@ pub fn init_renderer() {
                                 Ok(_) => {},
                                 Err(error) => {
                                     error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'render_loop
+                                    break 'game_loop
                                 },
                             };
                         },
@@ -161,7 +161,7 @@ pub fn init_renderer() {
                                 Ok(_) => {},
                                 Err(error) => {
                                     error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'render_loop
+                                    break 'game_loop
                                 },
                             };
                         },
@@ -171,7 +171,7 @@ pub fn init_renderer() {
                                 Ok(_) => {},
                                 Err(error) => {
                                     error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'render_loop
+                                    break 'game_loop
                                 },
                             };
                         },
@@ -181,7 +181,7 @@ pub fn init_renderer() {
                                 Ok(_) => {},
                                 Err(error) => {
                                     error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'render_loop
+                                    break 'game_loop
                                 },
                             };
                         },
@@ -191,7 +191,7 @@ pub fn init_renderer() {
                                 Ok(_) => {},
                                 Err(error) => {
                                     error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'render_loop
+                                    break 'game_loop
                                 },
                             };
                         },
@@ -201,7 +201,7 @@ pub fn init_renderer() {
                                 Ok(_) => {},
                                 Err(error) => {
                                     error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'render_loop
+                                    break 'game_loop
                                 },
                             };
                         },
@@ -211,7 +211,7 @@ pub fn init_renderer() {
                                 Ok(_) => {},
                                 Err(error) => {
                                     error!("Renderer: Failed to send input event to CPU thread. Error: {}", error);
-                                    break 'render_loop
+                                    break 'game_loop
                                 },
                             };
                         },
