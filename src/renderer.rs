@@ -200,8 +200,6 @@ fn ui_loop(sys: &mut ImguiSys, window: &video::Window, mouse_state: &sdl2::mouse
         }
         imgui_ui.separator();
 
-        // TODO: For some reason, there are still "?" on the title if it doesn't use
-        // all the bytes for the title.
         imgui_ui.text(format!("ROM Title: {}", &emu.header_data.title));
         imgui_ui.text(format!("Publisher: {}", &emu.header_data.publisher));
         imgui_ui.text(format!("Cart Type: {}", &emu.header_data.cart_type));
@@ -242,7 +240,7 @@ fn parse_header(file_path: &PathBuf) -> HeaderData {
     let mut header_buffer = [0; 335];
     file.read(&mut header_buffer).unwrap();
 
-    let game_title = String::from_utf8(header_buffer[308..323].to_vec()).unwrap().replace("?", " ");
+    let game_title = (String::from_utf8(header_buffer[308..323].to_vec()).unwrap().trim_matches(char::from(0))).to_string();
 
     // TODO: This code can also be in 0144-0145 depending on the release
     // date of the cartridge.
