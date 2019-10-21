@@ -131,7 +131,6 @@ impl CartData {
         }
     }
 
-    // TODO: Use get() for RAM banks writes
     pub fn write(&mut self, address: u16, value: u8) {
         
         match self.mbc {
@@ -159,7 +158,13 @@ impl CartData {
         else if address >= 0xA000 && address <= 0xBFFF {
             
             if self.ram_enabled && self.has_ram {
-                self.ram_banks[self.selected_ram_bank as usize][(address - 0xA000) as usize] = value;
+                let result = self.ram_banks.get_mut(self.selected_ram_bank as usize);
+                match result {
+                    Some(bank) => {
+                        bank[(address - 0xA000) as usize] = value;
+                    }
+                    None => warn!("Memory: Selected RAM Bank is out of bounds, ignoring write"),
+                }
             }
         }
         else if address >= 0x4000 && address <= 0x5FFF {
@@ -211,7 +216,13 @@ impl CartData {
         }
         else if address >= 0xA000 && address <= 0xBFFF {
             if self.ram_enabled && self.has_ram {
-                self.ram_banks[self.selected_ram_bank as usize][(address - 0xA000) as usize] = value;
+                let result = self.ram_banks.get_mut(self.selected_ram_bank as usize);
+                match result {
+                    Some(bank) => {
+                        bank[(address - 0xA000) as usize] = value;
+                    }
+                    None => warn!("Memory: Selected RAM Bank is out of bounds, ignoring write"),
+                }
             }
         }
     }
