@@ -10,10 +10,17 @@ use super::utils;
 use super::memory;
 use super::memory::{CpuMemory, GpuMemory};
 
+#[derive(PartialEq, Copy, Clone)]
+pub enum PaletteColor {
+    Black,
+    DarkGrey,
+    LightGrey,
+    White,
+}
 
 pub struct Tile {
 
-    pub tile_colors: Vec<Color>,
+    pub tile_colors: Vec<PaletteColor>,
 }
 
 #[derive(Clone, Copy)]
@@ -26,6 +33,7 @@ pub struct SpriteData {
     // TODO: Actually use the X and Y flip when generating points.
     pub y_flip: bool,
     pub x_flip: bool,
+    pub palette: bool,
 }
 
 impl SpriteData {
@@ -37,6 +45,7 @@ impl SpriteData {
             priority: utils::check_bit(bytes[3], 7),
             y_flip: utils::check_bit(bytes[3], 6),
             x_flip: utils::check_bit(bytes[3], 5),
+            palette: utils::check_bit(bytes[3], 4),
         }
     }
 }
@@ -44,7 +53,8 @@ impl SpriteData {
 pub struct BGPoint {
 
     pub point: Point,
-    pub color: Color,
+    pub color: PaletteColor,
+    pub palette_addr: u16,
 }
 
 pub struct GpuState {
@@ -228,7 +238,7 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<C
         let current_point = &state.background_points[point_idx as usize];
         let final_point = current_point.point.offset(scroll_x, scroll_y);
 
-        canvas.set_draw_color(current_point.color);
+        canvas.set_draw_color(get_color_render(memory::gpu_read(current_point.palette_addr, memory), current_point.color));
         canvas.draw_point(final_point).unwrap();
         point_idx += 1;
         drawn_pixels += 1;
@@ -295,7 +305,7 @@ fn make_tile(bytes: &Vec<u8>) -> Tile {
     let mut color_index = 0;
     let mut current_byte = 0;
     let mut generated_colors = 0;
-    let mut colors: Vec<Color> = vec![Color::RGB(255, 255, 255); 64];
+    let mut colors: Vec<PaletteColor> = vec![PaletteColor::White; 64];
     
     while generated_colors < 64 {
 
@@ -312,7 +322,7 @@ fn make_tile(bytes: &Vec<u8>) -> Tile {
             while bit_counter != 0 {
 
                 bit_counter -= 1;
-                colors[color_index] = get_color(&tile_bytes, bit_counter);
+                colors[color_index] = get_color_enum(&tile_bytes, bit_counter);
                 color_index += 1;
                 generated_colors += 1;
             }
@@ -414,7 +424,7 @@ fn make_background_line(tiles: &Vec<&Tile>, tile_line: u8, screen_line: u8) -> V
 
                 let generated_point = Point::new(generated_points as i32, screen_line as i32);
                 let generated_color = current_tile.tile_colors[color_index];
-                let bg_point = BGPoint{ point: generated_point, color: generated_color };
+                let bg_point = BGPoint{ point: generated_point, color: generated_color, palette_addr: 0xFF47 };
 
                 final_line.insert(generated_points as usize, bg_point);
 
@@ -450,14 +460,17 @@ fn add_sprites_to_background(state: &mut GpuState) {
                 let new_point = BGPoint {
                     point: Point::new(current_x as i32, current_y as i32),
                     color: used_tile.tile_colors[points],
+                    palette_addr: if sprite.palette {0xFF49} else {0xFF48}
                 };
 
-                if !sprite.priority {
-                    state.background_points[background_index as usize] = new_point;
-                }
-                else {
-                    if target_point.color == Color::RGB(255, 255, 255) {
+                if new_point.color != PaletteColor::White {
+                    if !sprite.priority {
                         state.background_points[background_index as usize] = new_point;
+                    }
+                    else {
+                        if target_point.color == PaletteColor::White {
+                            state.background_points[background_index as usize] = new_point;
+                        }
                     }
                 }
 
@@ -475,30 +488,69 @@ fn add_sprites_to_background(state: &mut GpuState) {
     }
 }
 
-fn get_color(bytes: &Vec<u8>, bit: u8) -> Color {
-
-    let color_off = Color::RGB(255, 255, 255);
-    let color_33 = Color::RGB(192, 192, 192);
-    let color_66 = Color::RGB(96, 96, 96);
-    let color_on = Color::RGB(0, 0, 0);
+fn get_color_enum(bytes: &Vec<u8>, bit: u8) -> PaletteColor {
 
     let byte0 = utils::check_bit(bytes[0], bit);
     let byte1 = utils::check_bit(bytes[1], bit);
 
     // TODO: Implement color palettes to fix wrong colors being used.
     if  byte0 && byte1 {
-        color_on
+        PaletteColor::Black
     }
     else if !byte0 && byte1 {
-        color_66
+        PaletteColor::DarkGrey
     }
     else if byte0 && !byte1 {
-        color_33
+        PaletteColor::LightGrey
     }
     else if !byte0 && !byte1 {
-        color_off
+        PaletteColor::White
     }
     else {
-        color_off
+        PaletteColor::White
+    }
+}
+
+fn get_color_render(palette: u8, color: PaletteColor) -> Color {
+
+    let dark_color = Color::RGB(255, 255, 255);
+    let dark_grey_color = Color::RGB(192, 192, 192);
+    let light_grey_color = Color::RGB(96, 96, 96);
+    let light_color = Color::RGB(0, 0, 0);
+
+    let black_value = (utils::check_bit(palette, 7), utils::check_bit(palette, 6));
+    let dark_grey_value = (utils::check_bit(palette, 5), utils::check_bit(palette, 4));
+    let light_grey_value = (utils::check_bit(palette, 3), utils::check_bit(palette, 2));
+    let white_value = (utils::check_bit(palette, 1), utils::check_bit(palette, 0));
+
+    match color {
+        PaletteColor::Black => {
+            if black_value.0 && black_value.1 {light_color}
+            else if !black_value.0 && black_value.1 {light_grey_color}
+            else if black_value.0 && !black_value.1 {dark_grey_color}
+            else if !black_value.0 && !black_value.1 {dark_color}
+            else {dark_color}
+        },
+        PaletteColor::DarkGrey => {
+            if dark_grey_value.0 && dark_grey_value.1 {light_color}
+            else if !dark_grey_value.0 && dark_grey_value.1 {light_grey_color}
+            else if dark_grey_value.0 && !dark_grey_value.1 {dark_grey_color}
+            else if !dark_grey_value.0 && !dark_grey_value.1 {dark_color}
+            else {dark_color}
+        },
+        PaletteColor::LightGrey => {
+            if light_grey_value.0 && light_grey_value.1 {light_color}
+            else if !light_grey_value.0 && light_grey_value.1 {light_grey_color}
+            else if light_grey_value.0 && !light_grey_value.1 {dark_grey_color}
+            else if !light_grey_value.0 && !light_grey_value.1 {dark_color}
+            else {dark_color}
+        },
+        PaletteColor::White => {
+            if white_value.0 && white_value.1 {light_color}
+            else if !white_value.0 && white_value.1 {light_grey_color}
+            else if white_value.0 && !white_value.1 {dark_grey_color}
+            else if !white_value.0 && !white_value.1 {dark_color}
+            else {dark_color}
+        },
     }
 }
