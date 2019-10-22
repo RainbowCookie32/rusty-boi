@@ -493,7 +493,7 @@ fn get_color_enum(bytes: &Vec<u8>, bit: u8) -> PaletteColor {
     let byte0 = utils::check_bit(bytes[0], bit);
     let byte1 = utils::check_bit(bytes[1], bit);
 
-    if  byte0 && byte1 {
+    if byte0 && byte1 {
         PaletteColor::Black
     }
     else if !byte0 && byte1 {
@@ -517,38 +517,41 @@ fn get_color_render(palette: u8, color: PaletteColor) -> Color {
     let light_grey_color = Color::RGB(96, 96, 96);
     let light_color = Color::RGB(0, 0, 0);
 
-    let black_value = (utils::check_bit(palette, 7), utils::check_bit(palette, 6));
-    let dark_grey_value = (utils::check_bit(palette, 5), utils::check_bit(palette, 4));
-    let light_grey_value = (utils::check_bit(palette, 3), utils::check_bit(palette, 2));
-    let white_value = (utils::check_bit(palette, 1), utils::check_bit(palette, 0));
-
     match color {
         PaletteColor::Black => {
-            if black_value.0 && black_value.1 {light_color}
-            else if !black_value.0 && black_value.1 {light_grey_color}
-            else if black_value.0 && !black_value.1 {dark_grey_color}
-            else if !black_value.0 && !black_value.1 {dark_color}
+            let black_value = palette & 0xC0;
+
+            if black_value == 0xC0 {light_color}
+            else if black_value == 0x40 {light_grey_color}
+            else if black_value == 0x80 {dark_grey_color}
+            else if black_value == 0x00 {dark_color}
             else {dark_color}
         },
         PaletteColor::DarkGrey => {
-            if dark_grey_value.0 && dark_grey_value.1 {light_color}
-            else if !dark_grey_value.0 && dark_grey_value.1 {light_grey_color}
-            else if dark_grey_value.0 && !dark_grey_value.1 {dark_grey_color}
-            else if !dark_grey_value.0 && !dark_grey_value.1 {dark_color}
+            let dark_grey_value = palette & 0x30;
+
+            if dark_grey_value == 0x30 {light_color}
+            else if dark_grey_value == 0x10 {light_grey_color}
+            else if dark_grey_value == 0x20 {dark_grey_color}
+            else if dark_grey_value == 0x00 {dark_color}
             else {dark_color}
         },
         PaletteColor::LightGrey => {
-            if light_grey_value.0 && light_grey_value.1 {light_color}
-            else if !light_grey_value.0 && light_grey_value.1 {light_grey_color}
-            else if light_grey_value.0 && !light_grey_value.1 {dark_grey_color}
-            else if !light_grey_value.0 && !light_grey_value.1 {dark_color}
+            let light_grey_value = palette & 0x0C;
+
+            if light_grey_value == 0x0C {light_color}
+            else if light_grey_value == 0x04 {light_grey_color}
+            else if light_grey_value == 0x08 {dark_grey_color}
+            else if light_grey_value == 0x00 {dark_color}
             else {dark_color}
         },
         PaletteColor::White => {
-            if white_value.0 && white_value.1 {light_color}
-            else if !white_value.0 && white_value.1 {light_grey_color}
-            else if white_value.0 && !white_value.1 {dark_grey_color}
-            else if !white_value.0 && !white_value.1 {dark_color}
+            let white_value = palette & 0x03;
+
+            if white_value == 0x03 {light_color}
+            else if white_value == 0x01 {light_grey_color}
+            else if white_value == 0x02 {dark_grey_color}
+            else if white_value == 0x00 {dark_color}
             else {dark_color}
         },
     }
