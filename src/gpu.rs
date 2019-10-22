@@ -1,8 +1,6 @@
 use std::ops::Neg;
 use std::sync::{Arc, Mutex};
 
-use log::info;
-
 use sdl2::rect::Point;
 use sdl2::video::Window;
 use sdl2::pixels::Color;
@@ -18,6 +16,31 @@ pub struct Tile {
     pub tile_colors: Vec<Color>,
 }
 
+#[derive(Clone, Copy)]
+pub struct SpriteData {
+    pub y_position: u8,
+    pub x_position: u8,
+    pub tile_number: u8,
+
+    pub priority: bool,
+    // TODO: Actually use the X and Y flip when generating points.
+    pub y_flip: bool,
+    pub x_flip: bool,
+}
+
+impl SpriteData {
+    pub fn new(bytes: Vec<u8>) -> SpriteData {
+        SpriteData {
+            y_position: bytes[0],
+            x_position: bytes[1],
+            tile_number: bytes[2],
+            priority: utils::check_bit(bytes[3], 7),
+            y_flip: utils::check_bit(bytes[3], 6),
+            x_flip: utils::check_bit(bytes[3], 5),
+        }
+    }
+}
+
 pub struct BGPoint {
 
     pub point: Point,
@@ -31,6 +54,7 @@ pub struct GpuState {
     pub line: u8,
     pub tiles_0: Vec<Tile>,
     pub tiles_1: Vec<Tile>,
+    pub sprites: Vec<SpriteData>,
     pub background_points: Vec<BGPoint>,
 
     pub bg_dirty: bool,
@@ -45,6 +69,7 @@ pub fn init_gpu() -> GpuState {
         line: 0,
         tiles_0: Vec::new(),
         tiles_1: Vec::new(),
+        sprites: Vec::new(),
         background_points: Vec::new(),
         bg_dirty: false,
         tiles_dirty: false,
@@ -175,9 +200,12 @@ fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<
         state.tiles_dirty = false;
         state.bg_dirty = true;
     }
-    if state.bg_dirty && state.tiles_0.len() != 0 {
+
+    if state.tiles_0.len() != 0 {
         make_tiles(state, memory);
+        make_sprites(state, memory);
         make_background(state, memory);
+        add_sprites_to_background(state);
         state.bg_dirty = false;
     }
 }
@@ -217,8 +245,6 @@ fn make_tiles(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<G
     let mut memory_position = start_position;
     let mut tiles_position = 0;
     let mut new_tiles:Vec<Tile> = Vec::new();
-
-    info!("GPU: Regenerating tile cache");
 
     while memory_position < end_position {
 
@@ -299,6 +325,30 @@ fn make_tile(bytes: &Vec<u8>) -> Tile {
     new_tile
 }
 
+fn make_sprites(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+
+    let mut index: usize = 0;
+    let mut current_address = 0xFE00;
+    let mut generated_sprites: Vec<SpriteData> = vec![SpriteData::new(vec![0; 4]); 40];
+
+    while current_address < 0xFEA0 {
+
+        let mut bytes: Vec<u8> = vec![0; 4];
+        let mut loaded_bytes: usize = 0;
+
+        while loaded_bytes < 4 {
+            bytes[loaded_bytes] = memory::gpu_read(current_address, &memory);
+            loaded_bytes += 1;
+            current_address += 1;
+        }
+
+        generated_sprites[index] = SpriteData::new(bytes);
+        index += 1;
+    }
+
+    state.sprites = generated_sprites;
+}
+
 fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut generated_lines: u16 = 0;
@@ -307,9 +357,7 @@ fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mu
 
     let lcdc_value =  utils::check_bit(memory::gpu_read(0xFF40, memory), 4);
     let tile_bank = if lcdc_value {&state.tiles_0} else {&state.tiles_1};
-    
-    info!("GPU: Regenerating background cache");
-    
+        
     while generated_lines < 256 {
 
         let mut tiles: Vec<&Tile> = Vec::new();
@@ -379,6 +427,52 @@ fn make_background_line(tiles: &Vec<&Tile>, tile_line: u8, screen_line: u8) -> V
     }  
 
     final_line
+}
+
+fn add_sprites_to_background(state: &mut GpuState) {
+
+    for sprite in state.sprites.iter() {
+
+        if sprite.x_position > 0 && sprite.y_position > 0 {
+            
+            let used_tile = &state.tiles_0[sprite.tile_number as usize];
+            let initial_x = sprite.x_position.wrapping_sub(8);
+            let initial_y = sprite.y_position.wrapping_sub(16);
+
+            let mut points = 0;
+            let mut current_x = initial_x;
+            let mut current_y = initial_y;
+
+            while points < 64 {
+
+                let background_index = (256 * current_y as u16) + (current_x as u16);
+                let target_point = &state.background_points[background_index as usize];
+                let new_point = BGPoint {
+                    point: Point::new(current_x as i32, current_y as i32),
+                    color: used_tile.tile_colors[points],
+                };
+
+                if !sprite.priority {
+                    state.background_points[background_index as usize] = new_point;
+                }
+                else {
+                    if target_point.color == Color::RGB(255, 255, 255) {
+                        state.background_points[background_index as usize] = new_point;
+                    }
+                }
+
+                if current_x == initial_x.wrapping_add(7) {
+                    current_y = current_y.wrapping_add(1);
+                    current_x = initial_x;
+                }
+                else {
+                    current_x = current_x.wrapping_add(1);
+                }
+
+                points += 1;
+            }
+        }
+    }
 }
 
 fn get_color(bytes: &Vec<u8>, bit: u8) -> Color {
