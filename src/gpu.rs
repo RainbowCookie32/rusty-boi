@@ -493,7 +493,6 @@ fn get_color_enum(bytes: &Vec<u8>, bit: u8) -> PaletteColor {
     let byte0 = utils::check_bit(bytes[0], bit);
     let byte1 = utils::check_bit(bytes[1], bit);
 
-    // TODO: Implement color palettes to fix wrong colors being used.
     if  byte0 && byte1 {
         PaletteColor::Black
     }
