@@ -18,9 +18,46 @@ pub enum PaletteColor {
     White,
 }
 
+#[derive(Clone)]
 pub struct Tile {
-
     pub tile_colors: Vec<PaletteColor>,
+}
+
+impl Tile {
+    pub fn new(bytes: &Vec<u8>) -> Tile {
+
+        let mut color_index = 0;
+        let mut current_byte = 0;
+        let mut colors: Vec<PaletteColor> = vec![PaletteColor::White; 64];
+    
+        while color_index < 64 {
+
+            let mut bit_counter = 8;
+            let tile_bytes = vec![bytes[current_byte], bytes[current_byte + 1]];
+
+            // If both bytes are zero, then we won't have colors since all bits will be 0.
+            // Just skip checking them if that's the case and move on to the next ones.
+            if tile_bytes[0] == 0 && tile_bytes[1] == 0 {
+                color_index += 8;
+            }
+            else {
+                while bit_counter != 0 {
+
+                    bit_counter -= 1;
+                    colors[color_index] = get_color_enum(&tile_bytes, bit_counter);
+                    color_index += 1;
+                }
+            }
+            current_byte += 2;
+        }
+
+        Tile {tile_colors: colors}
+    }
+    pub fn new_empty() -> Tile {
+        Tile {
+            tile_colors: vec![PaletteColor::White; 64],
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -48,8 +85,20 @@ impl SpriteData {
             palette: utils::check_bit(bytes[3], 4),
         }
     }
+    pub fn new_empty() -> SpriteData {
+        SpriteData {
+            y_position: 0,
+            x_position: 0,
+            tile_number: 0,
+            priority: false,
+            y_flip: false,
+            x_flip: false,
+            palette: false,
+        }
+    }
 }
 
+#[derive(Clone)]
 pub struct BGPoint {
 
     pub point: Point,
@@ -57,13 +106,30 @@ pub struct BGPoint {
     pub palette_addr: u16,
 }
 
+impl BGPoint {
+    pub fn new(coordinates: (i32, i32), color: PaletteColor, palette_addr: u16) -> BGPoint {
+        BGPoint {
+            point: Point::new(coordinates.0, coordinates.1),
+            color: color,
+            palette_addr: palette_addr,
+        }
+    }
+    pub fn new_empty() -> BGPoint {
+        BGPoint {
+            point: Point::new(0, 0),
+            color: PaletteColor::White,
+            palette_addr: 0xFF47,
+        }
+    }
+}
+
 pub struct GpuState {
 
     pub gpu_mode: u8,
     pub gpu_cycles: u16,
     pub line: u8,
-    pub tiles_0: Vec<Tile>,
-    pub tiles_1: Vec<Tile>,
+    pub tile_bank0: Vec<Tile>,
+    pub tile_bank1: Vec<Tile>,
     pub sprites: Vec<SpriteData>,
     pub background_points: Vec<BGPoint>,
 
@@ -72,19 +138,22 @@ pub struct GpuState {
     pub tiles_dirty: bool,
 }
 
-pub fn init_gpu() -> GpuState {
+impl GpuState {
+    pub fn new() -> GpuState {
 
-    GpuState {
-        gpu_mode: 0,
-        gpu_cycles: 0,
-        line: 0,
-        tiles_0: Vec::new(),
-        tiles_1: Vec::new(),
-        sprites: Vec::new(),
-        background_points: Vec::new(),
-        bg_dirty: false,
-        oam_dirty: false,
-        tiles_dirty: false,
+        GpuState {
+            gpu_mode: 0,
+            gpu_cycles: 0,
+            line: 0,
+            tile_bank0: vec![Tile::new_empty(); 256],
+            tile_bank1: vec![Tile::new_empty(); 256],
+            sprites: vec![SpriteData::new_empty(); 40],
+            background_points: vec![BGPoint::new_empty(); 65536],
+
+            bg_dirty: false,
+            oam_dirty: false,
+            tiles_dirty: false,
+        }
     }
 }
 
@@ -228,7 +297,7 @@ fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<
         state.bg_dirty = true;
     }
 
-    if state.tiles_0.len() > 0 {
+    if state.tile_bank0.len() > 0 {
         make_background(state, memory);
         state.bg_dirty = false;
 
@@ -286,11 +355,11 @@ fn make_tiles(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<G
             loaded_bytes += 1;
         }
 
-        new_tiles.insert(tiles_position, make_tile(&tile_bytes));
+        new_tiles.insert(tiles_position, Tile::new(&tile_bytes));
         tiles_position += 1;
     }
 
-    state.tiles_0 = new_tiles;
+    state.tile_bank0 = new_tiles;
 
     start_position = 0x8800;
     end_position = 0x97FF;
@@ -310,54 +379,17 @@ fn make_tiles(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<G
             loaded_bytes += 1;
         }
 
-        new_tiles.insert(tiles_position, make_tile(&tile_bytes));
+        new_tiles.insert(tiles_position, Tile::new(&tile_bytes));
         tiles_position += 1;
     }
 
-    state.tiles_1 = new_tiles;
-}
-
-fn make_tile(bytes: &Vec<u8>) -> Tile {
-
-    let new_tile: Tile;
-    let mut color_index = 0;
-    let mut current_byte = 0;
-    let mut generated_colors = 0;
-    let mut colors: Vec<PaletteColor> = vec![PaletteColor::White; 64];
-    
-    while generated_colors < 64 {
-
-        let mut bit_counter = 8;
-        let tile_bytes = vec![bytes[current_byte], bytes[current_byte + 1]];
-
-        // If both bytes are zero, then we won't have colors since all bits will be 0.
-        // Just skip checking them if that's the case and move on to the next ones.
-        if tile_bytes[0] == 0 && tile_bytes[1] == 0 {
-            generated_colors += 8;
-            color_index += 8;
-        }
-        else {
-            while bit_counter != 0 {
-
-                bit_counter -= 1;
-                colors[color_index] = get_color_enum(&tile_bytes, bit_counter);
-                color_index += 1;
-                generated_colors += 1;
-            }
-        }
-        
-        current_byte += 2;
-    }
-
-    new_tile = Tile { tile_colors: colors };
-    new_tile
+    state.tile_bank1 = new_tiles;
 }
 
 fn make_sprites(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut index: usize = 0;
     let mut current_address = 0xFE00;
-    let mut generated_sprites: Vec<SpriteData> = vec![SpriteData::new(vec![0; 4]); 40];
 
     while current_address < 0xFEA0 {
 
@@ -370,21 +402,20 @@ fn make_sprites(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex
             current_address += 1;
         }
 
-        generated_sprites[index] = SpriteData::new(bytes);
+        state.sprites[index] = SpriteData::new(bytes);
         index += 1;
     }
-
-    state.sprites = generated_sprites;
 }
 
 fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut generated_lines: u16 = 0;
-    let mut new_points: Vec<BGPoint> = Vec::new();
     let mut current_background = if utils::check_bit(memory::gpu_read(0xFF40, memory), 3) {0x9C00} else {0x9800};
 
     let lcdc_value =  utils::check_bit(memory::gpu_read(0xFF40, memory), 4);
-    let tile_bank = if lcdc_value {&state.tiles_0} else {&state.tiles_1};
+    let tile_bank = if lcdc_value {&state.tile_bank0} else {&state.tile_bank1};
+
+    let mut background_idx: usize = 0;
         
     while generated_lines < 256 {
 
@@ -415,13 +446,15 @@ fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mu
 
         while tile_line < 8 {
 
-            new_points.append(&mut make_background_line(&tiles, tile_line, generated_lines as u8));
+            let line = make_background_line(&tiles, tile_line, generated_lines as u8);
+            for point in line.into_iter() {
+                state.background_points[background_idx] = point;
+                background_idx += 1;
+            }
             tile_line += 1;
             generated_lines += 1;
         }
     }
-
-    state.background_points = new_points;
 }
 
 fn make_background_line(tiles: &Vec<&Tile>, tile_line: u8, screen_line: u8) -> Vec<BGPoint> {
@@ -440,9 +473,8 @@ fn make_background_line(tiles: &Vec<&Tile>, tile_line: u8, screen_line: u8) -> V
 
             while color_index < start_idx[tile_line as usize] + 8 {
 
-                let generated_point = Point::new(generated_points as i32, screen_line as i32);
-                let generated_color = current_tile.tile_colors[color_index];
-                let bg_point = BGPoint{ point: generated_point, color: generated_color, palette_addr: 0xFF47 };
+                let point_color = current_tile.tile_colors[color_index];
+                let bg_point = BGPoint::new((generated_points as i32, screen_line as i32), point_color, 0xFF47);
 
                 final_line.insert(generated_points as usize, bg_point);
 
@@ -463,7 +495,7 @@ fn add_sprites_to_background(state: &mut GpuState) {
 
         if sprite.x_position > 0 && sprite.y_position > 0 {
             
-            let used_tile = &state.tiles_0[sprite.tile_number as usize];
+            let used_tile = &state.tile_bank0[sprite.tile_number as usize];
             let initial_x = sprite.x_position.wrapping_sub(8);
             let initial_y = sprite.y_position.wrapping_sub(16);
 

@@ -86,7 +86,7 @@ pub fn init_renderer() {
 
         if emu_state.emu_running {
 
-            let mut gpu_state = gpu::init_gpu();
+            let mut gpu_state = gpu::GpuState::new();
             let game_window = sdl_video.window("Rusty Boi - Game Window", 160 * emu_state.game_scale as u32, 144 * emu_state.game_scale as u32)
             .position_centered().vulkan().resizable().build().unwrap();
             let mut game_canvas = game_window.into_canvas().build().unwrap();
@@ -288,6 +288,7 @@ pub fn init_renderer() {
                 }
                 ui_loop(&mut imgui_sys, &main_window, &sdl_events.mouse_state(), &all_roms, &mut emu_state);
                 if emu_state.emu_running {break;}
+                else {std::thread::sleep(std::time::Duration::from_millis(1))}
             }
         }
     }
