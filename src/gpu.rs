@@ -93,10 +93,11 @@ pub fn gpu_loop(cycles: &Arc<Mutex<u16>>, state: &mut GpuState, canvas: &mut Can
     let lcdc_stat = memory::gpu_read(0xFF40, &memory);
     let display_enabled = utils::check_bit(lcdc_stat, 7);
 
-    let cyc_mut = cycles.lock().unwrap();
-    state.gpu_cycles = state.gpu_cycles.overflowing_add(*cyc_mut).0;
-    std::mem::drop(cyc_mut);
-
+    {
+        let cyc_mut = cycles.lock().unwrap();
+        state.gpu_cycles = state.gpu_cycles.overflowing_add(*cyc_mut).0;
+    }
+    
     if display_enabled {
 
         if state.gpu_mode == 0 && state.gpu_cycles >= 204 {
@@ -111,7 +112,18 @@ pub fn gpu_loop(cycles: &Arc<Mutex<u16>>, state: &mut GpuState, canvas: &mut Can
         else if state.gpu_mode == 3 && state.gpu_cycles >= 172 {
             lcd_transfer_mode(state, &memory);
         }
+    }
 
+    let stat_value = memory::gpu_read(0xFF41, memory);
+    let lyc_value = memory::gpu_read(0xFF45, memory);
+
+    if lyc_value == state.line {
+        let new_stat = utils::set_bit(stat_value, 2);
+        memory::gpu_write(0xFF41, new_stat, memory);
+    }
+    else {
+        let new_stat = utils::reset_bit(stat_value, 2);
+        memory::gpu_write(0xFF41, new_stat, memory);
     }
 }
 
@@ -216,12 +228,14 @@ fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<
         state.bg_dirty = true;
     }
 
-    make_background(state, memory);
-    state.bg_dirty = false;
+    if state.tiles_0.len() > 0 {
+        make_background(state, memory);
+        state.bg_dirty = false;
 
-    make_sprites(state, memory);
-    add_sprites_to_background(state);
-    state.oam_dirty = false;
+        make_sprites(state, memory);
+        add_sprites_to_background(state);
+        state.oam_dirty = false;
+    }
 }
 
 // Drawing to screen.
