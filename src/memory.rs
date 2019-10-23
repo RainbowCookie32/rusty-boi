@@ -29,6 +29,7 @@ pub struct GpuMemory {
     pub bg_map: Vec<u8>,
     pub oam_mem: Vec<u8>,
 
+    pub oam_dirty: bool,
     pub tiles_dirty: bool,
     pub background_dirty: bool,
 }
@@ -58,6 +59,7 @@ pub fn init_memory(data: (Vec<u8>, CartData)) -> (Arc<Mutex<RomMemory>>, Arc<Mut
         bg_map: vec![0; 2048],
         oam_mem: vec![0; 160],
 
+        oam_dirty: false,
         tiles_dirty: false,
         background_dirty: false,
     };
@@ -148,13 +150,13 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
     else if address >= 0x8000 && address <= 0x97FF
     {
         let mut mem = memory.2.lock().unwrap();
-        mem.tiles_dirty = check_write(mem.char_ram[(address - 0x8000) as usize], value);
+        mem.tiles_dirty = mem.char_ram[(address - 0x8000) as usize] != value;
         mem.char_ram[(address - 0x8000) as usize] = value;
     }
     else if address >= 0x9800 && address <= 0x9FFF
     {
         let mut mem = memory.2.lock().unwrap();
-        mem.background_dirty = check_write(mem.bg_map[(address - 0x9800) as usize], value);
+        mem.background_dirty = mem.bg_map[(address - 0x9800) as usize] != value;
         mem.bg_map[(address - 0x9800) as usize] = value;
     }
     else if address >= 0xA000 && address <= 0xBFFF 
@@ -170,7 +172,7 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
-        warn!("Memory: Write to echo ram. Address {}, value {}.", format!("{:#X}", address), format!("{:#X}", value));
+        if value != 0 {warn!("Memory: Write to echo ram. Address {}, value {}.", format!("{:#X}", address), format!("{:#X}", value))}
         let mut mem = memory.1.lock().unwrap();
         mem.ram[(address - 0xE000) as usize] = value;
         mem.echo_ram[(address - 0xE000) as usize] = value;
@@ -178,11 +180,12 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
         let mut mem = memory.2.lock().unwrap();
+        mem.oam_dirty = mem.oam_mem[(address - 0xFE00) as usize] != value;
         mem.oam_mem[(address - 0xFE00) as usize] = value;
     }
     else if address >= 0xFEA0 && address <= 0xFEFF
     {
-        warn!("Memory: Write to unusable memory at address {}, value {}. Ignoring...", format!("{:#X}", address), format!("{:#X}", value));
+        if value != 0 {warn!("Memory: Write to unusable memory at address {}, value {}. Ignoring...", format!("{:#X}", address), format!("{:#X}", value))}
     }
     else if address >= 0xFF00 && address <= 0xFF7F
     {
@@ -302,11 +305,6 @@ pub fn gpu_write(address: u16, value: u8, memory: &(Arc<Mutex<CpuMemory>>, Arc<M
     else {
         info!("Memory: GPU tried to write value {} at address {}", format!("{:#X}", value), format!("{:#X}", address));
     }
-}
-
-fn check_write(old_value: u8, new_value: u8) -> bool {
-
-    old_value != new_value
 }
 
 fn do_dma_transfer(value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {

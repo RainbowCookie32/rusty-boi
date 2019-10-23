@@ -68,6 +68,7 @@ pub struct GpuState {
     pub background_points: Vec<BGPoint>,
 
     pub bg_dirty: bool,
+    pub oam_dirty: bool,
     pub tiles_dirty: bool,
 }
 
@@ -82,6 +83,7 @@ pub fn init_gpu() -> GpuState {
         sprites: Vec::new(),
         background_points: Vec::new(),
         bg_dirty: false,
+        oam_dirty: false,
         tiles_dirty: false,
     }
 }
@@ -90,11 +92,6 @@ pub fn gpu_loop(cycles: &Arc<Mutex<u16>>, state: &mut GpuState, canvas: &mut Can
 
     let lcdc_stat = memory::gpu_read(0xFF40, &memory);
     let display_enabled = utils::check_bit(lcdc_stat, 7);
-
-    let mem = memory.1.lock().unwrap();
-    state.bg_dirty = mem.background_dirty;
-    state.tiles_dirty = mem.tiles_dirty;
-    std::mem::drop(mem);
 
     let cyc_mut = cycles.lock().unwrap();
     state.gpu_cycles = state.gpu_cycles.overflowing_add(*cyc_mut).0;
@@ -113,9 +110,6 @@ pub fn gpu_loop(cycles: &Arc<Mutex<u16>>, state: &mut GpuState, canvas: &mut Can
         }
         else if state.gpu_mode == 3 && state.gpu_cycles >= 172 {
             lcd_transfer_mode(state, &memory);
-            let mut mem = memory.1.lock().unwrap();
-            mem.background_dirty = false;
-            mem.tiles_dirty = false;
         }
 
     }
@@ -205,19 +199,29 @@ fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<
     state.gpu_cycles = 0;
     state.gpu_mode = 0;
 
+    {
+        let mut mem = memory.1.lock().unwrap();
+        state.bg_dirty = mem.background_dirty;
+        state.oam_dirty = mem.oam_dirty;
+        state.tiles_dirty = mem.tiles_dirty;
+
+        mem.background_dirty = false;
+        mem.oam_dirty = false;
+        mem.tiles_dirty = false;
+    }
+
     if state.tiles_dirty {
         make_tiles(state, memory);
         state.tiles_dirty = false;
         state.bg_dirty = true;
     }
 
-    if state.tiles_0.len() != 0 {
-        make_tiles(state, memory);
-        make_sprites(state, memory);
-        make_background(state, memory);
-        add_sprites_to_background(state);
-        state.bg_dirty = false;
-    }
+    make_background(state, memory);
+    state.bg_dirty = false;
+
+    make_sprites(state, memory);
+    add_sprites_to_background(state);
+    state.oam_dirty = false;
 }
 
 // Drawing to screen.
