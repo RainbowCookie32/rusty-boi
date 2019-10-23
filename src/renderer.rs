@@ -134,85 +134,128 @@ pub fn init_renderer() {
                                 _ => {},
                             }
                         }
-                        Event::KeyDown { keycode: Some(Keycode::A), .. } => { 
-                            let result = input_tx.send(InputEvent::APressed);
-                            match result {
-                                Ok(_) => {},
-                                Err(error) => {
-                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
-                                    emu_state.emu_running = false;
-                                },
-                            };
+                        Event::KeyDown { keycode: Some(Keycode::A), .. } => {
+
+                            // This is a workaround to the input issues. It makes input almost perfect
+                            // by sending the event a few times, making sure that the CPU receives it.
+                            let mut events_sent = 5;
+                            while events_sent > 0 {
+                                let result = input_tx.send(InputEvent::APressed);
+                                match result {
+                                    Ok(_) => {},
+                                    Err(error) => {
+                                        error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                        emu_state.emu_running = false;
+                                    },
+                                };
+
+                                events_sent -= 1;
+                            }
                         },
                         Event::KeyDown { keycode: Some(Keycode::S), .. } => { 
-                            let result = input_tx.send(InputEvent::BPressed);
-                            match result {
-                                Ok(_) => {},
-                                Err(error) => {
-                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
-                                    emu_state.emu_running = false;
-                                },
-                            };
+                            let mut events_sent = 5;
+                            while events_sent > 0 {
+                                let result = input_tx.send(InputEvent::BPressed);
+                                match result {
+                                    Ok(_) => {},
+                                    Err(error) => {
+                                        error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                        emu_state.emu_running = false;
+                                    },
+                                };
+
+                                events_sent -= 1;
+                            }
                         },
                         Event::KeyDown { keycode: Some(Keycode::Up), .. } => { 
-                            let result = input_tx.send(InputEvent::UpPressed);
-                            match result {
-                                Ok(_) => {},
-                                Err(error) => {
-                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
-                                    emu_state.emu_running = false;
-                                },
-                            };
+                            let mut events_sent = 5;
+                            while events_sent > 0 {
+                                let result = input_tx.send(InputEvent::UpPressed);
+                                match result {
+                                    Ok(_) => {},
+                                    Err(error) => {
+                                        error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                        emu_state.emu_running = false;
+                                    },
+                                };
+
+                                events_sent -= 1;
+                            }
                         },
                         Event::KeyDown { keycode: Some(Keycode::Left), .. } => { 
-                            let result = input_tx.send(InputEvent::LeftPressed);
-                            match result {
-                                Ok(_) => {},
-                                Err(error) => {
-                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
-                                    emu_state.emu_running = false;
-                                },
-                            };
+                            let mut events_sent = 5;
+                            while events_sent > 0 {
+                                let result = input_tx.send(InputEvent::LeftPressed);
+                                match result {
+                                    Ok(_) => {},
+                                    Err(error) => {
+                                        error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                        emu_state.emu_running = false;
+                                    },
+                                };
+
+                                events_sent -= 1;
+                            }
                         },
                         Event::KeyDown { keycode: Some(Keycode::Right), .. } => { 
-                            let result = input_tx.send(InputEvent::RightPressed);
-                            match result {
-                                Ok(_) => {},
-                                Err(error) => {
-                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
-                                    emu_state.emu_running = false;
-                                },
-                            };
+                            let mut events_sent = 5;
+                            while events_sent > 0 {
+                                let result = input_tx.send(InputEvent::RightPressed);
+                                match result {
+                                    Ok(_) => {},
+                                    Err(error) => {
+                                        error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                        emu_state.emu_running = false;
+                                    },
+                                };
+
+                                events_sent -= 1;
+                            }
                         },
                         Event::KeyDown { keycode: Some(Keycode::Down), .. } => { 
-                            let result = input_tx.send(InputEvent::DownPressed);
-                            match result {
-                                Ok(_) => {},
-                                Err(error) => {
-                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
-                                    emu_state.emu_running = false;
-                                },
-                            };
+                            let mut events_sent = 5;
+                            while events_sent > 0 {
+                                let result = input_tx.send(InputEvent::DownPressed);
+                                match result {
+                                    Ok(_) => {},
+                                    Err(error) => {
+                                        error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                        emu_state.emu_running = false;
+                                    },
+                                };
+
+                                events_sent -= 1;
+                            }
                         },
                         Event::KeyDown { keycode: Some(Keycode::Return), .. } => { 
-                            let result = input_tx.send(InputEvent::StartPressed);
-                            match result {
-                                Ok(_) => {},
-                                Err(error) => {
-                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
-                                    emu_state.emu_running = false;
-                                },
-                            };
+                            let mut events_sent = 5;
+                            while events_sent > 0 {
+                                let result = input_tx.send(InputEvent::StartPressed);
+                                match result {
+                                    Ok(_) => {},
+                                    Err(error) => {
+                                        error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                        emu_state.emu_running = false;
+                                    },
+                                };
+
+                                events_sent -= 1;
+                            }
                         },
                         Event::KeyDown { keycode: Some(Keycode::RShift), .. } => { 
-                            let result = input_tx.send(InputEvent::SelectPressed);
-                            match result {
-                                Ok(_) => {},
-                                Err(error) => {
-                                    error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
-                                    emu_state.emu_running = false;
-                                },
-                            };
+                            let mut events_sent = 5;
+                            while events_sent > 0 {
+                                let result = input_tx.send(InputEvent::SelectPressed);
+                                match result {
+                                    Ok(_) => {},
+                                    Err(error) => {
+                                        error!("Emulator: Failed to send input event to CPU thread. Error: {}", error);
+                                        emu_state.emu_running = false;
+                                    },
+                                };
+
+                                events_sent -= 1;
+                            }
                         },
                         Event::Quit {..} => { emu_state.emu_running = false }
                         _ => {}
