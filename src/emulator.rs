@@ -54,7 +54,7 @@ pub fn start_emulation(arcs: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<
     }).unwrap();
 
     let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
-        gpu::start_gpu(cycles_gpu, gpu_arc);
+        gpu::start_gpu(cycles_gpu, input_tx, gpu_arc);
     }).unwrap();
 
     cpu_thread.join().unwrap();

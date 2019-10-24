@@ -1,14 +1,20 @@
 use std::ops::Neg;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
+
+use log::error;
 
 use sdl2;
 use sdl2::rect::Point;
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
 use sdl2::video::Window;
 use sdl2::pixels::Color;
 use sdl2::render::Canvas;
 
 use super::utils;
 use super::memory;
+use super::emulator::InputEvent;
 use super::memory::{CpuMemory, GpuMemory};
 
 #[derive(PartialEq, Copy, Clone)]
@@ -158,7 +164,7 @@ impl GpuState {
     }
 }
 
-pub fn start_gpu(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: (Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut gpu_state = GpuState::new();
 
@@ -167,12 +173,17 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<CpuMemory>>, Arc<Mu
     let game_window = video_sys.window("Rusty Boi - Game", 160 * 3, 144 * 3).position_centered().opengl().resizable().build().unwrap();
     let mut game_canvas = game_window.into_canvas().build().unwrap();
 
+    let mut event_pump = sdl_context.event_pump().unwrap();
+
     game_canvas.set_scale(3.0, 3.0).unwrap();
     game_canvas.set_draw_color(Color::RGB(255, 255, 255));
     game_canvas.clear();
     game_canvas.present();
 
     loop {
+
+        check_inputs(&mut event_pump, &input_tx);
+
         let lcdc = memory::gpu_read(0xFF40, &memory);
         let display = utils::check_bit(lcdc, 7);
         
@@ -606,5 +617,106 @@ fn get_color_render(palette: u8, color: PaletteColor) -> Color {
             else if white_value == 0x00 {dark_color}
             else {dark_color}
         },
+    }
+}
+
+
+fn check_inputs(pump: &mut sdl2::EventPump, input_tx: &Sender<InputEvent>) {
+
+    for event in pump.poll_iter() {
+        match event {
+            Event::Quit{..} => {
+                input_tx.send(InputEvent::Quit).unwrap();
+            }
+            Event::KeyDown{keycode: Some(Keycode::A), ..} => {
+                let mut count = 5;
+                while count > 0 {
+                    let result = input_tx.send(InputEvent::APressed);
+                    match result {
+                        Ok(_) => {},
+                        Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
+                    }
+                    count -= 1;
+                }
+            },
+            Event::KeyDown{keycode: Some(Keycode::S), ..} => {
+                let mut count = 5;
+                while count > 0 {
+                    let result = input_tx.send(InputEvent::BPressed);
+                    match result {
+                        Ok(_) => {},
+                        Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
+                    }
+                    count -= 1;
+                }
+            },
+            Event::KeyDown{keycode: Some(Keycode::Return), ..} => {
+                let mut count = 5;
+                while count > 0 {
+                    let result = input_tx.send(InputEvent::StartPressed);
+                    match result {
+                        Ok(_) => {},
+                        Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
+                    }
+                    count -= 1;
+                }
+            },
+            Event::KeyDown{keycode: Some(Keycode::RShift), ..} => {
+                let mut count = 5;
+                while count > 0 {
+                    let result = input_tx.send(InputEvent::SelectPressed);
+                    match result {
+                        Ok(_) => {},
+                        Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
+                    }
+                    count -= 1;
+                }
+            },
+            Event::KeyDown{keycode: Some(Keycode::Up), ..} => {
+                let mut count = 5;
+                while count > 0 {
+                    let result = input_tx.send(InputEvent::UpPressed);
+                    match result {
+                        Ok(_) => {},
+                        Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
+                    }
+                    count -= 1;
+                }
+            },
+            Event::KeyDown{keycode: Some(Keycode::Down), ..} => {
+                let mut count = 5;
+                while count > 0 {
+                    let result = input_tx.send(InputEvent::DownPressed);
+                    match result {
+                        Ok(_) => {},
+                        Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
+                    }
+                    count -= 1;
+                }
+            },
+            Event::KeyDown{keycode: Some(Keycode::Left), ..} => {
+                let mut count = 5;
+                while count > 0 {
+                    let result = input_tx.send(InputEvent::LeftPressed);
+                    match result {
+                        Ok(_) => {},
+                        Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
+                    }
+                    count -= 1;
+                }
+            },
+            Event::KeyDown{keycode: Some(Keycode::Right), ..} => {
+                let mut count = 5;
+                while count > 0 {
+                    let result = input_tx.send(InputEvent::RightPressed);
+                    match result {
+                        Ok(_) => {},
+                        Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
+                    }
+                    count -= 1;
+                }
+            },
+            _ => {}
+        }
     }
 }
