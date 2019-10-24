@@ -1,15 +1,16 @@
+use std::io;
 use std::thread;
 use std::io::Read;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
-use std::sync::mpsc::{Sender, Receiver};
 
 use log::info;
 use log::error;
 
 use super::cpu;
+use super::gpu;
 use super::cart::CartData;
 use super::memory::init_memory;
 use super::memory::{RomMemory, CpuMemory, GpuMemory};
@@ -32,54 +33,42 @@ pub enum InputEvent {
     SelectPressed,
 }
 
-pub struct EmuInit {
+pub fn initialize() {
 
-    pub cpu: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>),
-    pub gpu: (Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>),
-
-    pub cycles_arc: Arc<Mutex<u16>>,
-    pub input_tx: Sender<InputEvent>,
-    pub input_rx: Receiver<InputEvent>,
-}
-
-
-pub fn initialize(path: &PathBuf) -> EmuInit {
-
-    let rom_data = get_roms_data(&path);
+    let rom_data = load_roms();
     let mem_arcs = init_memory(rom_data);
-    let (tx, rx) = mpsc::channel();
-
-    let gpu_arc = (Arc::clone(&mem_arcs.1), Arc::clone(&mem_arcs.2));
-
-    EmuInit {
-        cpu: (mem_arcs.0, mem_arcs.1, mem_arcs.2),
-        gpu: gpu_arc,
-
-        cycles_arc: Arc::new(Mutex::new(0 as u16)),
-        input_tx: tx,
-        input_rx: rx,
-    }
+    
+    start_emulation(mem_arcs);
 }
 
-pub fn start_emulation(arcs: &EmuInit, input: Receiver<InputEvent>) {
+pub fn start_emulation(arcs: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
         
-    let cpu_cycles = Arc::clone(&arcs.cycles_arc);
-    let cpu_arc = (Arc::clone(&arcs.cpu.0), Arc::clone(&arcs.cpu.1), Arc::clone(&arcs.cpu.2));
+    let cpu_cycles = Arc::new(Mutex::new(0 as u16));
+    let cpu_arc = (Arc::clone(&arcs.0), Arc::clone(&arcs.1), Arc::clone(&arcs.2));
+    let gpu_arc = (Arc::clone(&arcs.1), Arc::clone(&arcs.2));
+    let cycles_gpu = cpu_cycles.clone();
+    let (input_tx, input_rx) = mpsc::channel();
 
-    let _cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        cpu::cpu_loop(cpu_cycles, cpu_arc, input);
+    let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
+        cpu::start_cpu(cpu_cycles, cpu_arc, input_rx);
     }).unwrap();
+
+    let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
+        gpu::start_gpu(cycles_gpu, gpu_arc);
+    }).unwrap();
+
+    cpu_thread.join().unwrap();
 
     info!("Emu: Stopped emulation.");
 }
 
-fn get_roms_data(rom_path: &PathBuf) -> (Vec<u8>, CartData) {
+fn load_roms() -> (Vec<u8>, CartData) {
 
     let bootrom: Vec<u8>;
     let rom: CartData;
     
     bootrom = load_bootrom();
-    rom = load_rom(&rom_path);
+    rom = load_rom();
 
     (bootrom, rom)
 }
@@ -97,9 +86,12 @@ fn load_bootrom() -> Vec<u8> {
     data
 }
 
-fn load_rom(rom_path: &PathBuf) -> CartData {
+fn load_rom() -> CartData {
     
-    let mut rom_file = File::open(rom_path).expect("Loader: Failed to open ROM");
+    let mut path_str = String::new();
+    info!("Loader: Point me to a Gameboy ROM");
+    io::stdin().read_line(&mut path_str).expect("Loader: Failed to read ROM path");
+    let mut rom_file = File::open(PathBuf::from(path_str.trim())).expect("Loader: Failed to open ROM");
     let mut data = Vec::new();
 
     match rom_file.read_to_end(&mut data){

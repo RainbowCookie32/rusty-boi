@@ -2,10 +2,9 @@ mod cpu;
 mod gpu;
 mod cart;
 mod timer;
+mod utils;
 mod memory;
 mod register;
-mod renderer;
-mod utils;
 mod emulator;
 
 mod opcodes;
@@ -20,5 +19,5 @@ fn main() {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     info!("Rusty Boi");
 
-    renderer::init_renderer();
+    emulator::initialize();
 }

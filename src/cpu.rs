@@ -87,7 +87,7 @@ pub enum CycleResult {
     Success,
 }
 
-pub fn cpu_loop(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>), input: Receiver<InputEvent>) {
+pub fn start_cpu(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>), input: Receiver<InputEvent>) {
 
     let mut current_state = CpuState::new();
     let mut timer_state = timer::init_timer();

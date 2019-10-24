@@ -1,6 +1,7 @@
 use std::ops::Neg;
 use std::sync::{Arc, Mutex};
 
+use sdl2;
 use sdl2::rect::Point;
 use sdl2::video::Window;
 use sdl2::pixels::Color;
@@ -157,42 +158,43 @@ impl GpuState {
     }
 }
 
-pub fn gpu_loop(cycles: &Arc<Mutex<u16>>, state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+pub fn start_gpu(cycles: Arc<Mutex<u16>>, memory: (Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
-    let lcdc_stat = memory::gpu_read(0xFF40, &memory);
-    let display_enabled = utils::check_bit(lcdc_stat, 7);
+    let mut gpu_state = GpuState::new();
 
-    {
-        let cyc_mut = cycles.lock().unwrap();
-        state.gpu_cycles = state.gpu_cycles.overflowing_add(*cyc_mut).0;
-    }
-    
-    if display_enabled {
+    let sdl_context = sdl2::init().unwrap();
+    let video_sys = sdl_context.video().unwrap();
+    let game_window = video_sys.window("Rusty Boi - Game", 160 * 3, 144 * 3).position_centered().opengl().resizable().build().unwrap();
+    let mut game_canvas = game_window.into_canvas().build().unwrap();
 
-        if state.gpu_mode == 0 && state.gpu_cycles >= 204 {
-            hblank_mode(state, canvas, &memory);
+    game_canvas.set_scale(3.0, 3.0).unwrap();
+    game_canvas.set_draw_color(Color::RGB(255, 255, 255));
+    game_canvas.clear();
+    game_canvas.present();
+
+    loop {
+        let lcdc = memory::gpu_read(0xFF40, &memory);
+        let display = utils::check_bit(lcdc, 7);
+        
+        {
+            let value = cycles.lock().unwrap();
+            gpu_state.gpu_cycles = gpu_state.gpu_cycles.overflowing_add(*value).0;
         }
-        else if state.gpu_mode == 1 && state.gpu_cycles >= 456 {
-            vblank_mode(state, canvas, &memory);
-        }
-        else if state.gpu_mode == 2 && state.gpu_cycles >= 80 {
-            oam_scan_mode(state, &memory);
-        }
-        else if state.gpu_mode == 3 && state.gpu_cycles >= 172 {
-            lcd_transfer_mode(state, &memory);
-        }
-    }
 
-    let stat_value = memory::gpu_read(0xFF41, memory);
-    let lyc_value = memory::gpu_read(0xFF45, memory);
-
-    if lyc_value == state.line {
-        let new_stat = utils::set_bit(stat_value, 2);
-        memory::gpu_write(0xFF41, new_stat, memory);
-    }
-    else {
-        let new_stat = utils::reset_bit(stat_value, 2);
-        memory::gpu_write(0xFF41, new_stat, memory);
+        if display {
+            if gpu_state.gpu_mode == 0 && gpu_state.gpu_cycles >= 204 {
+                hblank_mode(&mut gpu_state, &mut game_canvas, &memory);
+            }
+            else if gpu_state.gpu_mode == 1 && gpu_state.gpu_cycles >= 456 {
+                vblank_mode(&mut gpu_state, &mut game_canvas, &memory);
+            }
+            else if gpu_state.gpu_mode == 2 && gpu_state.gpu_cycles >= 80 {
+                oam_scan_mode(&mut gpu_state, &memory);
+            }
+            else if gpu_state.gpu_mode == 3 && gpu_state.gpu_cycles >= 172 {
+                lcd_transfer_mode(&mut gpu_state, &memory);
+            }
+        }
     }
 }
 
