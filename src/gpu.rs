@@ -54,6 +54,24 @@ pub struct GpuState {
     pub gpu_cycles: u16,
     pub line: u8,
 
+    pub lcd_enabled: bool,
+
+    pub scroll_x: u8,
+    pub scroll_y: u8,
+
+    pub background_tilemap: (u16, u16),
+    pub background_enabled: bool,
+    
+    pub window_tilemap: (u16, u16),
+    pub window_enabled: bool,
+    pub window_x: u8,
+    pub window_y: u8,
+
+    pub tiles_area: (u16, u16),
+
+    pub big_sprites: bool,
+    pub sprites_enabled: bool,
+
     pub sprites: Vec<SpriteData>,
     pub tile_bank0: Vec<Vec<u8>>,
     pub tile_bank1: Vec<Vec<u8>>,
@@ -76,6 +94,23 @@ impl GpuState {
             gpu_mode: 0,
             gpu_cycles: 0,
             line: 0,
+
+            lcd_enabled: false,
+            scroll_x: 0,
+            scroll_y: 0,
+
+            background_tilemap: (0x9800, 0x9BFF),
+            background_enabled: false,
+
+            window_tilemap: (0x9800, 0x9BFF),
+            window_enabled: false,
+            window_x: 0,
+            window_y: 0,
+
+            tiles_area: (0x8800, 0x97FF),
+
+            big_sprites: false,
+            sprites_enabled: false,
 
             sprites: Vec::new(),
             tile_bank0: vec![vec![0; 64]; 256],
@@ -116,28 +151,14 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
     loop {
 
         check_inputs(&mut event_pump, &input_tx);
-
-        let lcdc = memory::gpu_read(0xFF40, &memory);
-        let display = utils::check_bit(lcdc, 7);
+        update_gpu_values(&mut gpu_state, &memory);
         
         {
             let value = cycles.lock().unwrap();
             gpu_state.gpu_cycles = gpu_state.gpu_cycles.overflowing_add(*value).0;
         }
 
-        {
-            let mut mem = memory.1.lock().unwrap();
-            gpu_state.tiles_dirty_flags = mem.tiles_dirty_flags;
-            gpu_state.sprites_dirty_flags = mem.sprites_dirty_flags;
-            gpu_state.background_dirty_flags = mem.background_dirty_flags;
-            gpu_state.tile_palette_dirty = mem.tile_palette_dirty;
-            gpu_state.sprite_palettes_dirty = mem.sprite_palettes_dirty;
-
-            mem.tile_palette_dirty = false;
-            mem.sprite_palettes_dirty = false;
-        }
-
-        if display {
+        if gpu_state.lcd_enabled {
 
             if gpu_state.tile_palette_dirty {
                 gpu_state.tile_palette = make_palette(memory::gpu_read(0xFF47, &memory));
@@ -167,6 +188,34 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
     }
 }
 
+fn update_gpu_values(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+
+    let lcdc = memory::gpu_read(0xFF40, memory);
+    state.lcd_enabled = utils::check_bit(lcdc, 7);
+    state.window_tilemap = if utils::check_bit(lcdc, 6) {(0x9C00, 0x9FFF)} else {(0x9800, 0x9BFF)};
+    state.window_enabled = utils::check_bit(lcdc, 5);
+    state.tiles_area = if utils::check_bit(lcdc, 4) {(0x8000, 0x8FFF)} else {(0x8800, 0x97FF)};
+    state.background_tilemap = if utils::check_bit(lcdc, 3) {(0x9C00, 0x9FFF)} else {(0x9800, 0x9BFF)};
+    state.big_sprites = utils::check_bit(lcdc, 2);
+    state.sprites_enabled = utils::check_bit(lcdc, 1);
+    state.background_enabled = utils::check_bit(lcdc, 0);
+
+    state.scroll_y = memory::gpu_read(0xFF42, memory);
+    state.scroll_x = memory::gpu_read(0xFF43, memory);
+    state.window_y = memory::gpu_read(0xFF4A, memory);
+    state.window_x = memory::gpu_read(0xFF4B, memory);
+
+    let mut mem = memory.1.lock().unwrap();
+    state.tiles_dirty_flags = mem.tiles_dirty_flags;
+    state.sprites_dirty_flags = mem.sprites_dirty_flags;
+    state.background_dirty_flags = mem.background_dirty_flags;
+    state.tile_palette_dirty = mem.tile_palette_dirty;
+    state.sprite_palettes_dirty = mem.sprite_palettes_dirty;
+
+    mem.tile_palette_dirty = false;
+    mem.sprite_palettes_dirty = false;
+}
+
 // GPU Modes
 
 fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
@@ -177,8 +226,8 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
     stat_value = utils::reset_bit(stat_value, 0);
     memory::gpu_write(0xFF41, stat_value, memory);
 
-    draw(state, canvas, memory);
-    draw_sprites(state, canvas);
+    if state.background_enabled {draw_background(state, canvas)}
+    if state.sprites_enabled {draw_sprites(state, canvas)}
 
     state.gpu_cycles = 0;
     state.line += 1;
@@ -273,10 +322,10 @@ fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<
 }
 
 // Drawing to screen.
-fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn draw_background(state: &mut GpuState, canvas: &mut Canvas<Window>) {
 
-    let scroll_x = (memory::gpu_read(0xFF43, memory) as i32).neg();
-    let scroll_y = (memory::gpu_read(0xFF42, memory) as i32).neg();
+    let scroll_x = (state.scroll_x as i32).neg();
+    let scroll_y = (state.scroll_y as i32).neg();
     let mut point_idx: u16 = 0;
 
     // Index offset for the points array in case the current line is not 0.
