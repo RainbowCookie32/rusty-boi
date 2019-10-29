@@ -82,8 +82,10 @@ impl GpuState {
             tile_bank1: vec![vec![0; 64]; 256],
             background_points: vec![0; 65536],
 
-            tile_palette: vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)],
-            sprites_palettes: vec![vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)]; 2],
+            tile_palette: vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255), 
+            Color::RGBA(0, 0, 0, 255)],
+            sprites_palettes: vec![vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255), 
+            Color::RGBA(0, 0, 0, 255)]; 2],
             tile_palette_dirty: false,
             sprite_palettes_dirty: false,
 
@@ -406,7 +408,8 @@ fn make_sprite(state: &mut GpuState, creator: &TextureCreator<WindowContext>, by
     let mut color_idx: usize = 0;
     let mut sprite_colors: Vec<Color> = vec![Color::RGB(255, 255, 255); 64];
 
-    let mut new_sprite: Texture = creator.create_texture_streaming(PixelFormatEnum::RGB24, 8, 8).unwrap();
+    let mut new_sprite: Texture = creator.create_texture_streaming(PixelFormatEnum::RGBA32, 8, 8).unwrap();
+    new_sprite.set_blend_mode(sdl2::render::BlendMode::Blend);
 
     for color in tile_data.iter() {
         // Get the color from the palette used by the sprite.
@@ -420,12 +423,12 @@ fn make_sprite(state: &mut GpuState, creator: &TextureCreator<WindowContext>, by
     new_sprite.with_lock(None, |buffer: &mut [u8], pitch: usize| {
         for y in 0..8 {
             for x in 0..8 {
-                let offset = y*pitch + x*3;
+                let offset = y*pitch + x*4;
                 // Set each color channel for the sprite texture from the palette.
-                // TODO: Gotta find a way to do transparency for white.
                 buffer[offset] = sprite_colors[color_idx].r;
                 buffer[offset + 1] = sprite_colors[color_idx].g;
                 buffer[offset + 2] = sprite_colors[color_idx].b;
+                buffer[offset + 3] = sprite_colors[color_idx].a;
                 color_idx += 1;
             }
         }
@@ -521,55 +524,55 @@ fn make_palette(value: u8) -> Vec<Color> {
     let color_3 = (utils::check_bit(value, 6), utils::check_bit(value, 7));
 
     if color_0.0 && color_0.1 {
-        result[0] = Color::RGB(0, 0, 0);
+        result[0] = Color::RGBA(0, 0, 0, 255);
     }
     else if color_0.0 && !color_0.1 {
-        result[0] = Color::RGB(96, 96, 96);
+        result[0] = Color::RGBA(96, 96, 96, 255);
     }
     else if !color_0.0 && color_0.1 {
-        result[0] = Color::RGB(192, 192, 192);
+        result[0] = Color::RGBA(192, 192, 192, 255);
     }
     else if !color_0.0 && !color_0.1 {
-        result[0] = Color::RGB(255, 255, 255);
+        result[0] = Color::RGBA(255, 255, 255, 0);
     }
 
     if color_1.0 && color_1.1 {
-        result[1] = Color::RGB(0, 0, 0);
+        result[1] = Color::RGBA(0, 0, 0, 255);
     }
     else if color_1.0 && !color_1.1 {
-        result[1] = Color::RGB(96, 96, 96);
+        result[1] = Color::RGBA(96, 96, 96, 255);
     }
     else if !color_1.0 && color_1.1 {
-        result[1] = Color::RGB(192, 192, 192);
+        result[1] = Color::RGBA(192, 192, 192, 255);
     }
     else if !color_1.0 && !color_1.1 {
-        result[1] = Color::RGB(255, 255, 255);
+        result[1] = Color::RGBA(255, 255, 255, 0);
     }
 
     if color_2.0 && color_2.1 {
-        result[2] = Color::RGB(0, 0, 0);
+        result[2] = Color::RGBA(0, 0, 0, 255);
     }
     else if color_2.0 && !color_2.1 {
-        result[2] = Color::RGB(96, 96, 96);
+        result[2] = Color::RGBA(96, 96, 96, 255);
     }
     else if !color_2.0 && color_2.1 {
-        result[2] = Color::RGB(192, 192, 192);
+        result[2] = Color::RGBA(192, 192, 192, 255);
     }
     else if !color_2.0 && !color_2.1 {
-        result[2] = Color::RGB(255, 255, 255);
+        result[2] = Color::RGBA(255, 255, 255, 0);
     }
 
     if color_3.0 && color_3.1 {
-        result[3] = Color::RGB(0, 0, 0);
+        result[3] = Color::RGBA(0, 0, 0, 255);
     }
     else if color_3.0 && !color_3.1 {
-        result[3] = Color::RGB(96, 96, 96);
+        result[3] = Color::RGBA(96, 96, 96, 255);
     }
     else if !color_3.0 && color_3.1 {
-        result[3] = Color::RGB(192, 192, 192);
+        result[3] = Color::RGBA(192, 192, 192, 255);
     }
     else if !color_3.0 && !color_3.1 {
-        result[3] = Color::RGB(255, 255, 255);
+        result[3] = Color::RGBA(255, 255, 255, 0);
     }
 
     result
