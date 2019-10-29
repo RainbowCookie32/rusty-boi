@@ -5,45 +5,45 @@ use std::sync::{Arc, Mutex};
 use log::error;
 
 use sdl2;
+
+use sdl2::rect::Rect;
 use sdl2::rect::Point;
+
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+
 use sdl2::video::Window;
+use sdl2::video::WindowContext;
+
 use sdl2::pixels::Color;
+use sdl2::pixels::PixelFormatEnum;
+
 use sdl2::render::Canvas;
+use sdl2::render::Texture;
+use sdl2::render::TextureCreator;
 
 use super::utils;
 use super::memory;
 use super::emulator::InputEvent;
 use super::memory::{CpuMemory, GpuMemory};
 
-#[derive(Clone)]
+
 pub struct SpriteData {
     pub x: u8,
     pub y: u8,
-    pub data: Vec<u8>,
-    pub palette: bool,
-    pub priority: bool,
+    pub data: Texture,
+    pub flip_x: bool,
+    pub flip_y: bool,
 }
 
 impl SpriteData {
-    pub fn new(coords: (u8, u8), palette_id: bool, priority: bool, data: Vec<u8>) -> SpriteData {
+    pub fn new(coords: (u8, u8), flip: (bool, bool), data: Texture) -> SpriteData {
         SpriteData {
             x: coords.0,
             y: coords.1,
             data: data,
-            palette: palette_id,
-            priority: priority,
-        }
-    }
-
-    pub fn new_empty() -> SpriteData {
-        SpriteData {
-            x: 0,
-            y: 0,
-            data: vec![0; 64],
-            palette: false,
-            priority: false,
+            flip_x: flip.0,
+            flip_y: flip.1,
         }
     }
 }
@@ -63,9 +63,9 @@ pub struct GpuState {
     pub palette1: Vec<Color>,
     pub palette2: Vec<Color>,
 
-    pub bg_dirty: bool,
-    pub oam_dirty: bool,
-    pub tiles_dirty: bool,
+    pub tiles_dirty_flags: u8,
+    pub sprites_dirty_flags: u8,
+    pub background_dirty_flags: u8,
 }
 
 impl GpuState {
@@ -76,7 +76,7 @@ impl GpuState {
             gpu_cycles: 0,
             line: 0,
 
-            sprites: vec![SpriteData::new_empty(); 40],
+            sprites: Vec::new(),
             tile_bank0: vec![vec![0; 64]; 256],
             tile_bank1: vec![vec![0; 64]; 256],
             background_points: vec![0; 65536],
@@ -85,9 +85,9 @@ impl GpuState {
             palette1: vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)],
             palette2: vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)],
 
-            bg_dirty: false,
-            oam_dirty: false,
-            tiles_dirty: false,
+            tiles_dirty_flags: 0,
+            sprites_dirty_flags: 0,
+            background_dirty_flags: 0,
         }
     }
 }
@@ -100,6 +100,7 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
     let video_sys = sdl_context.video().unwrap();
     let game_window = video_sys.window("Rusty Boi - Game", 160 * 3, 144 * 3).position_centered().opengl().resizable().build().unwrap();
     let mut game_canvas = game_window.into_canvas().build().unwrap();
+    let creator = game_canvas.texture_creator();
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
@@ -120,6 +121,13 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
             gpu_state.gpu_cycles = gpu_state.gpu_cycles.overflowing_add(*value).0;
         }
 
+        {
+            let mem = memory.1.lock().unwrap();
+            gpu_state.tiles_dirty_flags = mem.tiles_dirty_flags;
+            gpu_state.sprites_dirty_flags = mem.sprites_dirty_flags;
+            gpu_state.background_dirty_flags = mem.background_dirty_flags;
+        }
+
         if display {
             if gpu_state.gpu_mode == 0 && gpu_state.gpu_cycles >= 204 {
                 hblank_mode(&mut gpu_state, &mut game_canvas, &memory);
@@ -128,7 +136,7 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
                 vblank_mode(&mut gpu_state, &mut game_canvas, &memory);
             }
             else if gpu_state.gpu_mode == 2 && gpu_state.gpu_cycles >= 80 {
-                oam_scan_mode(&mut gpu_state, &memory);
+                oam_scan_mode(&mut gpu_state, &creator, &memory);
             }
             else if gpu_state.gpu_mode == 3 && gpu_state.gpu_cycles >= 172 {
                 lcd_transfer_mode(&mut gpu_state, &memory);
@@ -156,7 +164,6 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
     
     if state.line == 144 {
         state.gpu_mode = 1;
-        // This function takes a long time to do its thing.
         canvas.present();
     }
 
@@ -187,12 +194,12 @@ fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
         state.gpu_mode = 2;
         state.line = 0;
 
-        memory::gpu_write(0xFF44, 1, memory);
         canvas.clear();
+        memory::gpu_write(0xFF44, 1, memory);
     }
 }
 
-fn oam_scan_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut stat_value = memory::gpu_read(0xFF41, memory);
 
@@ -201,8 +208,13 @@ fn oam_scan_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mute
     stat_value = utils::set_bit(stat_value, 1);
     stat_value = utils::reset_bit(stat_value, 0);
     memory::gpu_write(0xFF41, stat_value, memory);
-
-    make_sprites(state, memory);
+    
+    if state.sprites_dirty_flags > 0 {
+        make_sprites(state, creator, memory);
+        state.sprites_dirty_flags -= 1;
+        let mut mem = memory.1.lock().unwrap();
+        mem.sprites_dirty_flags = mem.sprites_dirty_flags.wrapping_sub(1);
+    }
 
     if utils::check_bit(stat_value, 5) {
 
@@ -222,27 +234,19 @@ fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<
     state.gpu_cycles = 0;
     state.gpu_mode = 0;
 
-    {
-        let mut mem = memory.1.lock().unwrap();
-        state.bg_dirty = mem.background_dirty;
-        state.oam_dirty = mem.oam_dirty;
-        state.tiles_dirty = mem.tiles_dirty;
-
-        mem.background_dirty = false;
-        mem.oam_dirty = false;
-        mem.tiles_dirty = false;
-    }
-
-    if state.tiles_dirty {
+    if state.tiles_dirty_flags > 0 {
         make_tiles(state, 0, memory);
         make_tiles(state, 1, memory);
-        state.tiles_dirty = false;
-        state.bg_dirty = true;
+        state.tiles_dirty_flags -= 1;
+        let mut mem = memory.1.lock().unwrap();
+        mem.tiles_dirty_flags = mem.tiles_dirty_flags.wrapping_sub(1);
     }
 
-    if state.bg_dirty {
+    if state.background_dirty_flags > 1 {
         make_background(state, memory);
-        state.bg_dirty = false;
+        state.background_dirty_flags -= 1;
+        let mut mem = memory.1.lock().unwrap();
+        mem.background_dirty_flags = mem.background_dirty_flags.wrapping_sub(1);
     }
 }
 
@@ -274,33 +278,9 @@ fn draw_sprites(state: &mut GpuState, canvas: &mut Canvas<Window>) {
 
     for sprite in state.sprites.iter() {
 
-        if sprite.x > 0 && sprite.x < 170 && sprite.y > 16 && sprite.y < 160 {
-
-            let initial_x = sprite.x.wrapping_sub(8);
-            let initial_y = sprite.y.wrapping_sub(16);
-            
-            let mut drawn_points: usize = 0;
-            let mut target_x = initial_x;
-            let mut target_y = initial_y;
-
-            while drawn_points < 64 {
-
-                let point = Point::new(target_x as i32, target_y as i32);
-                let color = state.palette1[sprite.data[drawn_points] as usize];
-                canvas.set_draw_color(color);
-                canvas.draw_point(point).unwrap();
-
-                drawn_points += 1;
-
-                if target_x >= initial_x.wrapping_add(7) {
-                    target_x = initial_x;
-                    target_y = target_y.wrapping_add(1);
-                }
-                else {
-                    target_x = target_x.wrapping_add(1);
-                }
-            }
-        }
+        let target_x = sprite.x.wrapping_sub(8) as i32;
+        let target_y = sprite.y.wrapping_sub(16) as i32;
+        canvas.copy_ex(&sprite.data, None, Rect::new(target_x, target_y, 8, 8), 0.0, None, sprite.flip_x, sprite.flip_y).unwrap();
     }
 }
 
@@ -363,10 +343,12 @@ fn make_tile(bytes: &Vec<u8>) -> Vec<u8> {
     generated_tile
 }
 
-fn make_sprites(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn make_sprites(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut current_address = 0xFE00;
     let mut generated_sprites: usize = 0;
+    let mut sprites_idx = 0;
+    let mut sprites: Vec<SpriteData> = Vec::new();
 
     while generated_sprites < 40 {
 
@@ -379,73 +361,71 @@ fn make_sprites(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex
             loaded_bytes += 1;
         }
 
-        state.sprites[generated_sprites] = make_sprite(state, &sprite_bytes);
+        // Ignore the sprite if it's outside of the screen.
+        if sprite_bytes[0] > 8 && sprite_bytes[1] > 0 {
+            let new_tile = make_sprite(state, creator, &sprite_bytes);
+            sprites.insert(sprites_idx, new_tile);
+            sprites_idx += 1;
+        }
+
         generated_sprites += 1;
     }
+
+    state.sprites = sprites;
 }
 
-fn make_sprite(state: &mut GpuState, bytes: &Vec<u8>) -> SpriteData {
+fn make_sprite(state: &mut GpuState, creator: &TextureCreator<WindowContext>, bytes: &Vec<u8>) -> SpriteData {
 
     let position_x = bytes[1];
     let position_y = bytes[0];
     let tile_id = bytes[2];
-    let priority = utils::check_bit(bytes[3], 7);
+    let _priority = utils::check_bit(bytes[3], 7);
     let flip_y = utils::check_bit(bytes[3], 6);
     let flip_x = utils::check_bit(bytes[3], 5);
-    let palette_id = utils::check_bit(bytes[3], 4);
-    let tile_data = state.tile_bank0[tile_id as usize].clone();
+    let _palette_id = utils::check_bit(bytes[3], 4);
+    let tile_data = &state.tile_bank0[tile_id as usize];
 
-    let mut generated_data: Vec<u8> = Vec::new();
+    let mut color_idx: usize = 0;
+    let mut sprite_colors: Vec<u8> = vec![0; 64];
 
-    if !flip_x && !flip_y {
+    let mut new_sprite: Texture = creator.create_texture_streaming(PixelFormatEnum::RGB24, 8, 8).unwrap();
 
-        generated_data = tile_data;
-    }
-    else if flip_x && flip_y {
-        
-        let mut tile_idx: usize = 63;
-        let mut sprite_index: usize = 0;
-
-        while sprite_index < 64 {
-            generated_data.insert(sprite_index, tile_data[tile_idx]);
-            tile_idx -= 1;
-            sprite_index += 1;
+    for color in tile_data.iter() {
+        let sprite_color: u8;
+        if *color == 0 {
+            sprite_color = 255;
         }
+        else if *color == 1 {
+            sprite_color = 192;
+        }
+        else if *color == 2 {
+            sprite_color = 96;
+        }
+        else if *color == 3 {
+            sprite_color = 0;
+        }
+        else {
+            sprite_color = 255;
+        }
+        sprite_colors[color_idx] = sprite_color;
+        color_idx += 1;
     }
-    else if flip_x {
-        
-        let mut lines = 0;
-        let mut tile_idx: usize = 7;
-        let mut sprite_index: usize = 0;
 
-        while sprite_index < 64 {
-            generated_data.insert(sprite_index, tile_data[tile_idx]);
-            
-            if tile_idx == 0 {
-                lines += 1;
-                tile_idx = 8 * lines;
+    color_idx = 0;
+
+    new_sprite.with_lock(None, |buffer: &mut [u8], pitch: usize| {
+        for y in 0..8 {
+            for x in 0..8 {
+                let offset = y*pitch + x*3;
+                buffer[offset] = sprite_colors[color_idx];
+                buffer[offset + 1] = sprite_colors[color_idx];
+                buffer[offset + 2] = sprite_colors[color_idx];
+                color_idx += 1;
             }
-            else {
-                tile_idx -= 1;
-            }
-            sprite_index += 1;
         }
-    }
-    else if flip_y {
-        
-        let mut line = 7;
-        let mut sprite_index: usize = 0;
+    }).unwrap();
 
-        while sprite_index < 64 {
-            let tile_idx = (8 * line) - 8;
-            generated_data.insert(sprite_index, tile_data[tile_idx]);
-
-            line -= 1;
-            sprite_index += 1;
-        }
-    }
-
-    SpriteData::new((position_x, position_y), palette_id, priority, generated_data)
+    SpriteData::new((position_x, position_y), (flip_x, flip_y), new_sprite)
 }
 
 fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {

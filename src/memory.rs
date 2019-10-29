@@ -29,9 +29,9 @@ pub struct GpuMemory {
     pub bg_map: Vec<u8>,
     pub oam_mem: Vec<u8>,
 
-    pub oam_dirty: bool,
-    pub tiles_dirty: bool,
-    pub background_dirty: bool,
+    pub tiles_dirty_flags: u8,
+    pub sprites_dirty_flags: u8,
+    pub background_dirty_flags: u8,
 }
 
 pub fn init_memory(data: (Vec<u8>, CartData)) -> (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>) {
@@ -59,9 +59,9 @@ pub fn init_memory(data: (Vec<u8>, CartData)) -> (Arc<Mutex<RomMemory>>, Arc<Mut
         bg_map: vec![0; 2048],
         oam_mem: vec![0; 160],
 
-        oam_dirty: false,
-        tiles_dirty: false,
-        background_dirty: false,
+        tiles_dirty_flags: 0,
+        sprites_dirty_flags: 0,
+        background_dirty_flags: 0,
     };
 
     (Arc::new(Mutex::new(rom_memory)), Arc::new(Mutex::new(cpu_memory)), Arc::new(Mutex::new(gpu_memory)))
@@ -150,13 +150,19 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
     else if address >= 0x8000 && address <= 0x97FF
     {
         let mut mem = memory.2.lock().unwrap();
-        mem.tiles_dirty = mem.char_ram[(address - 0x8000) as usize] != value;
+        if mem.char_ram[(address - 0x8000) as usize] != value {
+            mem.tiles_dirty_flags = mem.tiles_dirty_flags.wrapping_add(1);
+            mem.sprites_dirty_flags = mem.sprites_dirty_flags.wrapping_add(1);
+            mem.background_dirty_flags = mem.background_dirty_flags.wrapping_add(1);
+        }
         mem.char_ram[(address - 0x8000) as usize] = value;
     }
     else if address >= 0x9800 && address <= 0x9FFF
     {
         let mut mem = memory.2.lock().unwrap();
-        mem.background_dirty = mem.bg_map[(address - 0x9800) as usize] != value;
+        if mem.bg_map[(address - 0x9800) as usize] != value {
+            mem.background_dirty_flags = mem.background_dirty_flags.wrapping_add(1);
+        }
         mem.bg_map[(address - 0x9800) as usize] = value;
     }
     else if address >= 0xA000 && address <= 0xBFFF 
@@ -180,7 +186,9 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
         let mut mem = memory.2.lock().unwrap();
-        mem.oam_dirty = mem.oam_mem[(address - 0xFE00) as usize] != value;
+        if mem.oam_mem[(address - 0xFE00) as usize] != value {
+            mem.sprites_dirty_flags = mem.sprites_dirty_flags.wrapping_add(1);
+        }
         mem.oam_mem[(address - 0xFE00) as usize] = value;
     }
     else if address >= 0xFEA0 && address <= 0xFEFF
@@ -193,7 +201,6 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
             do_dma_transfer(value, memory);
         }
         else {
-            let mut mem = memory.1.lock().unwrap();
 
             // Basically here to print the output of tests.
             // Holds the values stored in FF01 until a line break, then prints them.
@@ -202,6 +209,7 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
 
                     let mut idx: usize = 0;
                     let mut new_string = String::from("");
+                    let mut mem = memory.1.lock().unwrap();
                     while idx < mem.serial_buffer.len() {
                         new_string.push(mem.serial_buffer[idx] as char);
                         idx += 1;
@@ -211,15 +219,18 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
                     mem.serial_buffer = Vec::new();
                 }
                 else {
+                    let mut mem = memory.1.lock().unwrap();
                     mem.serial_buffer.push(value);
                 }
             }
             // According to the docs, writing any value to DIV (FF04) ot LY (FF44) from the CPU
             // resets the value back to 0, so check if it's either of those before writing.
             else if address == 0xFF04 || address == 0xFF44 {
+                let mut mem = memory.1.lock().unwrap();
                 mem.io_regs[(address - 0xFF00) as usize] = 0;
             }
             else {
+                let mut mem = memory.1.lock().unwrap();
                 mem.io_regs[(address - 0xFF00) as usize] = value;
             }
         }
