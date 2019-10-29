@@ -124,23 +124,29 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
         }
 
         {
-            let mem = memory.1.lock().unwrap();
+            let mut mem = memory.1.lock().unwrap();
             gpu_state.tiles_dirty_flags = mem.tiles_dirty_flags;
             gpu_state.sprites_dirty_flags = mem.sprites_dirty_flags;
             gpu_state.background_dirty_flags = mem.background_dirty_flags;
             gpu_state.tile_palette_dirty = mem.tile_palette_dirty;
             gpu_state.sprite_palettes_dirty = mem.sprite_palettes_dirty;
+
+            mem.tile_palette_dirty = false;
+            mem.sprite_palettes_dirty = false;
         }
 
         if display {
 
             if gpu_state.tile_palette_dirty {
                 gpu_state.tile_palette = make_palette(memory::gpu_read(0xFF47, &memory));
+                gpu_state.tile_palette_dirty = false;
             }
             if gpu_state.sprite_palettes_dirty {
                 gpu_state.sprites_palettes[0] = make_palette(memory::gpu_read(0xFF48, &memory));
                 gpu_state.sprites_palettes[1] = make_palette(memory::gpu_read(0xFF49, &memory));
-                gpu_state.tiles_dirty_flags = gpu_state.tiles_dirty_flags.wrapping_add(1);
+                // Regenerate the sprites cache after modifying the palettes.
+                gpu_state.sprites_dirty_flags = gpu_state.sprites_dirty_flags.wrapping_add(1);
+                gpu_state.sprite_palettes_dirty = false;
             }
 
             if gpu_state.gpu_mode == 0 && gpu_state.gpu_cycles >= 204 {
@@ -270,21 +276,19 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<C
     let scroll_x = (memory::gpu_read(0xFF43, memory) as i32).neg();
     let scroll_y = (memory::gpu_read(0xFF42, memory) as i32).neg();
     let mut point_idx: u16 = 0;
-    let mut drawn_pixels: u16 = 0;
 
     // Index offset for the points array in case the current line is not 0.
     point_idx += 256 * state.line as u16;
 
     // Draw a whole line from the background map.
-    while drawn_pixels < 256 {
+    for point in 0..256 {
 
         let color = state.tile_palette[state.background_points[point_idx as usize] as usize];
-        let final_point = Point::new(drawn_pixels as i32 + scroll_x, state.line as i32 + scroll_y);
+        let final_point = Point::new(point + scroll_x, state.line as i32 + scroll_y);
 
         canvas.set_draw_color(color);
         canvas.draw_point(final_point).unwrap();
         point_idx += 1;
-        drawn_pixels += 1;
     }
 }
 
@@ -298,7 +302,7 @@ fn draw_sprites(state: &mut GpuState, canvas: &mut Canvas<Window>) {
     }
 }
 
-// Tile and Background cache generation
+// Tile, Sprites, and Background cache generation.
 
 fn make_tiles(state: &mut GpuState, target_bank: u8, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
@@ -418,6 +422,7 @@ fn make_sprite(state: &mut GpuState, creator: &TextureCreator<WindowContext>, by
             for x in 0..8 {
                 let offset = y*pitch + x*3;
                 // Set each color channel for the sprite texture from the palette.
+                // TODO: Gotta find a way to do transparency for white.
                 buffer[offset] = sprite_colors[color_idx].r;
                 buffer[offset + 1] = sprite_colors[color_idx].g;
                 buffer[offset + 2] = sprite_colors[color_idx].b;
