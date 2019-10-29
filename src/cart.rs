@@ -1,5 +1,11 @@
-use log::warn;
+use log::{error, warn, info};
 
+use std::io;
+use std::fs;
+use std::path;
+use std::fs::File;
+use std::io::Read;
+use std::io::Write;
 use std::iter::FromIterator;
 
 
@@ -21,6 +27,8 @@ pub struct CartData {
     
     rom_banks: Vec<Vec<u8>>,
     ram_banks: Vec<Vec<u8>>,
+
+    rom_title: String,
     
     has_ram: bool,
     ram_enabled: bool,
@@ -36,6 +44,8 @@ pub struct CartData {
 impl CartData {
 
     pub fn new(data: Vec<u8>) -> CartData {
+
+        let title = (String::from_utf8(data[308..323].to_vec()).unwrap().trim_matches(char::from(0))).to_string().to_lowercase();
 
         let cart_type = match data[0x0147] {
 
@@ -72,9 +82,26 @@ impl CartData {
             _ => 0,
         };
 
-        let ram_banks: Vec<Vec<u8>> = vec![vec![0; 8192]; ram_size];
+        let ram_path = path::PathBuf::from(format!("saved_ram/{}.rr", title));
+        let mut ram_banks: Vec<Vec<u8>> = vec![vec![0; 8192]; ram_size];
 
-        let mut loaded_banks: usize = 0;
+        if ram_path.exists() {
+
+            info!("Cart: RAM file found at {:#?}, loading.", ram_path);
+            let mut ram_contents: Vec<u8> = Vec::new();
+            let mut ram_file = File::open(ram_path).unwrap();
+            let mut loaded_banks = 0;
+
+            ram_file.read_to_end(&mut ram_contents).unwrap();
+
+            while loaded_banks < ram_size {
+                let bank = Vec::from_iter(ram_contents[8192 * loaded_banks..(8192 * loaded_banks) + 8192].iter().cloned());
+                ram_banks[loaded_banks] = bank;
+                loaded_banks += 1;
+            }
+        }
+
+        let mut loaded_banks = 0;
         let mut rom_banks: Vec<Vec<u8>> = vec![Vec::new(); rom_size];
 
         while loaded_banks < rom_size {
@@ -87,6 +114,7 @@ impl CartData {
         CartData {
             rom_banks: rom_banks,
             ram_banks: ram_banks,
+            rom_title: title,
             has_ram: ram_size > 0,
             ram_enabled: false,
             selected_rom_bank: 1,
@@ -162,6 +190,8 @@ impl CartData {
                 match result {
                     Some(bank) => {
                         bank[(address - 0xA000) as usize] = value;
+                        // TODO: Check if the cart has battery before saving.
+                        self.save_cart_ram();
                     }
                     None => warn!("Memory: Selected RAM Bank is out of bounds, ignoring write"),
                 }
@@ -220,10 +250,31 @@ impl CartData {
                 match result {
                     Some(bank) => {
                         bank[(address - 0xA000) as usize] = value;
+                        // TODO: Check if the cart has battery before saving.
+                        self.save_cart_ram();
                     }
                     None => warn!("Memory: Selected RAM Bank is out of bounds, ignoring write"),
                 }
             }
         }
+    }
+
+    fn save_cart_ram(&mut self) {
+        let path = format!("saved_ram/{}.rr", self.rom_title);
+        let mut ram: Vec<u8> = Vec::new();
+
+        for bank in self.ram_banks.iter_mut() {
+            let mut cloned_bank = bank.clone();
+            ram.append(&mut cloned_bank);
+        }
+        match fs::create_dir("saved_ram") {
+            Ok(_) => {},
+            Err(error) => match error.kind() {
+                io::ErrorKind::AlreadyExists => {},
+                _ => error!("Failed to create directory for cart RAM, error: {}", error),
+            }
+        };
+        let mut file = File::create(path).unwrap();
+        file.write_all(&ram).unwrap();
     }
 }
