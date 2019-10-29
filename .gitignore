@@ -13,4 +13,5 @@ Cargo.lock
 
 *.o
 *.gb
+*.rr
 imgui.ini
