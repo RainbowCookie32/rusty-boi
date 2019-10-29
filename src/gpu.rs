@@ -349,7 +349,8 @@ fn draw_sprites(state: &mut GpuState, canvas: &mut Canvas<Window>) {
 
         let target_x = sprite.x.wrapping_sub(8) as i32;
         let target_y = sprite.y.wrapping_sub(16) as i32;
-        canvas.copy_ex(&sprite.data, None, Rect::new(target_x, target_y, 8, 8), 0.0, None, sprite.flip_x, sprite.flip_y).unwrap();
+        let y_size = if state.big_sprites {16} else {8};
+        canvas.copy_ex(&sprite.data, None, Rect::new(target_x, target_y, 8, y_size), 0.0, None, sprite.flip_x, sprite.flip_y).unwrap();
     }
 }
 
@@ -452,36 +453,83 @@ fn make_sprite(state: &mut GpuState, creator: &TextureCreator<WindowContext>, by
     let flip_y = utils::check_bit(bytes[3], 6);
     let flip_x = utils::check_bit(bytes[3], 5);
     let palette_id = if utils::check_bit(bytes[3], 4) {1} else {0};
-    let tile_data = &state.tile_bank0[tile_id as usize];
+    let y_size = if state.big_sprites {16} else {8};
 
-    let mut color_idx: usize = 0;
-    let mut sprite_colors: Vec<Color> = vec![Color::RGB(255, 255, 255); 64];
-
-    let mut new_sprite: Texture = creator.create_texture_streaming(PixelFormatEnum::RGBA32, 8, 8).unwrap();
+    let mut new_sprite: Texture = creator.create_texture_streaming(PixelFormatEnum::RGBA32, 8, y_size).unwrap();
     new_sprite.set_blend_mode(sdl2::render::BlendMode::Blend);
 
-    for color in tile_data.iter() {
-        // Get the color from the palette used by the sprite.
-        let sprite_color = state.sprites_palettes[palette_id][*color as usize];
-        sprite_colors[color_idx] = sprite_color;
-        color_idx += 1;
-    }
+    if y_size == 16 {
 
-    color_idx = 0;
+        let mut tile = tile_id & 0xFE;
+        let mut color_idx: usize = 0;
+        let mut tile_data = &state.tile_bank0[tile as usize];
+        let mut sprite_colors: Vec<Color> = vec![Color::RGB(255, 255, 255); 128];
 
-    new_sprite.with_lock(None, |buffer: &mut [u8], pitch: usize| {
-        for y in 0..8 {
-            for x in 0..8 {
-                let offset = y*pitch + x*4;
-                // Set each color channel for the sprite texture from the palette.
-                buffer[offset] = sprite_colors[color_idx].r;
-                buffer[offset + 1] = sprite_colors[color_idx].g;
-                buffer[offset + 2] = sprite_colors[color_idx].b;
-                buffer[offset + 3] = sprite_colors[color_idx].a;
-                color_idx += 1;
-            }
+        for color in tile_data.iter() {
+
+            // Get the color from the palette used by the sprite.
+            let sprite_color = state.sprites_palettes[palette_id][*color as usize];
+            sprite_colors[color_idx] = sprite_color;
+            color_idx += 1;
         }
-    }).unwrap();
+
+        tile = tile_id | 0x01;
+        tile_data = &state.tile_bank0[tile as usize];
+
+        for color in tile_data.iter() {
+
+            // Get the color from the palette used by the sprite.
+            let sprite_color = state.sprites_palettes[palette_id][*color as usize];
+            sprite_colors[color_idx] = sprite_color;
+            color_idx += 1;
+        }
+
+        color_idx = 0;
+
+        new_sprite.with_lock(None, |buffer: &mut [u8], pitch: usize| {
+            for y in 0..16 {
+                for x in 0..8 {
+                    let offset = y*pitch + x*4;
+                    // Set each color channel for the sprite texture from the palette.
+                    buffer[offset] = sprite_colors[color_idx].r;
+                    buffer[offset + 1] = sprite_colors[color_idx].g;
+                    buffer[offset + 2] = sprite_colors[color_idx].b;
+                    buffer[offset + 3] = sprite_colors[color_idx].a;
+                    color_idx += 1;
+                }
+            }
+        }).unwrap();
+    }
+    else {
+        
+        let mut color_idx: usize = 0;
+        let tile_data = &state.tile_bank0[tile_id as usize];
+        let mut sprite_colors: Vec<Color> = vec![Color::RGB(255, 255, 255); 64];
+
+        for color in tile_data.iter() {
+
+            // Get the color from the palette used by the sprite.
+            let sprite_color = state.sprites_palettes[palette_id][*color as usize];
+            sprite_colors[color_idx] = sprite_color;
+            color_idx += 1;
+        }
+
+        color_idx = 0;
+
+        new_sprite.with_lock(None, |buffer: &mut [u8], pitch: usize| {
+            for y in 0..8 {
+                for x in 0..8 {
+                    let offset = y*pitch + x*4;
+                    // Set each color channel for the sprite texture from the palette.
+                    buffer[offset] = sprite_colors[color_idx].r;
+                    buffer[offset + 1] = sprite_colors[color_idx].g;
+                    buffer[offset + 2] = sprite_colors[color_idx].b;
+                    buffer[offset + 3] = sprite_colors[color_idx].a;
+                    color_idx += 1;
+                }
+            }
+        }).unwrap();
+    }
 
     SpriteData::new((position_x, position_y), (flip_x, flip_y), new_sprite)
 }
