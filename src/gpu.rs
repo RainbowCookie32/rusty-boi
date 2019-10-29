@@ -59,9 +59,10 @@ pub struct GpuState {
     pub tile_bank1: Vec<Vec<u8>>,
     pub background_points: Vec<u8>,
 
-    pub palette0: Vec<Color>,
-    pub palette1: Vec<Color>,
-    pub palette2: Vec<Color>,
+    pub tile_palette: Vec<Color>,
+    pub sprites_palettes: Vec<Vec<Color>>,
+    pub tile_palette_dirty: bool,
+    pub sprite_palettes_dirty: bool,
 
     pub tiles_dirty_flags: u8,
     pub sprites_dirty_flags: u8,
@@ -81,9 +82,10 @@ impl GpuState {
             tile_bank1: vec![vec![0; 64]; 256],
             background_points: vec![0; 65536],
 
-            palette0: vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)],
-            palette1: vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)],
-            palette2: vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)],
+            tile_palette: vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)],
+            sprites_palettes: vec![vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)]; 2],
+            tile_palette_dirty: false,
+            sprite_palettes_dirty: false,
 
             tiles_dirty_flags: 0,
             sprites_dirty_flags: 0,
@@ -126,9 +128,21 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
             gpu_state.tiles_dirty_flags = mem.tiles_dirty_flags;
             gpu_state.sprites_dirty_flags = mem.sprites_dirty_flags;
             gpu_state.background_dirty_flags = mem.background_dirty_flags;
+            gpu_state.tile_palette_dirty = mem.tile_palette_dirty;
+            gpu_state.sprite_palettes_dirty = mem.sprite_palettes_dirty;
         }
 
         if display {
+
+            if gpu_state.tile_palette_dirty {
+                gpu_state.tile_palette = make_palette(memory::gpu_read(0xFF47, &memory));
+            }
+            if gpu_state.sprite_palettes_dirty {
+                gpu_state.sprites_palettes[0] = make_palette(memory::gpu_read(0xFF48, &memory));
+                gpu_state.sprites_palettes[1] = make_palette(memory::gpu_read(0xFF49, &memory));
+                gpu_state.tiles_dirty_flags = gpu_state.tiles_dirty_flags.wrapping_add(1);
+            }
+
             if gpu_state.gpu_mode == 0 && gpu_state.gpu_cycles >= 204 {
                 hblank_mode(&mut gpu_state, &mut game_canvas, &memory);
             }
@@ -264,7 +278,7 @@ fn draw(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<C
     // Draw a whole line from the background map.
     while drawn_pixels < 256 {
 
-        let color = state.palette0[state.background_points[point_idx as usize] as usize];
+        let color = state.tile_palette[state.background_points[point_idx as usize] as usize];
         let final_point = Point::new(drawn_pixels as i32 + scroll_x, state.line as i32 + scroll_y);
 
         canvas.set_draw_color(color);
@@ -382,31 +396,17 @@ fn make_sprite(state: &mut GpuState, creator: &TextureCreator<WindowContext>, by
     let _priority = utils::check_bit(bytes[3], 7);
     let flip_y = utils::check_bit(bytes[3], 6);
     let flip_x = utils::check_bit(bytes[3], 5);
-    let _palette_id = utils::check_bit(bytes[3], 4);
+    let palette_id = if utils::check_bit(bytes[3], 4) {1} else {0};
     let tile_data = &state.tile_bank0[tile_id as usize];
 
     let mut color_idx: usize = 0;
-    let mut sprite_colors: Vec<u8> = vec![0; 64];
+    let mut sprite_colors: Vec<Color> = vec![Color::RGB(255, 255, 255); 64];
 
     let mut new_sprite: Texture = creator.create_texture_streaming(PixelFormatEnum::RGB24, 8, 8).unwrap();
 
     for color in tile_data.iter() {
-        let sprite_color: u8;
-        if *color == 0 {
-            sprite_color = 255;
-        }
-        else if *color == 1 {
-            sprite_color = 192;
-        }
-        else if *color == 2 {
-            sprite_color = 96;
-        }
-        else if *color == 3 {
-            sprite_color = 0;
-        }
-        else {
-            sprite_color = 255;
-        }
+        // Get the color from the palette used by the sprite.
+        let sprite_color = state.sprites_palettes[palette_id][*color as usize];
         sprite_colors[color_idx] = sprite_color;
         color_idx += 1;
     }
@@ -417,9 +417,10 @@ fn make_sprite(state: &mut GpuState, creator: &TextureCreator<WindowContext>, by
         for y in 0..8 {
             for x in 0..8 {
                 let offset = y*pitch + x*3;
-                buffer[offset] = sprite_colors[color_idx];
-                buffer[offset + 1] = sprite_colors[color_idx];
-                buffer[offset + 2] = sprite_colors[color_idx];
+                // Set each color channel for the sprite texture from the palette.
+                buffer[offset] = sprite_colors[color_idx].r;
+                buffer[offset + 1] = sprite_colors[color_idx].g;
+                buffer[offset + 2] = sprite_colors[color_idx].b;
                 color_idx += 1;
             }
         }
@@ -506,6 +507,68 @@ fn make_background_line(tiles: &Vec<&Vec<u8>>, tile_line: u8) -> Vec<u8> {
     final_line
 }
 
+fn make_palette(value: u8) -> Vec<Color> {
+
+    let mut result = vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)];
+    let color_0 = (utils::check_bit(value, 0), utils::check_bit(value, 1));
+    let color_1 = (utils::check_bit(value, 2), utils::check_bit(value, 3));
+    let color_2 = (utils::check_bit(value, 4), utils::check_bit(value, 5));
+    let color_3 = (utils::check_bit(value, 6), utils::check_bit(value, 7));
+
+    if color_0.0 && color_0.1 {
+        result[0] = Color::RGB(0, 0, 0);
+    }
+    else if color_0.0 && !color_0.1 {
+        result[0] = Color::RGB(96, 96, 96);
+    }
+    else if !color_0.0 && color_0.1 {
+        result[0] = Color::RGB(192, 192, 192);
+    }
+    else if !color_0.0 && !color_0.1 {
+        result[0] = Color::RGB(255, 255, 255);
+    }
+
+    if color_1.0 && color_1.1 {
+        result[1] = Color::RGB(0, 0, 0);
+    }
+    else if color_1.0 && !color_1.1 {
+        result[1] = Color::RGB(96, 96, 96);
+    }
+    else if !color_1.0 && color_1.1 {
+        result[1] = Color::RGB(192, 192, 192);
+    }
+    else if !color_1.0 && !color_1.1 {
+        result[1] = Color::RGB(255, 255, 255);
+    }
+
+    if color_2.0 && color_2.1 {
+        result[2] = Color::RGB(0, 0, 0);
+    }
+    else if color_2.0 && !color_2.1 {
+        result[2] = Color::RGB(96, 96, 96);
+    }
+    else if !color_2.0 && color_2.1 {
+        result[2] = Color::RGB(192, 192, 192);
+    }
+    else if !color_2.0 && !color_2.1 {
+        result[2] = Color::RGB(255, 255, 255);
+    }
+
+    if color_3.0 && color_3.1 {
+        result[3] = Color::RGB(0, 0, 0);
+    }
+    else if color_3.0 && !color_3.1 {
+        result[3] = Color::RGB(96, 96, 96);
+    }
+    else if !color_3.0 && color_3.1 {
+        result[3] = Color::RGB(192, 192, 192);
+    }
+    else if !color_3.0 && !color_3.1 {
+        result[3] = Color::RGB(255, 255, 255);
+    }
+
+    result
+}
 
 fn check_inputs(pump: &mut sdl2::EventPump, input_tx: &Sender<InputEvent>) {
 

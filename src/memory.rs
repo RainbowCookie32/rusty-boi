@@ -29,6 +29,9 @@ pub struct GpuMemory {
     pub bg_map: Vec<u8>,
     pub oam_mem: Vec<u8>,
 
+    pub tile_palette_dirty: bool,
+    pub sprite_palettes_dirty: bool,
+
     pub tiles_dirty_flags: u8,
     pub sprites_dirty_flags: u8,
     pub background_dirty_flags: u8,
@@ -58,6 +61,9 @@ pub fn init_memory(data: (Vec<u8>, CartData)) -> (Arc<Mutex<RomMemory>>, Arc<Mut
         char_ram: vec![0; 6144],
         bg_map: vec![0; 2048],
         oam_mem: vec![0; 160],
+
+        tile_palette_dirty: false,
+        sprite_palettes_dirty: false,
 
         tiles_dirty_flags: 0,
         sprites_dirty_flags: 0,
@@ -230,6 +236,14 @@ pub fn cpu_write(address: u16, value: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<M
                 mem.io_regs[(address - 0xFF00) as usize] = 0;
             }
             else {
+                if address == 0xFF47 {
+                    let mut mem = memory.2.lock().unwrap();
+                    mem.tile_palette_dirty = true;
+                }
+                if address == 0xFF48 || address == 0xFF49 {
+                    let mut mem = memory.2.lock().unwrap();
+                    mem.sprite_palettes_dirty = true;
+                }
                 let mut mem = memory.1.lock().unwrap();
                 mem.io_regs[(address - 0xFF00) as usize] = value;
             }
