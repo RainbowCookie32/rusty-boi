@@ -31,6 +31,7 @@ pub struct CartData {
     rom_title: String,
     
     has_ram: bool,
+    has_battery: bool,
     ram_enabled: bool,
 
     selected_rom_bank: u8,
@@ -46,6 +47,9 @@ impl CartData {
     pub fn new(data: Vec<u8>) -> CartData {
 
         let title = (String::from_utf8(data[308..323].to_vec()).unwrap().trim_matches(char::from(0))).to_string().to_lowercase();
+
+        let battery = data[0x0147] == 0x03 || data[0x0147] == 0x06 || data[0x0147] == 0x09 || data[0x0147] == 0x10
+        || data[0x0147] == 0x13 || data[0x0147] == 0x1B || data[0x0147] == 0x1E;
 
         let cart_type = match data[0x0147] {
 
@@ -116,6 +120,7 @@ impl CartData {
             ram_banks: ram_banks,
             rom_title: title,
             has_ram: ram_size > 0,
+            has_battery: battery,
             ram_enabled: false,
             selected_rom_bank: 1,
             selected_ram_bank: 0,
@@ -190,8 +195,7 @@ impl CartData {
                 match result {
                     Some(bank) => {
                         bank[(address - 0xA000) as usize] = value;
-                        // TODO: Check if the cart has battery before saving.
-                        self.save_cart_ram();
+                        if self.has_battery{self.save_cart_ram()}
                     }
                     None => warn!("Memory: Selected RAM Bank is out of bounds, ignoring write"),
                 }
@@ -250,8 +254,7 @@ impl CartData {
                 match result {
                     Some(bank) => {
                         bank[(address - 0xA000) as usize] = value;
-                        // TODO: Check if the cart has battery before saving.
-                        self.save_cart_ram();
+                        if self.has_battery{self.save_cart_ram()}
                     }
                     None => warn!("Memory: Selected RAM Bank is out of bounds, ignoring write"),
                 }
