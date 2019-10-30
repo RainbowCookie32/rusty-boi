@@ -1,4 +1,3 @@
-use std::ops::Neg;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
@@ -76,6 +75,7 @@ pub struct GpuState {
     pub tile_bank0: Vec<Vec<u8>>,
     pub tile_bank1: Vec<Vec<u8>>,
     pub background_points: Vec<u8>,
+    pub window_points: Vec<u8>,
 
     pub tile_palette: Vec<Color>,
     pub sprites_palettes: Vec<Vec<Color>>,
@@ -116,6 +116,7 @@ impl GpuState {
             tile_bank0: vec![vec![0; 64]; 256],
             tile_bank1: vec![vec![0; 64]; 256],
             background_points: vec![0; 65536],
+            window_points: vec![0; 65536],
 
             tile_palette: vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255), 
             Color::RGBA(0, 0, 0, 255)],
@@ -228,6 +229,7 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
 
     if state.background_enabled {draw_background(state, canvas)}
     if state.sprites_enabled {draw_sprites(state, canvas)}
+    if state.window_enabled {draw_window(state, canvas)};
 
     state.gpu_cycles = 0;
     state.line += 1;
@@ -315,6 +317,7 @@ fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<
 
     if state.background_dirty_flags > 1 {
         make_background(state, memory);
+        make_window(state, memory);
         state.background_dirty_flags -= 1;
         let mut mem = memory.1.lock().unwrap();
         mem.background_dirty_flags = mem.background_dirty_flags.wrapping_sub(1);
@@ -335,6 +338,27 @@ fn draw_background(state: &mut GpuState, canvas: &mut Canvas<Window>) {
         let target_x = (point as u8).overflowing_sub(state.scroll_x).0;
         let target_y = state.line.overflowing_sub(state.scroll_y).0;
         let color = state.tile_palette[state.background_points[point_idx as usize] as usize];
+        let final_point = Point::new(target_x as i32, target_y as i32);
+
+        canvas.set_draw_color(color);
+        canvas.draw_point(final_point).unwrap();
+        point_idx += 1;
+    }
+}
+
+fn draw_window(state: &mut GpuState, canvas: &mut Canvas<Window>) {
+
+    let mut point_idx: u16 = 0;
+
+    // Index offset for the points array in case the current line is not 0.
+    point_idx += 256 * state.line as u16;
+
+    // Draw a whole line from the background map.
+    for point in 0..255 {
+        
+        let target_x = point + (state.window_x - 7);
+        let target_y = state.line.wrapping_add(state.window_y);
+        let color = state.tile_palette[state.window_points[point_idx as usize] as usize];
         let final_point = Point::new(target_x as i32, target_y as i32);
 
         canvas.set_draw_color(color);
@@ -534,6 +558,55 @@ fn make_sprite(state: &mut GpuState, creator: &TextureCreator<WindowContext>, by
     SpriteData::new((position_x, position_y), (flip_x, flip_y), new_sprite)
 }
 
+fn make_window(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+
+    let mut generated_lines: u16 = 0;
+    let mut current_address = state.window_tilemap.0;
+
+    let lcdc_value =  utils::check_bit(memory::gpu_read(0xFF40, memory), 4);
+    let tile_bank = if lcdc_value {&state.tile_bank0} else {&state.tile_bank1};
+
+    let mut window_index: usize = 0;
+        
+    while generated_lines < 256 {
+
+        let mut tiles: Vec<&Vec<u8>> = Vec::new();
+        let mut tile_idx: usize = 0;
+
+        // Loads tile indexes from memory, then gets the tile from GPU State and saves it to tiles.
+        // 32 tiles is the maximum amount of tiles per line.
+        while tile_idx < 32 {
+
+            let tile_id = memory::gpu_read(current_address, memory);
+            if lcdc_value {
+                let target_tile = tile_id;
+                tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
+                tile_idx += 1;
+                current_address += 1;
+            }
+            else {
+                let target_tile = (tile_id as i8 as i16 + 128) as u16;
+                tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
+                tile_idx += 1;
+                current_address += 1;
+            }
+        }
+
+        let mut tile_line = 0;
+
+        while tile_line < 8 {
+
+            let line = make_background_line(&tiles, tile_line);
+            for point in line.into_iter() {
+                state.window_points[window_index] = point;
+                window_index += 1;
+            }
+            tile_line += 1;
+            generated_lines += 1;
+        }
+    }
+}
+
 fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut generated_lines: u16 = 0;
@@ -611,6 +684,7 @@ fn make_background_line(tiles: &Vec<&Vec<u8>>, tile_line: u8) -> Vec<u8> {
 
     final_line
 }
+
 
 fn make_palette(value: u8) -> Vec<Color> {
 
