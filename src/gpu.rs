@@ -138,13 +138,13 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
 
     let sdl_context = sdl2::init().unwrap();
     let video_sys = sdl_context.video().unwrap();
-    let game_window = video_sys.window("Rusty Boi - Game", 160 * 3, 144 * 3).position_centered().opengl().resizable().build().unwrap();
+    let game_window = video_sys.window("Rusty Boi - Game", 160 * 4, 144 * 4).position_centered().opengl().resizable().build().unwrap();
     let mut game_canvas = game_window.into_canvas().build().unwrap();
     let creator = game_canvas.texture_creator();
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-    game_canvas.set_scale(3.0, 3.0).unwrap();
+    game_canvas.set_scale(4.0, 4.0).unwrap();
     game_canvas.set_draw_color(Color::RGB(255, 255, 255));
     game_canvas.clear();
     game_canvas.present();
@@ -348,22 +348,24 @@ fn draw_background(state: &mut GpuState, canvas: &mut Canvas<Window>) {
 
 fn draw_window(state: &mut GpuState, canvas: &mut Canvas<Window>) {
 
-    let mut point_idx: u16 = 0;
+    if state.window_x < 166 && state.window_y < 143 {
+        let mut point_idx: u16 = 0;
 
-    // Index offset for the points array in case the current line is not 0.
-    point_idx += 256 * state.line as u16;
+        // Index offset for the points array in case the current line is not 0.
+        point_idx += 256 * state.line as u16;
 
-    // Draw a whole line from the background map.
-    for point in 0..255 {
+        // Draw a whole line from the background map.
+        for point in 0..255 {
         
-        let target_x = point + (state.window_x - 7);
-        let target_y = state.line.wrapping_add(state.window_y);
-        let color = state.tile_palette[state.window_points[point_idx as usize] as usize];
-        let final_point = Point::new(target_x as i32, target_y as i32);
+            let target_x = point + (state.window_x - 7);
+            let target_y = state.line.wrapping_add(state.window_y);
+            let color = state.tile_palette[state.window_points[point_idx as usize] as usize];
+            let final_point = Point::new(target_x as i32, target_y as i32);
 
-        canvas.set_draw_color(color);
-        canvas.draw_point(final_point).unwrap();
-        point_idx += 1;
+            canvas.set_draw_color(color);
+            canvas.draw_point(final_point).unwrap();
+            point_idx += 1;
+        }
     }
 }
 
