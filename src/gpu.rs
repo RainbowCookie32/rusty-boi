@@ -324,8 +324,6 @@ fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<
 // Drawing to screen.
 fn draw_background(state: &mut GpuState, canvas: &mut Canvas<Window>) {
 
-    let scroll_x = (state.scroll_x as i32).neg();
-    let scroll_y = (state.scroll_y as i32).neg();
     let mut point_idx: u16 = 0;
 
     // Index offset for the points array in case the current line is not 0.
@@ -333,9 +331,11 @@ fn draw_background(state: &mut GpuState, canvas: &mut Canvas<Window>) {
 
     // Draw a whole line from the background map.
     for point in 0..256 {
-
+        
+        let target_x = (point as u8).overflowing_sub(state.scroll_x).0;
+        let target_y = state.line.overflowing_sub(state.scroll_y).0;
         let color = state.tile_palette[state.background_points[point_idx as usize] as usize];
-        let final_point = Point::new(point + scroll_x, state.line as i32 + scroll_y);
+        let final_point = Point::new(target_x as i32, target_y as i32);
 
         canvas.set_draw_color(color);
         canvas.draw_point(final_point).unwrap();
