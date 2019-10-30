@@ -139,7 +139,7 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
     let sdl_context = sdl2::init().unwrap();
     let video_sys = sdl_context.video().unwrap();
     let game_window = video_sys.window("Rusty Boi - Game", 160 * 4, 144 * 4).position_centered().opengl().resizable().build().unwrap();
-    let mut game_canvas = game_window.into_canvas().build().unwrap();
+    let mut game_canvas = game_window.into_canvas().present_vsync().build().unwrap();
     let creator = game_canvas.texture_creator();
 
     let mut event_pump = sdl_context.event_pump().unwrap();
@@ -354,7 +354,7 @@ fn draw_window(state: &mut GpuState, canvas: &mut Canvas<Window>) {
         // Index offset for the points array in case the current line is not 0.
         point_idx += 256 * state.line as u16;
 
-        // Draw a whole line from the background map.
+        // Draw a whole line from the window.
         for point in 0..255 {
         
             let target_x = point + (state.window_x - 7);
@@ -687,66 +687,45 @@ fn make_background_line(tiles: &Vec<&Vec<u8>>, tile_line: u8) -> Vec<u8> {
     final_line
 }
 
-
 fn make_palette(value: u8) -> Vec<Color> {
 
     let mut result = vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)];
-    let color_0 = (utils::check_bit(value, 0), utils::check_bit(value, 1));
-    let color_1 = (utils::check_bit(value, 2), utils::check_bit(value, 3));
-    let color_2 = (utils::check_bit(value, 4), utils::check_bit(value, 5));
-    let color_3 = (utils::check_bit(value, 6), utils::check_bit(value, 7));
+    let color_0 = value & 3;
+    let color_1 = (value & 0x0C) >> 2;
+    let color_2 = (value & 0x30) >> 4;
+    let color_3 = (value & 0xC0) >> 6;
 
-    if color_0.0 && color_0.1 {
-        result[0] = Color::RGBA(0, 0, 0, 255);
-    }
-    else if color_0.0 && !color_0.1 {
-        result[0] = Color::RGBA(96, 96, 96, 255);
-    }
-    else if !color_0.0 && color_0.1 {
-        result[0] = Color::RGBA(192, 192, 192, 255);
-    }
-    else if !color_0.0 && !color_0.1 {
-        result[0] = Color::RGBA(255, 255, 255, 0);
-    }
+    match color_0 {
+        0 => result[0] = Color::RGBA(255, 255, 255, 0),
+        1 => result[0] = Color::RGBA(192, 192, 192, 255),
+        2 => result[0] = Color::RGBA(96, 96, 96, 255),
+        3 => result[0] = Color::RGBA(0, 0, 0, 255),
+        _ => result[0] = Color::RGBA(0, 0, 0, 255),
+    };
 
-    if color_1.0 && color_1.1 {
-        result[1] = Color::RGBA(0, 0, 0, 255);
-    }
-    else if color_1.0 && !color_1.1 {
-        result[1] = Color::RGBA(96, 96, 96, 255);
-    }
-    else if !color_1.0 && color_1.1 {
-        result[1] = Color::RGBA(192, 192, 192, 255);
-    }
-    else if !color_1.0 && !color_1.1 {
-        result[1] = Color::RGBA(255, 255, 255, 0);
-    }
+    match color_1 {
+        0 => result[1] = Color::RGBA(255, 255, 255, 0),
+        1 => result[1] = Color::RGBA(192, 192, 192, 255),
+        2 => result[1] = Color::RGBA(96, 96, 96, 255),
+        3 => result[1] = Color::RGBA(0, 0, 0, 255),
+        _ => result[0] = Color::RGBA(0, 0, 0, 255),
+    };
 
-    if color_2.0 && color_2.1 {
-        result[2] = Color::RGBA(0, 0, 0, 255);
-    }
-    else if color_2.0 && !color_2.1 {
-        result[2] = Color::RGBA(96, 96, 96, 255);
-    }
-    else if !color_2.0 && color_2.1 {
-        result[2] = Color::RGBA(192, 192, 192, 255);
-    }
-    else if !color_2.0 && !color_2.1 {
-        result[2] = Color::RGBA(255, 255, 255, 0);
-    }
+    match color_2 {
+        0 => result[2] = Color::RGBA(255, 255, 255, 0),
+        1 => result[2] = Color::RGBA(192, 192, 192, 255),
+        2 => result[2] = Color::RGBA(96, 96, 96, 255),
+        3 => result[2] = Color::RGBA(0, 0, 0, 255),
+        _ => result[0] = Color::RGBA(0, 0, 0, 255),
+    };
 
-    if color_3.0 && color_3.1 {
-        result[3] = Color::RGBA(0, 0, 0, 255);
-    }
-    else if color_3.0 && !color_3.1 {
-        result[3] = Color::RGBA(96, 96, 96, 255);
-    }
-    else if !color_3.0 && color_3.1 {
-        result[3] = Color::RGBA(192, 192, 192, 255);
-    }
-    else if !color_3.0 && !color_3.1 {
-        result[3] = Color::RGBA(255, 255, 255, 0);
-    }
+    match color_3 {
+        0 => result[3] = Color::RGBA(255, 255, 255, 0),
+        1 => result[3] = Color::RGBA(192, 192, 192, 255),
+        2 => result[3] = Color::RGBA(96, 96, 96, 255),
+        3 => result[3] = Color::RGBA(0, 0, 0, 255),
+        _ => result[0] = Color::RGBA(0, 0, 0, 255),
+    };
 
     result
 }
