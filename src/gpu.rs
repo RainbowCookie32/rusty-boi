@@ -185,6 +185,21 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
             else if gpu_state.gpu_mode == 3 && gpu_state.gpu_cycles >= 172 {
                 lcd_transfer_mode(&mut gpu_state, &memory);
             }
+
+            let lyc = memory::gpu_read(0xFF45, &memory);
+            
+            if lyc == gpu_state.line {
+                let mut stat = memory::gpu_read(0xFF41, &memory);
+                let mut if_value = memory::gpu_read(0xFF0F, &memory);
+
+                if utils::check_bit(stat, 6) {
+                    if_value = utils::set_bit(if_value, 1);
+                    memory::gpu_write(0xFF0F, if_value, &memory);
+                }
+
+                stat = utils::set_bit(stat, 2);
+                memory::gpu_write(0xFF41, stat, &memory);
+            }
         }
     }
 }
@@ -241,7 +256,7 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
     }
 
     if utils::check_bit(stat_value, 3) {
-        let if_value = utils::set_bit(memory::gpu_read(0xFF0F, memory), 2);
+        let if_value = utils::set_bit(memory::gpu_read(0xFF0F, memory), 1);
         memory::gpu_write(0xFF0F, if_value, memory);
     }
 }
@@ -291,7 +306,7 @@ fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, 
 
     if utils::check_bit(stat_value, 5) {
 
-        let if_value = utils::set_bit(memory::gpu_read(0xFF0F, memory), 2);
+        let if_value = utils::set_bit(memory::gpu_read(0xFF0F, memory), 1);
         memory::gpu_write(0xFF0F, if_value, memory);
     }
 }
