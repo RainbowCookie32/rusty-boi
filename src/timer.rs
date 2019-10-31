@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use super::utils;
 
 use super::memory;
-use super::memory::CpuMemory;
+use super::memory::IoRegisters;
 
 
 pub struct TimerState {
@@ -22,7 +22,7 @@ pub fn init_timer() -> TimerState {
     }
 }
 
-pub fn timer_cycle(timer_state: &mut TimerState, cycles: u16, memory: &Arc<Mutex<CpuMemory>>) {
+pub fn timer_cycle(timer_state: &mut TimerState, cycles: u16, memory: &Arc<Mutex<IoRegisters>>) {
 
     let tac_value = memory::timer_read(0xFF07, memory);
     let timer_enabled = utils::check_bit(tac_value, 2);

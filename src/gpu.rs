@@ -24,7 +24,7 @@ use sdl2::render::TextureCreator;
 use super::utils;
 use super::memory;
 use super::emulator::InputEvent;
-use super::memory::{CpuMemory, GpuMemory};
+use super::memory::{IoRegisters, GpuMemory};
 
 
 pub struct SpriteData {
@@ -132,7 +132,7 @@ impl GpuState {
     }
 }
 
-pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: (Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: (Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut gpu_state = GpuState::new();
 
@@ -189,7 +189,7 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
     }
 }
 
-fn update_gpu_values(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn update_gpu_values(state: &mut GpuState, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let lcdc = memory::gpu_read(0xFF40, memory);
     state.lcd_enabled = utils::check_bit(lcdc, 7);
@@ -219,7 +219,7 @@ fn update_gpu_values(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<
 
 // GPU Modes
 
-fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut stat_value = memory::gpu_read(0xFF41, &memory);
 
@@ -246,7 +246,7 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
     }
 }
 
-fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
     
     let mut if_value = memory::gpu_read(0xFF0F, memory);
     let mut stat_value = memory::gpu_read(0xFF41, memory);
@@ -272,7 +272,7 @@ fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
     }
 }
 
-fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut stat_value = memory::gpu_read(0xFF41, memory);
 
@@ -296,7 +296,7 @@ fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, 
     }
 }
 
-fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut stat_value = memory::gpu_read(0xFF41, memory);
 
@@ -382,7 +382,7 @@ fn draw_sprites(state: &mut GpuState, canvas: &mut Canvas<Window>) {
 
 // Tile, Sprites, and Background cache generation.
 
-fn make_tiles(state: &mut GpuState, target_bank: u8, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn make_tiles(state: &mut GpuState, target_bank: u8, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let start_position = if target_bank == 0 {0x8000} else {0x8800};
     let end_position = if target_bank == 0 {0x8FFF} else {0x97FF};
@@ -439,7 +439,7 @@ fn make_tile(bytes: &Vec<u8>) -> Vec<u8> {
     generated_tile
 }
 
-fn make_sprites(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn make_sprites(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut current_address = 0xFE00;
     let mut generated_sprites: usize = 0;
@@ -560,7 +560,7 @@ fn make_sprite(state: &mut GpuState, creator: &TextureCreator<WindowContext>, by
     SpriteData::new((position_x, position_y), (flip_x, flip_y), new_sprite)
 }
 
-fn make_window(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn make_window(state: &mut GpuState, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut generated_lines: u16 = 0;
     let mut current_address = state.window_tilemap.0;
@@ -609,7 +609,7 @@ fn make_window(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<
     }
 }
 
-fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let mut generated_lines: u16 = 0;
     let mut current_background = if utils::check_bit(memory::gpu_read(0xFF40, memory), 3) {0x9C00} else {0x9800};

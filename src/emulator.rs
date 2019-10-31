@@ -13,7 +13,7 @@ use super::cpu;
 use super::gpu;
 use super::cart::CartData;
 use super::memory::init_memory;
-use super::memory::{RomMemory, CpuMemory, GpuMemory};
+use super::memory::{CpuMemory, IoRegisters, GpuMemory};
 
 
 #[derive(PartialEq)]
@@ -41,16 +41,16 @@ pub fn initialize() {
     start_emulation(mem_arcs);
 }
 
-pub fn start_emulation(arcs: (Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+pub fn start_emulation(arcs: (CpuMemory, Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
         
     let cpu_cycles = Arc::new(Mutex::new(0 as u16));
-    let cpu_arc = (Arc::clone(&arcs.0), Arc::clone(&arcs.1), Arc::clone(&arcs.2));
+    let cpu_arc = (Arc::clone(&arcs.1), Arc::clone(&arcs.2));
     let gpu_arc = (Arc::clone(&arcs.1), Arc::clone(&arcs.2));
     let cycles_gpu = cpu_cycles.clone();
     let (input_tx, input_rx) = mpsc::channel();
 
     let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        cpu::start_cpu(cpu_cycles, cpu_arc, input_rx);
+        cpu::start_cpu(cpu_cycles, (arcs.0, cpu_arc.0, cpu_arc.1), input_rx);
     }).unwrap();
 
     let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {

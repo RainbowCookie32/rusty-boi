@@ -9,7 +9,7 @@ use super::cpu::CpuState;
 use super::cpu::CycleResult;
 
 use super::memory;
-use super::memory::{RomMemory, CpuMemory, GpuMemory};
+use super::memory::{CpuMemory, IoRegisters, GpuMemory};
 
 use super::register::CpuReg;
 use super::register::Register;
@@ -24,78 +24,78 @@ pub enum JumpCondition {
     CNotSet,
 }
 
-pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
+pub fn run_opcode(state: &mut CpuState, opcode: u8, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
 
     let mut result = CycleResult::Success;
 
     match opcode {
 
         0x00 => instruction_finished(nop(), state),
-        0x01 => instruction_finished(ld_imm_into_full(&mut state.bc, state.pc.get(), memory), state),
-        0x02 => instruction_finished(save_a_to_full(&mut state.af, &mut state.bc, memory), state),
+        0x01 => instruction_finished(ld_imm_into_full(&mut state.bc, state.pc.get(), cpu_mem, shared_mem), state),
+        0x02 => instruction_finished(save_a_to_full(&mut state.af, &mut state.bc, cpu_mem, shared_mem), state),
         0x03 => instruction_finished(increment_full(&mut state.bc), state),
         0x04 => instruction_finished(increment_lb(&mut state.bc, &mut state.af), state),
         0x05 => instruction_finished(decrement_lb(&mut state.bc, &mut state.af), state),
-        0x06 => instruction_finished(load_imm_into_hi(&mut state.bc, state.pc.get(), memory), state),
+        0x06 => instruction_finished(load_imm_into_hi(&mut state.bc, state.pc.get(), cpu_mem, shared_mem), state),
         0x07 => instruction_finished(rlc_a(&mut state.af), state),
-        0x08 => instruction_finished(save_sp_to_imm(&mut state.sp, state.pc.get(), memory), state),
+        0x08 => instruction_finished(save_sp_to_imm(&mut state.sp, state.pc.get(), cpu_mem, shared_mem), state),
         0x09 => instruction_finished(add_full(&mut state.hl, &mut state.bc, &mut state.af), state),
-        0x0A => instruction_finished(load_bc_into_a(&mut state.af, state.bc.get_register(), memory), state),
+        0x0A => instruction_finished(load_bc_into_a(&mut state.af, state.bc.get_register(), cpu_mem, shared_mem), state),
         0x0B => instruction_finished(decrement_full(&mut state.bc), state),
         0x0C => instruction_finished(increment_rb(&mut state.bc, &mut state.af), state),
         0x0D => instruction_finished(decrement_rb(&mut state.bc, &mut state.af), state),
-        0x0E => instruction_finished(load_imm_into_low(&mut state.bc, state.pc.get(), memory), state),
+        0x0E => instruction_finished(load_imm_into_low(&mut state.bc, state.pc.get(), cpu_mem, shared_mem), state),
         0x0F => instruction_finished(rrc_a(&mut state.af), state),
 
         0x10 => result = stop(state),
-        0x11 => instruction_finished(ld_imm_into_full(&mut state.de, state.pc.get(), memory), state),
-        0x12 => instruction_finished(save_a_to_full(&mut state.af, &mut state.de, memory), state),
+        0x11 => instruction_finished(ld_imm_into_full(&mut state.de, state.pc.get(), cpu_mem, shared_mem), state),
+        0x12 => instruction_finished(save_a_to_full(&mut state.af, &mut state.de, cpu_mem, shared_mem), state),
         0x13 => instruction_finished(increment_full(&mut state.de), state),
         0x14 => instruction_finished(increment_lb(&mut state.de, &mut state.af), state),
         0x15 => instruction_finished(decrement_lb(&mut state.de, &mut state.af), state),
-        0x16 => instruction_finished(load_imm_into_hi(&mut state.de, state.pc.get(), memory), state),
+        0x16 => instruction_finished(load_imm_into_hi(&mut state.de, state.pc.get(), cpu_mem, shared_mem), state),
         0x17 => instruction_finished(rla(&mut state.af), state),
-        0x18 => relative_jump(state, memory),
+        0x18 => relative_jump(state, cpu_mem, shared_mem),
         0x19 => instruction_finished(add_full(&mut state.hl, &mut state.de, &mut state.af), state),
-        0x1A => instruction_finished(load_de_into_a(&mut state.af, state.de.get_register(), memory), state),
+        0x1A => instruction_finished(load_de_into_a(&mut state.af, state.de.get_register(), cpu_mem, shared_mem), state),
         0x1B => instruction_finished(decrement_full(&mut state.de), state),
         0x1C => instruction_finished(increment_rb(&mut state.de, &mut state.af), state),
         0x1D => instruction_finished(decrement_rb(&mut state.de, &mut state.af), state),
-        0x1E => instruction_finished(load_imm_into_low(&mut state.de, state.pc.get(), memory), state),
+        0x1E => instruction_finished(load_imm_into_low(&mut state.de, state.pc.get(), cpu_mem, shared_mem), state),
         0x1F => instruction_finished(rr_a(&mut state.af), state),
 
-        0x20 => conditional_relative_jump(state, JumpCondition::ZNotSet, memory),
-        0x21 => instruction_finished(ld_imm_into_full(&mut state.hl, state.pc.get(), memory), state),
-        0x22 => instruction_finished(save_a_to_hl_inc(&mut state.af, &mut state.hl, memory), state),
+        0x20 => conditional_relative_jump(state, JumpCondition::ZNotSet, cpu_mem, shared_mem),
+        0x21 => instruction_finished(ld_imm_into_full(&mut state.hl, state.pc.get(), cpu_mem, shared_mem), state),
+        0x22 => instruction_finished(save_a_to_hl_inc(&mut state.af, &mut state.hl, cpu_mem, shared_mem), state),
         0x23 => instruction_finished(increment_full(&mut state.hl), state),
         0x24 => instruction_finished(increment_lb(&mut state.hl, &mut state.af), state),
         0x25 => instruction_finished(decrement_lb(&mut state.hl, &mut state.af), state),
-        0x26 => instruction_finished(load_imm_into_hi(&mut state.hl, state.pc.get(), memory), state),
+        0x26 => instruction_finished(load_imm_into_hi(&mut state.hl, state.pc.get(), cpu_mem, shared_mem), state),
         0x27 => instruction_finished(daa(&mut state.af), state),
-        0x28 => conditional_relative_jump(state, JumpCondition::ZSet, memory),
+        0x28 => conditional_relative_jump(state, JumpCondition::ZSet, cpu_mem, shared_mem),
         0x29 => instruction_finished(add_hl_to_hl(&mut state.hl, &mut state.af), state),
-        0x2A => instruction_finished(ld_a_from_hl_inc(&mut state.af, &mut state.hl, memory), state),
+        0x2A => instruction_finished(ld_a_from_hl_inc(&mut state.af, &mut state.hl, cpu_mem, shared_mem), state),
         0x2B => instruction_finished(decrement_full(&mut state.hl), state),
         0x2C => instruction_finished(increment_rb(&mut state.hl, &mut state.af), state),
         0x2D => instruction_finished(decrement_rb(&mut state.hl, &mut state.af), state),
-        0x2E => instruction_finished(load_imm_into_low(&mut state.hl, state.pc.get(), memory), state),
+        0x2E => instruction_finished(load_imm_into_low(&mut state.hl, state.pc.get(), cpu_mem, shared_mem), state),
         0x2F => instruction_finished(cpl(&mut state.af), state),
 
-        0x30 => conditional_relative_jump(state, JumpCondition::CNotSet, memory),        
-        0x31 => instruction_finished(ld_imm_into_full(&mut state.sp, state.pc.get(), memory), state),
-        0x32 => instruction_finished(save_a_to_hl_dec(&mut state.af, &mut state.hl, memory), state),
+        0x30 => conditional_relative_jump(state, JumpCondition::CNotSet, cpu_mem, shared_mem),        
+        0x31 => instruction_finished(ld_imm_into_full(&mut state.sp, state.pc.get(), cpu_mem, shared_mem), state),
+        0x32 => instruction_finished(save_a_to_hl_dec(&mut state.af, &mut state.hl, cpu_mem, shared_mem), state),
         0x33 => instruction_finished(increment_full(&mut state.sp), state),
-        0x34 => instruction_finished(increment_value(&mut state.af, &mut state.hl, memory), state),
-        0x35 => instruction_finished(decrement_at_hl(&mut state.af, &mut state.hl, memory), state),
-        0x36 => instruction_finished(save_imm_to_hl(&mut state.hl, state.pc.get(), memory), state),
+        0x34 => instruction_finished(increment_value(&mut state.af, &mut state.hl, cpu_mem, shared_mem), state),
+        0x35 => instruction_finished(decrement_at_hl(&mut state.af, &mut state.hl, cpu_mem, shared_mem), state),
+        0x36 => instruction_finished(save_imm_to_hl(&mut state.hl, state.pc.get(), cpu_mem, shared_mem), state),
         0x37 => instruction_finished(scf(&mut state.af), state),
-        0x38 => conditional_relative_jump(state, JumpCondition::CSet, memory),
+        0x38 => conditional_relative_jump(state, JumpCondition::CSet, cpu_mem, shared_mem),
         0x39 => instruction_finished(add_full(&mut state.hl, &mut state.sp, &mut state.af), state),
-        0x3A => instruction_finished(ld_a_from_hl_dec(&mut state.af, &mut state.hl, memory), state),
+        0x3A => instruction_finished(ld_a_from_hl_dec(&mut state.af, &mut state.hl, cpu_mem, shared_mem), state),
         0x3B => instruction_finished(decrement_full(&mut state.sp), state),
         0x3C => instruction_finished(increment_a(&mut state.af), state),
         0x3D => instruction_finished(decrement_a(&mut state.af), state),
-        0x3E => instruction_finished(load_imm_into_hi(&mut state.af, state.pc.get(), memory), state),
+        0x3E => instruction_finished(load_imm_into_hi(&mut state.af, state.pc.get(), cpu_mem, shared_mem), state),
         0x3F => instruction_finished(ccf(&mut state.af), state),
 
         0x40 => instruction_finished((1, 4), state),
@@ -104,7 +104,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0x43 => instruction_finished(load_into_hi(&mut state.bc, state.de.get_register_rb()), state),
         0x44 => instruction_finished(load_into_hi(&mut state.bc, state.hl.get_register_lb()), state),
         0x45 => instruction_finished(load_into_hi(&mut state.bc, state.hl.get_register_rb()), state),
-        0x46 => instruction_finished(load_hl_into_hi(&mut state.bc, state.hl.get_register(), memory), state),
+        0x46 => instruction_finished(load_hl_into_hi(&mut state.bc, state.hl.get_register(), cpu_mem, shared_mem), state),
         0x47 => instruction_finished(load_into_hi(&mut state.bc, state.af.get_register_lb()), state),
         0x48 => instruction_finished(load_hi_into_low(&mut state.bc), state),
         0x49 => instruction_finished((1, 4), state),
@@ -112,7 +112,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0x4B => instruction_finished(load_into_low(&mut state.bc, state.de.get_register_rb()), state),
         0x4C => instruction_finished(load_into_low(&mut state.bc, state.hl.get_register_lb()), state),
         0x4D => instruction_finished(load_into_low(&mut state.bc, state.hl.get_register_rb()), state),
-        0x4E => instruction_finished(load_hl_into_low(&mut state.bc, state.hl.get_register(), memory), state),
+        0x4E => instruction_finished(load_hl_into_low(&mut state.bc, state.hl.get_register(), cpu_mem, shared_mem), state),
         0x4F => instruction_finished(load_into_low(&mut state.bc, state.af.get_register_lb()), state),
 
         0x50 => instruction_finished(load_into_hi(&mut state.de, state.bc.get_register_lb()), state),
@@ -121,7 +121,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0x53 => instruction_finished(load_low_into_hi(&mut state.de), state),
         0x54 => instruction_finished(load_into_hi(&mut state.de, state.hl.get_register_lb()), state),
         0x55 => instruction_finished(load_into_hi(&mut state.de, state.hl.get_register_rb()), state),
-        0x56 => instruction_finished(load_hl_into_hi(&mut state.de, state.hl.get_register(), memory), state),
+        0x56 => instruction_finished(load_hl_into_hi(&mut state.de, state.hl.get_register(), cpu_mem, shared_mem), state),
         0x57 => instruction_finished(load_into_hi(&mut state.de, state.af.get_register_lb()), state),
         0x58 => instruction_finished(load_into_low(&mut state.de, state.bc.get_register_lb()), state),
         0x59 => instruction_finished(load_into_low(&mut state.de, state.bc.get_register_rb()), state),
@@ -129,7 +129,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0x5B => instruction_finished((1, 4), state),
         0x5C => instruction_finished(load_into_low(&mut state.de, state.hl.get_register_lb()), state),
         0x5D => instruction_finished(load_into_low(&mut state.de, state.hl.get_register_rb()), state),
-        0x5E => instruction_finished(load_hl_into_low(&mut state.de, state.hl.get_register(), memory), state),
+        0x5E => instruction_finished(load_hl_into_low(&mut state.de, state.hl.get_register(), cpu_mem, shared_mem), state),
         0x5F => instruction_finished(load_into_low(&mut state.de, state.af.get_register_lb()), state),
 
         0x60 => instruction_finished(load_into_hi(&mut state.hl, state.bc.get_register_lb()), state),
@@ -138,7 +138,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0x63 => instruction_finished(load_into_hi(&mut state.hl, state.de.get_register_rb()), state),
         0x64 => instruction_finished((1, 4), state),
         0x65 => instruction_finished(load_low_into_hi(&mut state.hl), state),
-        0x66 => instruction_finished(load_hl_into_h(&mut state.hl, memory), state),
+        0x66 => instruction_finished(load_hl_into_h(&mut state.hl, cpu_mem, shared_mem), state),
         0x67 => instruction_finished(load_into_hi(&mut state.hl, state.af.get_register_lb()), state),
         0x68 => instruction_finished(load_into_low(&mut state.hl, state.bc.get_register_lb()), state),
         0x69 => instruction_finished(load_into_low(&mut state.hl, state.bc.get_register_rb()), state),
@@ -146,24 +146,24 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0x6B => instruction_finished(load_into_low(&mut state.hl, state.de.get_register_rb()), state),
         0x6C => instruction_finished(load_hi_into_low(&mut state.hl), state),
         0x6D => instruction_finished((1, 4), state),
-        0x6E => instruction_finished(load_hl_into_l(&mut state.hl, memory), state),
+        0x6E => instruction_finished(load_hl_into_l(&mut state.hl, cpu_mem, shared_mem), state),
         0x6F => instruction_finished(load_into_low(&mut state.hl, state.af.get_register_lb()), state),
 
-        0x70 => instruction_finished(save_value_to_hl(state.bc.get_register_lb(), state.hl.get_register(), memory), state),
-        0x71 => instruction_finished(save_value_to_hl(state.bc.get_register_rb(), state.hl.get_register(), memory), state),
-        0x72 => instruction_finished(save_value_to_hl(state.de.get_register_lb(), state.hl.get_register(), memory), state),
-        0x73 => instruction_finished(save_value_to_hl(state.de.get_register_rb(), state.hl.get_register(), memory), state),
-        0x74 => instruction_finished(save_hi_to_hl(&mut state.hl, memory), state),
-        0x75 => instruction_finished(save_low_to_hl(&mut state.hl, memory), state),
-        0x76 => result = halt(state, memory),
-        0x77 => instruction_finished(save_value_to_hl(state.af.get_register_lb(), state.hl.get_register(), memory), state),
+        0x70 => instruction_finished(save_value_to_hl(state.bc.get_register_lb(), state.hl.get_register(), cpu_mem, shared_mem), state),
+        0x71 => instruction_finished(save_value_to_hl(state.bc.get_register_rb(), state.hl.get_register(), cpu_mem, shared_mem), state),
+        0x72 => instruction_finished(save_value_to_hl(state.de.get_register_lb(), state.hl.get_register(), cpu_mem, shared_mem), state),
+        0x73 => instruction_finished(save_value_to_hl(state.de.get_register_rb(), state.hl.get_register(), cpu_mem, shared_mem), state),
+        0x74 => instruction_finished(save_hi_to_hl(&mut state.hl, cpu_mem, shared_mem), state),
+        0x75 => instruction_finished(save_low_to_hl(&mut state.hl, cpu_mem, shared_mem), state),
+        0x76 => result = halt(state, cpu_mem, shared_mem),
+        0x77 => instruction_finished(save_value_to_hl(state.af.get_register_lb(), state.hl.get_register(), cpu_mem, shared_mem), state),
         0x78 => instruction_finished(load_into_hi(&mut state.af, state.bc.get_register_lb()), state),
         0x79 => instruction_finished(load_into_hi(&mut state.af, state.bc.get_register_rb()), state),
         0x7A => instruction_finished(load_into_hi(&mut state.af, state.de.get_register_lb()), state),
         0x7B => instruction_finished(load_into_hi(&mut state.af, state.de.get_register_rb()), state),
         0x7C => instruction_finished(load_into_hi(&mut state.af, state.hl.get_register_lb()), state),
         0x7D => instruction_finished(load_into_hi(&mut state.af, state.hl.get_register_rb()), state),
-        0x7E => instruction_finished(load_hl_into_hi(&mut state.af, state.hl.get_register(), memory), state),
+        0x7E => instruction_finished(load_hl_into_hi(&mut state.af, state.hl.get_register(), cpu_mem, shared_mem), state),
         0x7F => instruction_finished((1, 4), state),
 
         0x80 => instruction_finished(add(&mut state.af, state.bc.get_register_lb()), state),
@@ -172,7 +172,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0x83 => instruction_finished(add(&mut state.af, state.de.get_register_rb()), state),
         0x84 => instruction_finished(add(&mut state.af, state.hl.get_register_lb()), state),
         0x85 => instruction_finished(add(&mut state.af, state.hl.get_register_rb()), state),
-        0x86 => instruction_finished(add_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0x86 => instruction_finished(add_hl(&mut state.af, state.hl.get_register(), cpu_mem, shared_mem), state),
         0x87 => instruction_finished(add_a(&mut state.af), state),
         0x88 => instruction_finished(adc(&mut state.af, state.bc.get_register_lb()), state),
         0x89 => instruction_finished(adc(&mut state.af, state.bc.get_register_rb()), state),
@@ -180,7 +180,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0x8B => instruction_finished(adc(&mut state.af, state.de.get_register_rb()), state),
         0x8C => instruction_finished(adc(&mut state.af, state.hl.get_register_lb()), state),
         0x8D => instruction_finished(adc(&mut state.af, state.hl.get_register_rb()), state),
-        0x8E => instruction_finished(adc_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0x8E => instruction_finished(adc_hl(&mut state.af, state.hl.get_register(), cpu_mem, shared_mem), state),
         0x8F => instruction_finished(adc_a(&mut state.af), state),
 
         0x90 => instruction_finished(sub(&mut state.af, state.bc.get_register_lb()), state),
@@ -189,7 +189,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0x93 => instruction_finished(sub(&mut state.af, state.de.get_register_rb()), state),
         0x94 => instruction_finished(sub(&mut state.af, state.hl.get_register_lb()), state),
         0x95 => instruction_finished(sub(&mut state.af, state.hl.get_register_rb()), state),
-        0x96 => instruction_finished(sub_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0x96 => instruction_finished(sub_hl(&mut state.af, state.hl.get_register(), cpu_mem, shared_mem), state),
         0x97 => instruction_finished(sub_a(&mut state.af), state),
         0x98 => instruction_finished(sbc(&mut state.af, state.bc.get_register_lb()), state),
         0x99 => instruction_finished(sbc(&mut state.af, state.bc.get_register_rb()), state),
@@ -197,7 +197,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0x9B => instruction_finished(sbc(&mut state.af, state.de.get_register_rb()), state),
         0x9C => instruction_finished(sbc(&mut state.af, state.hl.get_register_lb()), state),
         0x9D => instruction_finished(sbc(&mut state.af, state.hl.get_register_rb()), state),
-        0x9E => instruction_finished(sbc_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0x9E => instruction_finished(sbc_hl(&mut state.af, state.hl.get_register(), cpu_mem, shared_mem), state),
         0x9F => instruction_finished(sbc_a(&mut state.af), state),
 
         0xA0 => instruction_finished(and(&mut state.af, state.bc.get_register_lb()), state),
@@ -206,7 +206,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0xA3 => instruction_finished(and(&mut state.af, state.de.get_register_rb()), state),
         0xA4 => instruction_finished(and(&mut state.af, state.hl.get_register_lb()), state),
         0xA5 => instruction_finished(and(&mut state.af, state.hl.get_register_rb()), state),
-        0xA6 => instruction_finished(and_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0xA6 => instruction_finished(and_hl(&mut state.af, state.hl.get_register(), cpu_mem, shared_mem), state),
         0xA7 => instruction_finished(and_a(&mut state.af), state),
         0xA8 => instruction_finished(xor(&mut state.af, state.bc.get_register_lb()), state),
         0xA9 => instruction_finished(xor(&mut state.af, state.bc.get_register_rb()), state),
@@ -214,7 +214,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0xAB => instruction_finished(xor(&mut state.af, state.de.get_register_rb()), state),
         0xAC => instruction_finished(xor(&mut state.af, state.hl.get_register_lb()), state),
         0xAD => instruction_finished(xor(&mut state.af, state.hl.get_register_rb()), state),
-        0xAE => instruction_finished(xor_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0xAE => instruction_finished(xor_hl(&mut state.af, state.hl.get_register(), cpu_mem, shared_mem), state),
         0xAF => instruction_finished(xor_a(&mut state.af), state),
 
         0xB0 => instruction_finished(or(&mut state.af, state.bc.get_register_lb()), state),
@@ -223,7 +223,7 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0xB3 => instruction_finished(or(&mut state.af, state.de.get_register_rb()), state),
         0xB4 => instruction_finished(or(&mut state.af, state.hl.get_register_lb()), state),
         0xB5 => instruction_finished(or(&mut state.af, state.hl.get_register_rb()), state),
-        0xB6 => instruction_finished(or_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0xB6 => instruction_finished(or_hl(&mut state.af, state.hl.get_register(), cpu_mem, shared_mem), state),
         0xB7 => instruction_finished(or_a(&mut state.af), state),
         0xB8 => instruction_finished(cp(&mut state.af, state.bc.get_register_lb()), state),
         0xB9 => instruction_finished(cp(&mut state.af, state.bc.get_register_rb()), state),
@@ -231,76 +231,76 @@ pub fn run_opcode(state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemor
         0xBB => instruction_finished(cp(&mut state.af, state.de.get_register_rb()), state),
         0xBC => instruction_finished(cp(&mut state.af, state.hl.get_register_lb()), state),
         0xBD => instruction_finished(cp(&mut state.af, state.hl.get_register_rb()), state),
-        0xBE => instruction_finished(cp_hl(&mut state.af, state.hl.get_register(), memory), state),
+        0xBE => instruction_finished(cp_hl(&mut state.af, state.hl.get_register(), cpu_mem, shared_mem), state),
         0xBF => instruction_finished(cp_a(&mut state.af), state),
 
-        0xC0 => conditional_ret(state, JumpCondition::ZNotSet, memory),
-        0xC1 => instruction_finished(pop(&mut state.bc, &mut state.sp, memory), state),
-        0xC2 => conditional_jump(state, JumpCondition::ZNotSet, memory),
-        0xC3 => jump(state, memory),
-        0xC4 => conditional_call(state, JumpCondition::ZNotSet, memory),
-        0xC5 => instruction_finished(push(&mut state.bc, &mut state.sp, memory), state),
-        0xC6 => instruction_finished(add_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
-        0xC7 => rst(0x0000, memory, state),
-        0xC8 => conditional_ret(state, JumpCondition::ZSet, memory),
-        0xC9 => ret(state, memory),
-        0xCA => conditional_jump(state, JumpCondition::ZSet, memory),
+        0xC0 => conditional_ret(state, JumpCondition::ZNotSet, cpu_mem, shared_mem),
+        0xC1 => instruction_finished(pop(&mut state.bc, &mut state.sp, cpu_mem, shared_mem), state),
+        0xC2 => conditional_jump(state, JumpCondition::ZNotSet, cpu_mem, shared_mem),
+        0xC3 => jump(state, cpu_mem, shared_mem),
+        0xC4 => conditional_call(state, JumpCondition::ZNotSet, cpu_mem, shared_mem),
+        0xC5 => instruction_finished(push(&mut state.bc, &mut state.sp, cpu_mem, shared_mem), state),
+        0xC6 => instruction_finished(add_imm(&mut state.af, cpu::read_immediate(state.pc.get(), cpu_mem, shared_mem)), state),
+        0xC7 => rst(0x0000, cpu_mem, shared_mem, state),
+        0xC8 => conditional_ret(state, JumpCondition::ZSet, cpu_mem, shared_mem),
+        0xC9 => ret(state, cpu_mem, shared_mem),
+        0xCA => conditional_jump(state, JumpCondition::ZSet, cpu_mem, shared_mem),
         0xCB => result = CycleResult::InvalidOp, // Shouldn't have a CB at this stage, so mark as invalid if it happens.
-        0xCC => conditional_call(state, JumpCondition::ZSet, memory),
-        0xCD => call(state, memory),
-        0xCE => instruction_finished(adc_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
-        0xCF => rst(0x0008, memory, state),
+        0xCC => conditional_call(state, JumpCondition::ZSet, cpu_mem, shared_mem),
+        0xCD => call(state, cpu_mem, shared_mem),
+        0xCE => instruction_finished(adc_imm(&mut state.af, cpu::read_immediate(state.pc.get(), cpu_mem, shared_mem)), state),
+        0xCF => rst(0x0008, cpu_mem, shared_mem, state),
 
-        0xD0 => conditional_ret(state, JumpCondition::CNotSet, memory),
-        0xD1 => instruction_finished(pop(&mut state.de, &mut state.sp, memory), state),
-        0xD2 => conditional_jump(state, JumpCondition::CNotSet, memory),
+        0xD0 => conditional_ret(state, JumpCondition::CNotSet, cpu_mem, shared_mem),
+        0xD1 => instruction_finished(pop(&mut state.de, &mut state.sp, cpu_mem, shared_mem), state),
+        0xD2 => conditional_jump(state, JumpCondition::CNotSet, cpu_mem, shared_mem),
         0xD3 => result = CycleResult::InvalidOp,
-        0xD4 => conditional_call(state, JumpCondition::CNotSet, memory),
-        0xD5 => instruction_finished(push(&mut state.de, &mut state.sp, memory), state),
-        0xD6 => instruction_finished(sub_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
-        0xD7 => rst(0x0010, memory, state),
-        0xD8 => conditional_ret(state, JumpCondition::CSet, memory),
-        0xD9 => reti(state, memory),
-        0xDA => conditional_jump(state, JumpCondition::CSet, memory),
+        0xD4 => conditional_call(state, JumpCondition::CNotSet, cpu_mem, shared_mem),
+        0xD5 => instruction_finished(push(&mut state.de, &mut state.sp, cpu_mem, shared_mem), state),
+        0xD6 => instruction_finished(sub_imm(&mut state.af, cpu::read_immediate(state.pc.get(), cpu_mem, shared_mem)), state),
+        0xD7 => rst(0x0010, cpu_mem, shared_mem, state),
+        0xD8 => conditional_ret(state, JumpCondition::CSet, cpu_mem, shared_mem),
+        0xD9 => reti(state, cpu_mem, shared_mem),
+        0xDA => conditional_jump(state, JumpCondition::CSet, cpu_mem, shared_mem),
         0xDB => result = CycleResult::InvalidOp,
-        0xDC => conditional_call(state, JumpCondition::CSet, memory),
+        0xDC => conditional_call(state, JumpCondition::CSet, cpu_mem, shared_mem),
         0xDD => result = CycleResult::InvalidOp,
-        0xDE => instruction_finished(sbc_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
-        0xDF => rst(0x0017, memory, state),
+        0xDE => instruction_finished(sbc_imm(&mut state.af, cpu::read_immediate(state.pc.get(), cpu_mem, shared_mem)), state),
+        0xDF => rst(0x0017, cpu_mem, shared_mem, state),
 
-        0xE0 => instruction_finished(save_a_to_ff_imm(&mut state.af, state.pc.get(), memory), state),
-        0xE1 => instruction_finished(pop(&mut state.hl, &mut state.sp, memory), state),
-        0xE2 => instruction_finished(save_a_to_ff_c(&mut state.af, &mut state.bc, memory), state),
+        0xE0 => instruction_finished(save_a_to_ff_imm(&mut state.af, state.pc.get(), cpu_mem, shared_mem), state),
+        0xE1 => instruction_finished(pop(&mut state.hl, &mut state.sp, cpu_mem, shared_mem), state),
+        0xE2 => instruction_finished(save_a_to_ff_c(&mut state.af, &mut state.bc, cpu_mem, shared_mem), state),
         0xE3 => result = CycleResult::InvalidOp,
         0xE4 => result = CycleResult::InvalidOp,
-        0xE5 => instruction_finished(push(&mut state.hl, &mut state.sp, memory), state),
-        0xE6 => instruction_finished(and_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
-        0xE7 => rst(0x0020, memory, state),
-        0xE8 => instruction_finished(add_imm_to_sp(&mut state.af, &mut state.sp, state.pc.get(), memory), state),
+        0xE5 => instruction_finished(push(&mut state.hl, &mut state.sp, cpu_mem, shared_mem), state),
+        0xE6 => instruction_finished(and_imm(&mut state.af, cpu::read_immediate(state.pc.get(), cpu_mem, shared_mem)), state),
+        0xE7 => rst(0x0020, cpu_mem, shared_mem, state),
+        0xE8 => instruction_finished(add_imm_to_sp(&mut state.af, &mut state.sp, state.pc.get(), cpu_mem, shared_mem), state),
         0xE9 => jump_to_hl(state),
-        0xEA => instruction_finished(save_a_to_nn(&mut state.af, state.pc.get(), memory), state),
+        0xEA => instruction_finished(save_a_to_nn(&mut state.af, state.pc.get(), cpu_mem, shared_mem), state),
         0xEB => result = CycleResult::InvalidOp,
         0xEC => result = CycleResult::InvalidOp,
         0xED => result = CycleResult::InvalidOp,
-        0xEE => instruction_finished(xor_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
-        0xEF => rst(0x0028, memory, state),
+        0xEE => instruction_finished(xor_imm(&mut state.af, cpu::read_immediate(state.pc.get(), cpu_mem, shared_mem)), state),
+        0xEF => rst(0x0028, cpu_mem, shared_mem, state),
 
-        0xF0 => instruction_finished(ld_a_from_ff_imm(&mut state.af, state.pc.get(), memory), state),
-        0xF1 => instruction_finished(pop(&mut state.af, &mut state.sp, memory), state),
-        0xF2 => instruction_finished(ld_a_from_ff_c(&mut state.af, &mut state.bc, memory), state),
+        0xF0 => instruction_finished(ld_a_from_ff_imm(&mut state.af, state.pc.get(), cpu_mem, shared_mem), state),
+        0xF1 => instruction_finished(pop(&mut state.af, &mut state.sp, cpu_mem, shared_mem), state),
+        0xF2 => instruction_finished(ld_a_from_ff_c(&mut state.af, &mut state.bc, cpu_mem, shared_mem), state),
         0xF3 => instruction_finished(di(state), state),
         0xF4 => result = CycleResult::InvalidOp,
-        0xF5 => instruction_finished(push(&mut state.af, &mut state.sp, memory), state),
-        0xF6 => instruction_finished(or_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
-        0xF7 => rst(0x0030, memory, state),
-        0xF8 => instruction_finished(add_imm_to_sp_save_in_hl(state, memory), state),
+        0xF5 => instruction_finished(push(&mut state.af, &mut state.sp, cpu_mem, shared_mem), state),
+        0xF6 => instruction_finished(or_imm(&mut state.af, cpu::read_immediate(state.pc.get(), cpu_mem, shared_mem)), state),
+        0xF7 => rst(0x0030, cpu_mem, shared_mem, state),
+        0xF8 => instruction_finished(add_imm_to_sp_save_in_hl(state, cpu_mem, shared_mem), state),
         0xF9 => instruction_finished(ld_hl_into_sp(&mut state.sp, &mut state.hl), state),
-        0xFA => instruction_finished(ld_a_from_imm_addr(&mut state.af, state.pc.get(), memory), state),
+        0xFA => instruction_finished(ld_a_from_imm_addr(&mut state.af, state.pc.get(), cpu_mem, shared_mem), state),
         0xFB => instruction_finished(ei(state), state),
         0xFC => result = CycleResult::InvalidOp,
         0xFD => result = CycleResult::InvalidOp,
-        0xFE => instruction_finished(cp_imm(&mut state.af, cpu::read_immediate(state.pc.get(), memory)), state),
-        0xFF => rst(0x0038, memory, state),
+        0xFE => instruction_finished(cp_imm(&mut state.af, cpu::read_immediate(state.pc.get(), cpu_mem, shared_mem)), state),
+        0xFF => rst(0x0038, cpu_mem, shared_mem, state),
     }
 
     if result == CycleResult::InvalidOp {
@@ -368,11 +368,11 @@ fn daa(af: &mut CpuReg) -> (u16, u16) {
 
 // HALT and STOP
 
-fn halt(current_state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
+fn halt(current_state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
 
     current_state.pc.add(1);
     current_state.cycles.add(4);
-    current_state.halt_bug = memory::cpu_read(0xFF0F, memory) != 0 && !current_state.interrupts.can_interrupt;
+    current_state.halt_bug = memory::cpu_read(0xFF0F, cpu_mem, shared_mem) != 0 && !current_state.interrupts.can_interrupt;
     CycleResult::Halt
 }
 
@@ -386,10 +386,10 @@ fn stop(current_state: &mut CpuState) -> CycleResult {
 
 // Jumps
 
-fn jump(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn jump(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let current_pc = state.pc.get();
-    state.pc.set(cpu::read_u16(current_pc + 1, memory));
+    state.pc.set(cpu::read_u16(current_pc + 1, cpu_mem, shared_mem));
     state.cycles.add(16);
 }
 
@@ -400,15 +400,15 @@ fn jump_to_hl(state: &mut CpuState) {
     state.cycles.add(4);
 }
 
-fn relative_jump(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn relative_jump(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let current_pc = state.pc.get();
-    let target = memory::cpu_read(current_pc + 1, memory) as i8;
+    let target = memory::cpu_read(current_pc + 1, cpu_mem, shared_mem) as i8;
     state.pc.set(current_pc.wrapping_add(target as u16) + 2);
     state.cycles.add(12);
 }
 
-fn conditional_jump(state: &mut CpuState, condition: JumpCondition, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn conditional_jump(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let should_jump: bool;
 
@@ -420,11 +420,11 @@ fn conditional_jump(state: &mut CpuState, condition: JumpCondition, memory: &(Ar
         JumpCondition::CSet => should_jump = utils::get_cf(&mut state.af),
     }
 
-    if should_jump { jump(state, memory) ;}
+    if should_jump { jump(state, cpu_mem, shared_mem) ;}
     else { state.pc.add(3); state.cycles.add(12) }
 }
 
-fn conditional_relative_jump(state: &mut CpuState, condition: JumpCondition, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn conditional_relative_jump(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let should_jump: bool;
 
@@ -436,24 +436,24 @@ fn conditional_relative_jump(state: &mut CpuState, condition: JumpCondition, mem
         JumpCondition::CSet => should_jump = utils::get_cf(&mut state.af),
     }
 
-    if should_jump { relative_jump(state, memory) ;}
+    if should_jump { relative_jump(state, cpu_mem, shared_mem) ;}
     else { state.pc.add(2); state.cycles.add(8) }
 }
 
 
 // Calls and Returns
 
-fn call(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn call(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let current_pc = state.pc.get();
     let next_pc = state.pc.get() + 3;
 
-    cpu::stack_write(&mut state.sp, next_pc, memory);
-    state.pc.set(cpu::read_u16(current_pc + 1, memory));
+    cpu::stack_write(&mut state.sp, next_pc, cpu_mem, shared_mem);
+    state.pc.set(cpu::read_u16(current_pc + 1, cpu_mem, shared_mem));
     state.cycles.add(24);
 }
 
-fn conditional_call(state: &mut CpuState, condition: JumpCondition, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn conditional_call(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let should_call: bool;
 
@@ -465,23 +465,23 @@ fn conditional_call(state: &mut CpuState, condition: JumpCondition, memory: &(Ar
         JumpCondition::CSet => should_call = utils::get_cf(&mut state.af),
     }
 
-    if should_call { call(state, memory) ;}
+    if should_call { call(state, cpu_mem, shared_mem) ;}
     else { state.pc.add(3); state.cycles.add(12) }
 }
 
-fn ret(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn ret(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
     
-    state.pc.set(cpu::stack_read(&mut state.sp, memory));
+    state.pc.set(cpu::stack_read(&mut state.sp, cpu_mem, shared_mem));
     state.cycles.add(16);
 }
 
-fn reti(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn reti(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     cpu::toggle_interrupts(state, true);
-    ret(state, memory);
+    ret(state, cpu_mem, shared_mem);
 }
 
-fn conditional_ret(state: &mut CpuState, condition: JumpCondition, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) {
+fn conditional_ret(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
 
     let should_ret: bool;
 
@@ -493,7 +493,7 @@ fn conditional_ret(state: &mut CpuState, condition: JumpCondition, memory: &(Arc
         JumpCondition::CSet => should_ret = utils::get_cf(&mut state.af),
     }
 
-    if should_ret { ret(state, memory);}
+    if should_ret { ret(state, cpu_mem, shared_mem);}
     else { state.pc.add(1); state.cycles.add(8) }
 }
 
@@ -526,9 +526,9 @@ fn load_low_into_hi(register: &mut CpuReg) -> (u16, u16) {
     (1, 4)
 }
 
-fn add_imm_to_sp_save_in_hl(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn add_imm_to_sp_save_in_hl(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(state.pc.get() + 1, memory) as i8;
+    let value = memory::cpu_read(state.pc.get() + 1, cpu_mem, shared_mem) as i8;
     let result = state.sp.get_register().overflowing_add(value as u16);
 
     state.hl.set_register(result.0);
@@ -542,47 +542,47 @@ fn add_imm_to_sp_save_in_hl(state: &mut CpuState, memory: &(Arc<Mutex<RomMemory>
 
 // Load register from immediate
 
-fn load_imm_into_hi(register: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_imm_into_hi(register: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = cpu::read_immediate(pc, memory);
+    let value = cpu::read_immediate(pc, cpu_mem, shared_mem);
     register.set_register_lb(value);
     (2, 8)
 }
 
-fn load_imm_into_low(register: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_imm_into_low(register: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = cpu::read_immediate(pc, memory);
+    let value = cpu::read_immediate(pc, cpu_mem, shared_mem);
     register.set_register_rb(value);
     (2, 8)
 }
 
-fn ld_imm_into_full(register: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_imm_into_full(register: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    register.set_register(cpu::read_u16(pc + 1, memory));
+    register.set_register(cpu::read_u16(pc + 1, cpu_mem, shared_mem));
     (3, 12)
 }
 
 
 // Load register from address
 
-fn ld_a_from_imm_addr(af: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_a_from_imm_addr(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let target_addr = cpu::read_u16(pc + 1, memory);
-    af.set_register_lb(memory::cpu_read(target_addr, memory));
+    let target_addr = cpu::read_u16(pc + 1, cpu_mem, shared_mem);
+    af.set_register_lb(memory::cpu_read(target_addr, cpu_mem, shared_mem));
     (3, 16)
 }
 
-fn ld_a_from_ff_imm(af: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_a_from_ff_imm(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let target_addr = 0xFF00 + cpu::read_immediate(pc, memory) as u16;
-    af.set_register_lb(memory::cpu_read(target_addr, memory));
+    let target_addr = 0xFF00 + cpu::read_immediate(pc, cpu_mem, shared_mem) as u16;
+    af.set_register_lb(memory::cpu_read(target_addr, cpu_mem, shared_mem));
     (2, 12)
 }
 
-fn ld_a_from_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_a_from_ff_c(af: &mut CpuReg, bc: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let address = 0xFF00 + bc.get_register_rb() as u16;
-    let value = memory::cpu_read(address, memory);
+    let value = memory::cpu_read(address, cpu_mem, shared_mem);
 
     af.set_register_lb(value);
 
@@ -591,58 +591,58 @@ fn ld_a_from_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &(Arc<Mutex<RomMemor
 
 // Load register from register address
 
-fn load_hl_into_hi(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_hl_into_hi(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl, memory);
+    let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     register.set_register_lb(value);
     (1, 8)
 }
 
-fn load_hl_into_low(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_hl_into_low(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl, memory);
+    let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     register.set_register_rb(value);
     (1, 8)
 }
 
-fn load_hl_into_h(register: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_hl_into_h(register: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let address = register.get_register();
-    register.set_register_lb(memory::cpu_read(address, memory));
+    register.set_register_lb(memory::cpu_read(address, cpu_mem, shared_mem));
     (1, 8)
 }
 
-fn load_hl_into_l(register: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_hl_into_l(register: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let address = register.get_register();
-    register.set_register_rb(memory::cpu_read(address, memory));
+    register.set_register_rb(memory::cpu_read(address, cpu_mem, shared_mem));
     (1, 8)
 }
 
-fn load_bc_into_a(register: &mut CpuReg, bc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_bc_into_a(register: &mut CpuReg, bc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(bc, memory);
+    let value = memory::cpu_read(bc, cpu_mem, shared_mem);
     register.set_register_lb(value);
     (1, 8)
 }
 
-fn load_de_into_a(register: &mut CpuReg, de: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_de_into_a(register: &mut CpuReg, de: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(de, memory);
+    let value = memory::cpu_read(de, cpu_mem, shared_mem);
     register.set_register_lb(value);
     (1, 8)
 }
 
-fn ld_a_from_hl_inc(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_a_from_hl_inc(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    af.set_register_lb(memory::cpu_read(hl.get_register(), memory));
+    af.set_register_lb(memory::cpu_read(hl.get_register(), cpu_mem, shared_mem));
     hl.increment();
     (1, 8)
 }
 
-fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
     
-    af.set_register_lb(memory::cpu_read(hl.get_register(), memory));
+    af.set_register_lb(memory::cpu_read(hl.get_register(), cpu_mem, shared_mem));
     hl.decrement();
     (1, 8)
 }
@@ -650,35 +650,35 @@ fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMem
 
 // Save register to HL
 
-fn save_a_to_hl_inc(register: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_hl_inc(register: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::cpu_write(hl.get_register(), register.get_register_lb(), memory);
+    memory::cpu_write(hl.get_register(), register.get_register_lb(), cpu_mem, shared_mem);
     hl.increment();
     (1, 8)
 }
 
-fn save_a_to_hl_dec(a: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_hl_dec(a: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::cpu_write(hl.get_register(), a.get_register_lb(), memory);
+    memory::cpu_write(hl.get_register(), a.get_register_lb(), cpu_mem, shared_mem);
     hl.decrement();
     (1, 8)
 }
 
-fn save_value_to_hl(value: u8, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_value_to_hl(value: u8, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::cpu_write(hl, value, memory);
+    memory::cpu_write(hl, value, cpu_mem, shared_mem);
     (1, 8)
 }
 
-fn save_hi_to_hl(hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_hi_to_hl(hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::cpu_write(hl.get_register(), hl.get_register_lb(), memory);
+    memory::cpu_write(hl.get_register(), hl.get_register_lb(), cpu_mem, shared_mem);
     (1, 8)
 }
 
-fn save_low_to_hl(hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_low_to_hl(hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::cpu_write(hl.get_register(), hl.get_register_rb(), memory);
+    memory::cpu_write(hl.get_register(), hl.get_register_rb(), cpu_mem, shared_mem);
     (1, 8)
 }
 
@@ -688,54 +688,54 @@ fn ld_hl_into_sp(sp: &mut CpuReg, hl: &mut CpuReg) -> (u16, u16) {
     (1, 8)
 }
 
-fn save_a_to_full(register: &mut CpuReg, full: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_full(register: &mut CpuReg, full: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    memory::cpu_write(full.get_register(), register.get_register_lb(), memory);
+    memory::cpu_write(full.get_register(), register.get_register_lb(), cpu_mem, shared_mem);
     (1, 8)
 }
 
 
 // Save register to address
 
-fn save_a_to_ff_imm(af: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_ff_imm(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let target_addr = 0xFF00 + (cpu::read_immediate(pc, memory) as u16);
-    memory::cpu_write(target_addr, af.get_register_lb(), memory);
+    let target_addr = 0xFF00 + (cpu::read_immediate(pc, cpu_mem, shared_mem) as u16);
+    memory::cpu_write(target_addr, af.get_register_lb(), cpu_mem, shared_mem);
     (2, 12)
 }
 
-fn save_a_to_ff_c(af: &mut CpuReg, bc: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_ff_c(af: &mut CpuReg, bc: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let target_addr = 0xFF00 + (bc.get_register_rb() as u16);
-    memory::cpu_write(target_addr, af.get_register_lb(), memory);
+    memory::cpu_write(target_addr, af.get_register_lb(), cpu_mem, shared_mem);
     (1, 8)
 }
 
-fn save_a_to_nn(af: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_nn(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let target_addr = cpu::read_u16(pc + 1, memory);
-    memory::cpu_write(target_addr, af.get_register_lb(), memory);
+    let target_addr = cpu::read_u16(pc + 1, cpu_mem, shared_mem);
+    memory::cpu_write(target_addr, af.get_register_lb(), cpu_mem, shared_mem);
     (3, 16)
 }
 
 
 // Save value to HL
 
-fn save_imm_to_hl(hl: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_imm_to_hl(hl: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = cpu::read_immediate(pc, memory);
-    memory::cpu_write(hl.get_register(), value, memory);
+    let value = cpu::read_immediate(pc, cpu_mem, shared_mem);
+    memory::cpu_write(hl.get_register(), value, cpu_mem, shared_mem);
     (2, 12)
 }
 
 
 // Save SP to immediate address
 
-fn save_sp_to_imm(sp: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_sp_to_imm(sp: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let target_addr = cpu::read_u16(pc + 1, memory);
-    memory::cpu_write(target_addr, sp.get_register_rb(), memory);
-    memory::cpu_write(target_addr + 1, sp.get_register_lb(), memory);
+    let target_addr = cpu::read_u16(pc + 1, cpu_mem, shared_mem);
+    memory::cpu_write(target_addr, sp.get_register_rb(), cpu_mem, shared_mem);
+    memory::cpu_write(target_addr + 1, sp.get_register_lb(), cpu_mem, shared_mem);
     (3, 20)
 }
 
@@ -778,12 +778,12 @@ fn increment_a(register: &mut CpuReg) -> (u16, u16) {
 
 // Increment value at HL
 
-fn increment_value(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn increment_value(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
     
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = value.overflowing_add(1);
     let half_carry = (result.0 & 0x0F) == 0;
-    memory::cpu_write(hl.get_register(), result.0, memory);
+    memory::cpu_write(hl.get_register(), result.0, cpu_mem, shared_mem);
     utils::set_zf(result.0 == 0, af); utils::set_nf(false, af);
     utils::set_hf(half_carry, af);
     (1, 12)
@@ -828,12 +828,12 @@ fn decrement_a(af: &mut CpuReg) -> (u16, u16) {
 
 // Decrement value at HL
 
-fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
     
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = value.overflowing_sub(1);
     let half_carry = (result.0 & 0x0F) == 0;
-    memory::cpu_write(hl.get_register(), result.0, memory);
+    memory::cpu_write(hl.get_register(), result.0, cpu_mem, shared_mem);
     utils::set_zf(result.0 == 0, af); utils::set_nf(true, af);
     utils::set_hf(half_carry, af);
     (1, 12)
@@ -863,9 +863,9 @@ fn add_hl_to_hl(hl: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
     (1, 8)
 }
 
-fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = cpu::read_immediate(pc, memory) as i8;
+    let value = cpu::read_immediate(pc, cpu_mem, shared_mem) as i8;
     sp.add_to_reg(value as u16);
     utils::set_zf(false, af);
     utils::set_nf(false, af);
@@ -893,9 +893,9 @@ fn add_a(register: &mut CpuReg) -> (u16, u16) {
     add(register, value)
 }
 
-fn add_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn add_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl, memory);
+    let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     add(register, value);
     (1, 8)
 }
@@ -932,9 +932,9 @@ fn adc_a(register: &mut CpuReg) -> (u16, u16) {
     adc(register, value)
 }
 
-fn adc_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn adc_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl, memory);
+    let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     adc(register, value);
     (1, 8)
 }
@@ -967,9 +967,9 @@ fn sub_a(register: &mut CpuReg) -> (u16, u16) {
     sub(register, value)
 }
 
-fn sub_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn sub_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl, memory);
+    let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     sub(register, value);
     (1, 8)
 }
@@ -1004,9 +1004,9 @@ fn sbc_a(register: &mut CpuReg) -> (u16, u16) {
     sbc(register, value)
 }
 
-fn sbc_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn sbc_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl, memory);
+    let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     sbc(register, value);
     (1, 8)
 }
@@ -1038,9 +1038,9 @@ fn and_a(register: &mut CpuReg) -> (u16, u16) {
     and(register, value)
 }
 
-fn and_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn and_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl, memory);
+    let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     and(register, value);
     (1 ,8)
 }
@@ -1072,9 +1072,9 @@ fn or_a(register: &mut CpuReg) -> (u16, u16) {
     or(register, value)
 }
 
-fn or_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn or_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
     
-    let value = memory::cpu_read(hl, memory);
+    let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     or(register, value);
     (1, 8)
 }
@@ -1106,9 +1106,9 @@ fn xor_a(register: &mut CpuReg) -> (u16, u16) {
     xor(register, value)
 }
 
-fn xor_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn xor_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl, memory);
+    let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     xor(register, value);
     (1, 8)
 }
@@ -1152,9 +1152,9 @@ fn cp_a(register: &mut CpuReg) -> (u16, u16) {
     cp(register, value)
 }
 
-fn cp_hl(register: &mut CpuReg, hl: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn cp_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl, memory);
+    let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     cp(register, value);
     (1, 8)
 }
@@ -1168,16 +1168,16 @@ fn cp_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
 // Push and Pop
 
-fn pop(reg: &mut CpuReg, sp: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn pop(reg: &mut CpuReg, sp: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = cpu::stack_read(sp, memory);
+    let value = cpu::stack_read(sp, cpu_mem, shared_mem);
     reg.set_register(value);
     (1, 12)
 }
 
-fn push(reg: &mut CpuReg, sp: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn push(reg: &mut CpuReg, sp: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    cpu::stack_write(sp, reg.get_register(), memory);
+    cpu::stack_write(sp, reg.get_register(), cpu_mem, shared_mem);
     (1, 16)
 }
 
@@ -1279,9 +1279,9 @@ fn ccf(af: &mut CpuReg) -> (u16, u16) {
 
 // Reset opcode
 
-fn rst(target: u16, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>), state: &mut CpuState) {
+fn rst(target: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>), state: &mut CpuState) {
 
-    cpu::stack_write(&mut state.sp, state.pc.get() + 1, memory);
+    cpu::stack_write(&mut state.sp, state.pc.get() + 1, cpu_mem, shared_mem);
     state.cycles.add(32);
     state.pc.set(target);
 }

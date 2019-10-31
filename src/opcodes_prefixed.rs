@@ -6,14 +6,14 @@ use super::cpu::CpuState;
 use super::cpu::CycleResult;
 
 use super::memory;
-use super::memory::{RomMemory, CpuMemory, GpuMemory};
+use super::memory::{CpuMemory, IoRegisters, GpuMemory};
 
 use super::register::CpuReg;
 use super::register::Register;
 use super::register::PcTrait;
 use super::register::CycleCounter;
 
-pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
+pub fn run_opcode(current_state: &mut CpuState, opcode: u8, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
 
     let result = CycleResult::Success;
 
@@ -25,7 +25,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x03 => instruction_finished(rlc_rb(&mut current_state.af, &mut current_state.de), current_state),
         0x04 => instruction_finished(rlc_lb(&mut current_state.af, &mut current_state.hl), current_state),
         0x05 => instruction_finished(rlc_rb(&mut current_state.af, &mut current_state.hl), current_state),
-        0x06 => instruction_finished(rlc_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x06 => instruction_finished(rlc_hl(&mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x07 => instruction_finished(rlc_a(&mut current_state.af), current_state),
         0x08 => instruction_finished(rrc_lb(&mut current_state.af, &mut current_state.bc), current_state),
         0x09 => instruction_finished(rrc_rb(&mut current_state.af, &mut current_state.bc), current_state),
@@ -33,7 +33,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x0B => instruction_finished(rrc_rb(&mut current_state.af, &mut current_state.de), current_state),
         0x0C => instruction_finished(rrc_lb(&mut current_state.af, &mut current_state.hl), current_state),
         0x0D => instruction_finished(rrc_rb(&mut current_state.af, &mut current_state.hl), current_state),
-        0x0E => instruction_finished(rrc_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x0E => instruction_finished(rrc_hl(&mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x0F => instruction_finished(rrc_a(&mut current_state.af), current_state),
         
         0x10 => instruction_finished(rl_lb(&mut current_state.bc, &mut current_state.af), current_state),
@@ -42,7 +42,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x13 => instruction_finished(rl_rb(&mut current_state.de, &mut current_state.af), current_state),
         0x14 => instruction_finished(rl_lb(&mut current_state.hl, &mut current_state.af), current_state),
         0x15 => instruction_finished(rl_rb(&mut current_state.hl, &mut current_state.af), current_state),
-        0x16 => instruction_finished(rl_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x16 => instruction_finished(rl_hl(&mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x17 => instruction_finished(rl_a(&mut current_state.af), current_state),
         0x18 => instruction_finished(rr_lb(&mut current_state.bc, &mut current_state.af), current_state),
         0x19 => instruction_finished(rr_rb(&mut current_state.bc, &mut current_state.af), current_state),
@@ -50,7 +50,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x1B => instruction_finished(rr_rb(&mut current_state.de, &mut current_state.af), current_state),
         0x1C => instruction_finished(rr_lb(&mut current_state.hl, &mut current_state.af), current_state),
         0x1D => instruction_finished(rr_rb(&mut current_state.hl, &mut current_state.af), current_state),
-        0x1E => instruction_finished(rr_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x1E => instruction_finished(rr_hl(&mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x1F => instruction_finished(rr_a(&mut current_state.af), current_state),
 
         0x20 => instruction_finished(sla_lb(&mut current_state.af, &mut current_state.bc), current_state),
@@ -59,7 +59,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x23 => instruction_finished(sla_rb(&mut current_state.af, &mut current_state.de), current_state),
         0x24 => instruction_finished(sla_lb(&mut current_state.af, &mut current_state.hl), current_state),
         0x25 => instruction_finished(sla_rb(&mut current_state.af, &mut current_state.hl), current_state),
-        0x26 => instruction_finished(sla_val(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x26 => instruction_finished(sla_val(&mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x27 => instruction_finished(sla_a(&mut current_state.af), current_state),
         0x28 => instruction_finished(sra_lb(&mut current_state.af, &mut current_state.bc), current_state),
         0x29 => instruction_finished(sra_rb(&mut current_state.af, &mut current_state.bc), current_state),
@@ -67,7 +67,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x2B => instruction_finished(sra_rb(&mut current_state.af, &mut current_state.de), current_state),
         0x2C => instruction_finished(sra_lb(&mut current_state.af, &mut current_state.hl), current_state),
         0x2D => instruction_finished(sra_rb(&mut current_state.af, &mut current_state.hl), current_state),
-        0x2E => instruction_finished(sra_val(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x2E => instruction_finished(sra_val(&mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x2F => instruction_finished(sra_a(&mut current_state.af), current_state),
 
         0x30 => instruction_finished(swap_lb(&mut current_state.af, &mut current_state.bc), current_state),
@@ -76,7 +76,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x33 => instruction_finished(swap_rb(&mut current_state.af, &mut current_state.de), current_state),
         0x34 => instruction_finished(swap_lb(&mut current_state.af, &mut current_state.hl), current_state),
         0x35 => instruction_finished(swap_rb(&mut current_state.af, &mut current_state.hl), current_state),
-        0x36 => instruction_finished(swap_hl(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x36 => instruction_finished(swap_hl(&mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x37 => instruction_finished(swap_a(&mut current_state.af), current_state),
         0x38 => instruction_finished(srl_lb(&mut current_state.af, &mut current_state.bc), current_state),
         0x39 => instruction_finished(srl_rb(&mut current_state.af, &mut current_state.bc), current_state),
@@ -84,7 +84,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x3B => instruction_finished(srl_rb(&mut current_state.af, &mut current_state.de), current_state),
         0x3C => instruction_finished(srl_lb(&mut current_state.af, &mut current_state.hl), current_state),
         0x3D => instruction_finished(srl_rb(&mut current_state.af, &mut current_state.hl), current_state),
-        0x3E => instruction_finished(srl_val(&mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x3E => instruction_finished(srl_val(&mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x3F => instruction_finished(srl_a(&mut current_state.af), current_state),
         
         0x40 => instruction_finished(bit_lb(&mut current_state.bc, 0, &mut current_state.af), current_state),
@@ -93,7 +93,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x43 => instruction_finished(bit_rb(&mut current_state.de, 0, &mut current_state.af), current_state),
         0x44 => instruction_finished(bit_lb(&mut current_state.hl, 0, &mut current_state.af), current_state),
         0x45 => instruction_finished(bit_rb(&mut current_state.hl, 0, &mut current_state.af), current_state),
-        0x46 => instruction_finished(bit_hl(0, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x46 => instruction_finished(bit_hl(0, &mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x47 => instruction_finished(bit_a(&mut current_state.af, 0), current_state),
         0x48 => instruction_finished(bit_lb(&mut current_state.bc, 1, &mut current_state.af), current_state),
         0x49 => instruction_finished(bit_rb(&mut current_state.bc, 1, &mut current_state.af), current_state),
@@ -101,7 +101,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x4B => instruction_finished(bit_rb(&mut current_state.de, 1, &mut current_state.af), current_state),
         0x4C => instruction_finished(bit_lb(&mut current_state.hl, 1, &mut current_state.af), current_state),
         0x4D => instruction_finished(bit_rb(&mut current_state.hl, 1, &mut current_state.af), current_state),
-        0x4E => instruction_finished(bit_hl(1, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x4E => instruction_finished(bit_hl(1, &mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x4F => instruction_finished(bit_a(&mut current_state.af, 1), current_state),
 
         0x50 => instruction_finished(bit_lb(&mut current_state.bc, 2, &mut current_state.af), current_state),
@@ -110,7 +110,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x53 => instruction_finished(bit_rb(&mut current_state.de, 2, &mut current_state.af), current_state),
         0x54 => instruction_finished(bit_lb(&mut current_state.hl, 2, &mut current_state.af), current_state),
         0x55 => instruction_finished(bit_rb(&mut current_state.hl, 2, &mut current_state.af), current_state),
-        0x56 => instruction_finished(bit_hl(2, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x56 => instruction_finished(bit_hl(2, &mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x57 => instruction_finished(bit_a(&mut current_state.af, 2), current_state),
         0x58 => instruction_finished(bit_lb(&mut current_state.bc, 3, &mut current_state.af), current_state),
         0x59 => instruction_finished(bit_rb(&mut current_state.bc, 3, &mut current_state.af), current_state),
@@ -118,7 +118,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x5B => instruction_finished(bit_rb(&mut current_state.de, 3, &mut current_state.af), current_state),
         0x5C => instruction_finished(bit_lb(&mut current_state.hl, 3, &mut current_state.af), current_state),
         0x5D => instruction_finished(bit_rb(&mut current_state.hl, 3, &mut current_state.af), current_state),
-        0x5E => instruction_finished(bit_hl(3, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x5E => instruction_finished(bit_hl(3, &mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x5F => instruction_finished(bit_a(&mut current_state.af, 3), current_state),
 
         0x60 => instruction_finished(bit_lb(&mut current_state.bc, 4, &mut current_state.af), current_state),
@@ -127,7 +127,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x63 => instruction_finished(bit_rb(&mut current_state.de, 4, &mut current_state.af), current_state),
         0x64 => instruction_finished(bit_lb(&mut current_state.hl, 4, &mut current_state.af), current_state),
         0x65 => instruction_finished(bit_rb(&mut current_state.hl, 4, &mut current_state.af), current_state),
-        0x66 => instruction_finished(bit_hl(4, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x66 => instruction_finished(bit_hl(4, &mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x67 => instruction_finished(bit_a(&mut current_state.af, 4), current_state),
         0x68 => instruction_finished(bit_lb(&mut current_state.bc, 5, &mut current_state.af), current_state),
         0x69 => instruction_finished(bit_rb(&mut current_state.bc, 5, &mut current_state.af), current_state),
@@ -135,7 +135,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x6B => instruction_finished(bit_rb(&mut current_state.de, 5, &mut current_state.af), current_state),
         0x6C => instruction_finished(bit_lb(&mut current_state.hl, 5, &mut current_state.af), current_state),
         0x6D => instruction_finished(bit_rb(&mut current_state.hl, 5, &mut current_state.af), current_state),
-        0x6E => instruction_finished(bit_hl(5, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x6E => instruction_finished(bit_hl(5, &mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x6F => instruction_finished(bit_a(&mut current_state.af, 5), current_state),
 
         0x70 => instruction_finished(bit_lb(&mut current_state.bc, 6, &mut current_state.af), current_state),
@@ -144,7 +144,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x73 => instruction_finished(bit_rb(&mut current_state.de, 6, &mut current_state.af), current_state),
         0x74 => instruction_finished(bit_lb(&mut current_state.hl, 6, &mut current_state.af), current_state),
         0x75 => instruction_finished(bit_rb(&mut current_state.hl, 6, &mut current_state.af), current_state),
-        0x76 => instruction_finished(bit_hl(6, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x76 => instruction_finished(bit_hl(6, &mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x77 => instruction_finished(bit_a(&mut current_state.af, 6), current_state),
         0x78 => instruction_finished(bit_lb(&mut current_state.bc, 7, &mut current_state.af), current_state),
         0x79 => instruction_finished(bit_rb(&mut current_state.bc, 7, &mut current_state.af), current_state),
@@ -152,7 +152,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x7B => instruction_finished(bit_rb(&mut current_state.de, 7, &mut current_state.af), current_state),
         0x7C => instruction_finished(bit_lb(&mut current_state.hl, 7, &mut current_state.af), current_state),
         0x7D => instruction_finished(bit_rb(&mut current_state.hl, 7, &mut current_state.af), current_state),
-        0x7E => instruction_finished(bit_hl(7, &mut current_state.af, &mut current_state.hl, memory), current_state),
+        0x7E => instruction_finished(bit_hl(7, &mut current_state.af, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x7F => instruction_finished(bit_a(&mut current_state.af, 7), current_state),
 
         0x80 => instruction_finished(res_lb(&mut current_state.bc, 0), current_state),
@@ -161,7 +161,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x83 => instruction_finished(res_rb(&mut current_state.de, 0), current_state),
         0x84 => instruction_finished(res_lb(&mut current_state.hl, 0), current_state),
         0x85 => instruction_finished(res_rb(&mut current_state.hl, 0), current_state),
-        0x86 => instruction_finished(res_hl(0, &mut current_state.hl, memory), current_state),
+        0x86 => instruction_finished(res_hl(0, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x87 => instruction_finished(res_lb(&mut current_state.af, 0), current_state),
         0x88 => instruction_finished(res_lb(&mut current_state.bc, 1), current_state),
         0x89 => instruction_finished(res_rb(&mut current_state.bc, 1), current_state),
@@ -169,7 +169,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x8B => instruction_finished(res_rb(&mut current_state.de, 1), current_state),
         0x8C => instruction_finished(res_lb(&mut current_state.hl, 1), current_state),
         0x8D => instruction_finished(res_rb(&mut current_state.hl, 1), current_state),
-        0x8E => instruction_finished(res_hl(1, &mut current_state.hl, memory), current_state),
+        0x8E => instruction_finished(res_hl(1, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x8F => instruction_finished(res_lb(&mut current_state.af, 1), current_state),
 
         0x90 => instruction_finished(res_lb(&mut current_state.bc, 2), current_state),
@@ -178,7 +178,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x93 => instruction_finished(res_rb(&mut current_state.de, 2), current_state),
         0x94 => instruction_finished(res_lb(&mut current_state.hl, 2), current_state),
         0x95 => instruction_finished(res_rb(&mut current_state.hl, 2), current_state),
-        0x96 => instruction_finished(res_hl(2, &mut current_state.hl, memory), current_state),
+        0x96 => instruction_finished(res_hl(2, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x97 => instruction_finished(res_lb(&mut current_state.af, 2), current_state),
         0x98 => instruction_finished(res_lb(&mut current_state.bc, 3), current_state),
         0x99 => instruction_finished(res_rb(&mut current_state.bc, 3), current_state),
@@ -186,7 +186,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0x9B => instruction_finished(res_rb(&mut current_state.de, 3), current_state),
         0x9C => instruction_finished(res_lb(&mut current_state.hl, 3), current_state),
         0x9D => instruction_finished(res_rb(&mut current_state.hl, 3), current_state),
-        0x9E => instruction_finished(res_hl(3, &mut current_state.hl, memory), current_state),
+        0x9E => instruction_finished(res_hl(3, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0x9F => instruction_finished(res_lb(&mut current_state.af, 3), current_state),
 
         0xA0 => instruction_finished(res_lb(&mut current_state.bc, 4), current_state),
@@ -195,7 +195,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xA3 => instruction_finished(res_rb(&mut current_state.de, 4), current_state),
         0xA4 => instruction_finished(res_lb(&mut current_state.hl, 4), current_state),
         0xA5 => instruction_finished(res_rb(&mut current_state.hl, 4), current_state),
-        0xA6 => instruction_finished(res_hl(4, &mut current_state.hl, memory), current_state),
+        0xA6 => instruction_finished(res_hl(4, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xA7 => instruction_finished(res_lb(&mut current_state.af, 4), current_state),
         0xA8 => instruction_finished(res_lb(&mut current_state.bc, 5), current_state),
         0xA9 => instruction_finished(res_rb(&mut current_state.bc, 5), current_state),
@@ -203,7 +203,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xAB => instruction_finished(res_rb(&mut current_state.de, 5), current_state),
         0xAC => instruction_finished(res_lb(&mut current_state.hl, 5), current_state),
         0xAD => instruction_finished(res_rb(&mut current_state.hl, 5), current_state),
-        0xAE => instruction_finished(res_hl(5, &mut current_state.hl, memory), current_state),
+        0xAE => instruction_finished(res_hl(5, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xAF => instruction_finished(res_lb(&mut current_state.af, 5), current_state),
 
         0xB0 => instruction_finished(res_lb(&mut current_state.bc, 6), current_state),
@@ -212,7 +212,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xB3 => instruction_finished(res_rb(&mut current_state.de, 6), current_state),
         0xB4 => instruction_finished(res_lb(&mut current_state.hl, 6), current_state),
         0xB5 => instruction_finished(res_rb(&mut current_state.hl, 6), current_state),
-        0xB6 => instruction_finished(res_hl(6, &mut current_state.hl, memory), current_state),
+        0xB6 => instruction_finished(res_hl(6, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xB7 => instruction_finished(res_lb(&mut current_state.af, 6), current_state),
         0xB8 => instruction_finished(res_lb(&mut current_state.bc, 7), current_state),
         0xB9 => instruction_finished(res_rb(&mut current_state.bc, 7), current_state),
@@ -220,7 +220,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xBB => instruction_finished(res_rb(&mut current_state.de, 7), current_state),
         0xBC => instruction_finished(res_lb(&mut current_state.hl, 7), current_state),
         0xBD => instruction_finished(res_rb(&mut current_state.hl, 7), current_state),
-        0xBE => instruction_finished(res_hl(7, &mut current_state.hl, memory), current_state),
+        0xBE => instruction_finished(res_hl(7, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xBF => instruction_finished(res_lb(&mut current_state.af, 7), current_state),
 
         0xC0 => instruction_finished(set_lb(&mut current_state.bc, 0), current_state),
@@ -229,7 +229,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xC3 => instruction_finished(set_rb(&mut current_state.de, 0), current_state),
         0xC4 => instruction_finished(set_lb(&mut current_state.hl, 0), current_state),
         0xC5 => instruction_finished(set_rb(&mut current_state.hl, 0), current_state),
-        0xC6 => instruction_finished(set_hl(0, &mut current_state.hl, memory), current_state),
+        0xC6 => instruction_finished(set_hl(0, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xC7 => instruction_finished(set_lb(&mut current_state.af, 0), current_state),
         0xC8 => instruction_finished(set_lb(&mut current_state.bc, 1), current_state),
         0xC9 => instruction_finished(set_rb(&mut current_state.bc, 1), current_state),
@@ -237,7 +237,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xCB => instruction_finished(set_rb(&mut current_state.de, 1), current_state),
         0xCC => instruction_finished(set_lb(&mut current_state.hl, 1), current_state),
         0xCD => instruction_finished(set_rb(&mut current_state.hl, 1), current_state),
-        0xCE => instruction_finished(set_hl(1, &mut current_state.hl, memory), current_state),
+        0xCE => instruction_finished(set_hl(1, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xCF => instruction_finished(set_lb(&mut current_state.af, 1), current_state),
 
         0xD0 => instruction_finished(set_lb(&mut current_state.bc, 2), current_state),
@@ -246,7 +246,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xD3 => instruction_finished(set_rb(&mut current_state.de, 2), current_state),
         0xD4 => instruction_finished(set_lb(&mut current_state.hl, 2), current_state),
         0xD5 => instruction_finished(set_rb(&mut current_state.hl, 2), current_state),
-        0xD6 => instruction_finished(set_hl(2, &mut current_state.hl, memory), current_state),
+        0xD6 => instruction_finished(set_hl(2, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xD7 => instruction_finished(set_lb(&mut current_state.af, 2), current_state),
         0xD8 => instruction_finished(set_lb(&mut current_state.bc, 3), current_state),
         0xD9 => instruction_finished(set_rb(&mut current_state.bc, 3), current_state),
@@ -254,7 +254,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xDB => instruction_finished(set_rb(&mut current_state.de, 3), current_state),
         0xDC => instruction_finished(set_lb(&mut current_state.hl, 3), current_state),
         0xDD => instruction_finished(set_rb(&mut current_state.hl, 3), current_state),
-        0xDE => instruction_finished(set_hl(3, &mut current_state.hl, memory), current_state),
+        0xDE => instruction_finished(set_hl(3, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xDF => instruction_finished(set_lb(&mut current_state.af, 3), current_state),
 
         0xE0 => instruction_finished(set_lb(&mut current_state.bc, 4), current_state),
@@ -263,7 +263,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xE3 => instruction_finished(set_rb(&mut current_state.de, 4), current_state),
         0xE4 => instruction_finished(set_lb(&mut current_state.hl, 4), current_state),
         0xE5 => instruction_finished(set_rb(&mut current_state.hl, 4), current_state),
-        0xE6 => instruction_finished(set_hl(4, &mut current_state.hl, memory), current_state),
+        0xE6 => instruction_finished(set_hl(4, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xE7 => instruction_finished(set_lb(&mut current_state.af, 4), current_state),
         0xE8 => instruction_finished(set_lb(&mut current_state.bc, 5), current_state),
         0xE9 => instruction_finished(set_rb(&mut current_state.bc, 5), current_state),
@@ -271,7 +271,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xEB => instruction_finished(set_rb(&mut current_state.de, 5), current_state),
         0xEC => instruction_finished(set_lb(&mut current_state.hl, 5), current_state),
         0xED => instruction_finished(set_rb(&mut current_state.hl, 5), current_state),
-        0xEE => instruction_finished(set_hl(5, &mut current_state.hl, memory), current_state),
+        0xEE => instruction_finished(set_hl(5, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xEF => instruction_finished(set_lb(&mut current_state.af, 5), current_state),
 
         0xF0 => instruction_finished(set_lb(&mut current_state.bc, 6), current_state),
@@ -280,7 +280,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xF3 => instruction_finished(set_rb(&mut current_state.de, 6), current_state),
         0xF4 => instruction_finished(set_lb(&mut current_state.hl, 6), current_state),
         0xF5 => instruction_finished(set_rb(&mut current_state.hl, 6), current_state),
-        0xF6 => instruction_finished(set_hl(6, &mut current_state.hl, memory), current_state),
+        0xF6 => instruction_finished(set_hl(6, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xF7 => instruction_finished(set_lb(&mut current_state.af, 6), current_state),
         0xF8 => instruction_finished(set_lb(&mut current_state.bc, 7), current_state),
         0xF9 => instruction_finished(set_rb(&mut current_state.bc, 7), current_state),
@@ -288,7 +288,7 @@ pub fn run_opcode(current_state: &mut CpuState, opcode: u8, memory: &(Arc<Mutex<
         0xFB => instruction_finished(set_rb(&mut current_state.de, 7), current_state),
         0xFC => instruction_finished(set_lb(&mut current_state.hl, 7), current_state),
         0xFD => instruction_finished(set_rb(&mut current_state.hl, 7), current_state),
-        0xFE => instruction_finished(set_hl(7, &mut current_state.hl, memory), current_state),
+        0xFE => instruction_finished(set_hl(7, &mut current_state.hl, cpu_mem, shared_mem), current_state),
         0xFF => instruction_finished(set_lb(&mut current_state.af, 7), current_state),
     }
 
@@ -341,11 +341,11 @@ fn rlc_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rlc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn rlc_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = rlc(af, value);
-    memory::cpu_write(hl.get_register(), result, memory);
+    memory::cpu_write(hl.get_register(), result, cpu_mem, shared_mem);
 
     (2, 16)
 }
@@ -391,11 +391,11 @@ fn rrc_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rrc_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn rrc_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = rrc(af, value);
-    memory::cpu_write(hl.get_register(), result, memory);
+    memory::cpu_write(hl.get_register(), result, cpu_mem, shared_mem);
     
     (2, 16)
 }
@@ -443,11 +443,11 @@ fn rl_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rl_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn rl_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = rl(af, value);
-    memory::cpu_write(hl.get_register(), result, memory);
+    memory::cpu_write(hl.get_register(), result, cpu_mem, shared_mem);
 
     (2, 16)
 }
@@ -495,11 +495,11 @@ fn rr_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rr_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn rr_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = rr(af, value);
-    memory::cpu_write(hl.get_register(), result, memory);
+    memory::cpu_write(hl.get_register(), result, cpu_mem, shared_mem);
 
     (2, 16)
 }
@@ -545,11 +545,11 @@ fn sla_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn sla_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn sla_val(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = sla(af, value);
-    memory::cpu_write(hl.get_register(), result, memory);
+    memory::cpu_write(hl.get_register(), result, cpu_mem, shared_mem);
 
     (2, 16)
 }
@@ -598,11 +598,11 @@ fn sra_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn sra_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn sra_val(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = sra(af, value);
-    memory::cpu_write(hl.get_register(), result, memory);
+    memory::cpu_write(hl.get_register(), result, cpu_mem, shared_mem);
 
     (2, 16)
 }
@@ -647,11 +647,11 @@ fn swap_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn swap_hl(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn swap_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = swap(af, value);
-    memory::cpu_write(hl.get_register(), result, memory);
+    memory::cpu_write(hl.get_register(), result, cpu_mem, shared_mem);
 
     (2, 16)
 }
@@ -697,11 +697,11 @@ fn srl_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn srl_val(af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn srl_val(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = srl(af, value);
-    memory::cpu_write(hl.get_register(), result, memory);
+    memory::cpu_write(hl.get_register(), result, cpu_mem, shared_mem);
 
     (2, 16)
 }
@@ -736,9 +736,9 @@ fn bit_rb(reg: &mut CpuReg, checked_bit: u8, af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn bit_hl(checked_bit: u8, af: &mut CpuReg, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn bit_hl(checked_bit: u8, af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     bit(af, value, checked_bit);
     (2, 16)
 }
@@ -764,11 +764,11 @@ fn res_rb(reg: &mut CpuReg, bit: u8) -> (u16, u16) {
     (2, 8)
 }
 
-fn res_hl(bit: u8, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn res_hl(bit: u8, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = res(value, bit);
-    memory::cpu_write(hl.get_register(), result, memory);
+    memory::cpu_write(hl.get_register(), result, cpu_mem, shared_mem);
     (2, 16)
 }
 
@@ -793,10 +793,10 @@ fn set_rb(reg: &mut CpuReg, bit: u8) -> (u16, u16) {
     (2, 8)
 }
 
-fn set_hl(bit: u8, hl: &mut CpuReg, memory: &(Arc<Mutex<RomMemory>>, Arc<Mutex<CpuMemory>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn set_hl(bit: u8, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
-    let value = memory::cpu_read(hl.get_register(), memory);
+    let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = set(value, bit);
-    memory::cpu_write(hl.get_register(), result, memory);
+    memory::cpu_write(hl.get_register(), result, cpu_mem, shared_mem);
     (2, 16)
 }
