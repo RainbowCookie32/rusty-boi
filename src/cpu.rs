@@ -35,16 +35,16 @@ pub struct CpuState {
 
 impl CpuState {
 
-    pub fn new() -> CpuState {
+    pub fn new(bootrom: bool) -> CpuState {
     
         CpuState {
-            af: CpuReg{value: 0x0000},
-            bc: CpuReg{value: 0x0000},
-            de: CpuReg{value: 0x0000},
-            hl: CpuReg{value: 0x0000},
-            sp: CpuReg{value: 0x0000},
+            af: CpuReg{value: if bootrom {0x0000} else {0x01B0}},
+            bc: CpuReg{value: if bootrom {0x0000} else {0x0013}},
+            de: CpuReg{value: if bootrom {0x0000} else {0x00D8}},
+            hl: CpuReg{value: if bootrom {0x0000} else {0x014D}},
+            sp: CpuReg{value: if bootrom {0x0000} else {0xFFFE}},
 
-            pc: Pc{value: 0x0}, // 0x0100 is the start PC for ROMs, 0x00 is for the bootrom
+            pc: Pc{value: if bootrom {0x00} else {0x0100}},
             cycles: Cycles{value: 0},
 
             halted: false,
@@ -89,7 +89,7 @@ pub enum CycleResult {
 
 pub fn start_cpu(cycles: Arc<Mutex<u16>>, memory: (CpuMemory, Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>), input: Receiver<InputEvent>) {
 
-    let mut current_state = CpuState::new();
+    let mut current_state = CpuState::new(!memory.0.bootrom_finished);
     let mut timer_state = timer::init_timer();
 
     let mut cpu_memory = memory.0;

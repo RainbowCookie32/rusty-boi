@@ -35,7 +35,7 @@ pub enum InputEvent {
 
 pub fn initialize() {
 
-    let rom_data = load_roms();
+    let rom_data = (load_bootrom(), load_rom());
     let mem_arcs = init_memory(rom_data);
     
     start_emulation(mem_arcs);
@@ -62,28 +62,32 @@ pub fn start_emulation(arcs: (CpuMemory, Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuM
     info!("Emu: Stopped emulation.");
 }
 
-fn load_roms() -> (Vec<u8>, CartData) {
-
-    let bootrom: Vec<u8>;
-    let rom: CartData;
+fn load_bootrom() -> (Vec<u8>, bool) {
     
-    bootrom = load_bootrom();
-    rom = load_rom();
+    match File::open("Bootrom.gb") {
+        Ok(file) => {
 
-    (bootrom, rom)
-}
+            let mut bootrom_file = file;
+            let mut data = Vec::new();
 
-fn load_bootrom() -> Vec<u8> {
-    
-    let mut rom_file = File::open("Bootrom.gb").expect("Loader: Failed to open Bootrom");
-    let mut data = Vec::new();
+            let result = match bootrom_file.read_to_end(&mut data) {
+                Ok(_) => {
+                    info!("Loader: Bootrom loaded");
+                    (data, true)
+                },
+                Err(error) => {
+                    error!("Loader: Failed to open the Bootrom file. Error: {}", error);
+                    (Vec::new(), false)
+                }
+            };
 
-    match rom_file.read_to_end(&mut data){
-        Ok(_) => info!("Loader: Bootrom loaded"),
-        Err(_) => error!("Loader: Failed to open the Bootrom file"),
-    };
-
-    data
+            result
+        },
+        Err(error) => {
+            error!("Loader: Failed to open the Bootrom file. Error: {}", error);
+            (Vec::new(), false)
+        }
+    }
 }
 
 fn load_rom() -> CartData {

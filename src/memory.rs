@@ -37,16 +37,18 @@ pub struct GpuMemory {
     pub background_dirty_flags: u8,
 }
 
-pub fn init_memory(data: (Vec<u8>, CartData)) -> (CpuMemory, Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>) {
+pub fn init_memory(data: ((Vec<u8>, bool), CartData)) -> (CpuMemory, Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>) {
     
+    let bootrom_info = data.0;
+
     let cpu_memory = CpuMemory {
-        bootrom: data.0,
+        bootrom: bootrom_info.0,
         cartridge: data.1,
         ram: vec![0; 8192],
         echo_ram: vec![0; 8192],
         hram: vec![0; 127],
 
-        bootrom_finished: false,
+        bootrom_finished: !bootrom_info.1,
     };
 
     let io_regs = IoRegisters {
