@@ -85,6 +85,8 @@ pub struct GpuState {
     pub tiles_dirty_flags: u8,
     pub sprites_dirty_flags: u8,
     pub background_dirty_flags: u8,
+
+    pub frames: u16,
 }
 
 impl GpuState {
@@ -128,6 +130,8 @@ impl GpuState {
             tiles_dirty_flags: 0,
             sprites_dirty_flags: 0,
             background_dirty_flags: 0,
+
+            frames: 0,
         }
     }
 }
@@ -138,7 +142,7 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
 
     let sdl_context = sdl2::init().unwrap();
     let video_sys = sdl_context.video().unwrap();
-    let game_window = video_sys.window("Rusty Boi - Game", 160 * 4, 144 * 4).position_centered().opengl().resizable().build().unwrap();
+    let game_window = video_sys.window("Rusty Boi - Game - FPS: 0", 160 * 4, 144 * 4).position_centered().opengl().resizable().build().unwrap();
     let mut game_canvas = game_window.into_canvas().present_vsync().build().unwrap();
     let creator = game_canvas.texture_creator();
 
@@ -148,6 +152,8 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
     game_canvas.set_draw_color(Color::RGB(255, 255, 255));
     game_canvas.clear();
     game_canvas.present();
+
+    let mut fps_timer = std::time::Instant::now();
 
     loop {
 
@@ -201,6 +207,14 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
                 memory::gpu_write(0xFF41, stat, &memory);
             }
         }
+
+        if fps_timer.elapsed() >= std::time::Duration::from_millis(1000) && gpu_state.frames > 0 {
+
+            let framerate = format!("Rusty Boi - Game - FPS: {:#?}", gpu_state.frames as u64 / fps_timer.elapsed().as_secs());
+            game_canvas.window_mut().set_title(&framerate).unwrap();
+            fps_timer = std::time::Instant::now();
+            gpu_state.frames = 0;
+        }
     }
 }
 
@@ -252,6 +266,7 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
     
     if state.line == 144 {
         state.gpu_mode = 1;
+        state.frames += 1;
         canvas.present();
     }
 
