@@ -385,9 +385,9 @@ fn draw_window(state: &mut GpuState, canvas: &mut Canvas<Window>) {
         point_idx += 256 * state.line as u16;
 
         // Draw a whole line from the window.
-        for point in 0..255 {
+        for point in 0..255 as u8 {
         
-            let target_x = point + (state.window_x - 7);
+            let target_x = point.wrapping_add(state.window_x.wrapping_sub(7));
             let target_y = state.line.wrapping_add(state.window_y);
             let color = state.tile_palette[state.window_points[point_idx as usize] as usize];
             let final_point = Point::new(target_x as i32, target_y as i32);
