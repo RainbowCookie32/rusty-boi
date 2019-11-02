@@ -12,7 +12,7 @@ use log::error;
 use super::cpu;
 use super::gpu;
 use super::cart::CartData;
-use super::memory::init_memory;
+use super::memory;
 use super::memory::{CpuMemory, IoRegisters, GpuMemory};
 
 
@@ -36,12 +36,12 @@ pub enum InputEvent {
 pub fn initialize() {
 
     let rom_data = (load_bootrom(), load_rom());
-    let mem_arcs = init_memory(rom_data);
+    let mem_arcs = memory::init_memory(rom_data);
     
     start_emulation(mem_arcs);
 }
 
-pub fn start_emulation(arcs: (CpuMemory, Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
+pub fn start_emulation(arcs: (CpuMemory, Arc<IoRegisters>, Arc<GpuMemory>)) {
         
     let cpu_cycles = Arc::new(Mutex::new(0 as u16));
     let cpu_arc = (Arc::clone(&arcs.1), Arc::clone(&arcs.2));
