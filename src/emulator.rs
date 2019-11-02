@@ -3,8 +3,9 @@ use std::thread;
 use std::io::Read;
 use std::fs::File;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::mpsc;
+use std::sync::atomic::AtomicU16;
 
 use log::info;
 use log::error;
@@ -12,8 +13,8 @@ use log::error;
 use super::cpu;
 use super::gpu;
 use super::cart::CartData;
-use super::memory::init_memory;
-use super::memory::{CpuMemory, IoRegisters, GpuMemory};
+use super::memory;
+use super::memory::{CpuMemory, GeneralMemory};
 
 
 #[derive(PartialEq)]
@@ -36,25 +37,27 @@ pub enum InputEvent {
 pub fn initialize() {
 
     let rom_data = (load_bootrom(), load_rom());
-    let mem_arcs = init_memory(rom_data);
+    let mem_arcs = memory::init_memory(rom_data);
     
-    start_emulation(mem_arcs);
+    start_emulation(mem_arcs.0, mem_arcs.1);
 }
 
-pub fn start_emulation(arcs: (CpuMemory, Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+pub fn start_emulation(cpu_mem: CpuMemory, shared_mem: Arc<GeneralMemory>) {
         
-    let cpu_cycles = Arc::new(Mutex::new(0 as u16));
-    let cpu_arc = (Arc::clone(&arcs.1), Arc::clone(&arcs.2));
-    let gpu_arc = (Arc::clone(&arcs.1), Arc::clone(&arcs.2));
-    let cycles_gpu = cpu_cycles.clone();
+    let cpu_cycles = Arc::new(AtomicU16::new(0));
+    let gpu_cycles = Arc::clone(&cpu_cycles);
+
+    let cpu_memory = (cpu_mem, Arc::clone(&shared_mem));
+    let gpu_memory = Arc::clone(&shared_mem);
+    
     let (input_tx, input_rx) = mpsc::channel();
 
     let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        cpu::start_cpu(cpu_cycles, (arcs.0, cpu_arc.0, cpu_arc.1), input_rx);
+        cpu::start_cpu(cpu_cycles, cpu_memory.0, cpu_memory.1, input_rx);
     }).unwrap();
 
     let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
-        gpu::start_gpu(cycles_gpu, input_tx, gpu_arc);
+        gpu::start_gpu(gpu_cycles, gpu_memory, input_tx);
     }).unwrap();
 
     cpu_thread.join().unwrap();

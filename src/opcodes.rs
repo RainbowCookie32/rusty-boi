@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use log::warn;
 
@@ -9,7 +9,7 @@ use super::cpu::CpuState;
 use super::cpu::CycleResult;
 
 use super::memory;
-use super::memory::{CpuMemory, IoRegisters, GpuMemory};
+use super::memory::{CpuMemory, GeneralMemory};
 
 use super::register::CpuReg;
 use super::register::Register;
@@ -24,7 +24,7 @@ pub enum JumpCondition {
     CNotSet,
 }
 
-pub fn run_opcode(state: &mut CpuState, opcode: u8, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
+pub fn run_opcode(state: &mut CpuState, opcode: u8, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> CycleResult {
 
     let mut result = CycleResult::Success;
 
@@ -368,7 +368,7 @@ fn daa(af: &mut CpuReg) -> (u16, u16) {
 
 // HALT and STOP
 
-fn halt(current_state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
+fn halt(current_state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> CycleResult {
 
     current_state.pc.add(1);
     current_state.cycles.add(4);
@@ -386,7 +386,7 @@ fn stop(current_state: &mut CpuState) -> CycleResult {
 
 // Jumps
 
-fn jump(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn jump(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
 
     let current_pc = state.pc.get();
     state.pc.set(cpu::read_u16(current_pc + 1, cpu_mem, shared_mem));
@@ -400,7 +400,7 @@ fn jump_to_hl(state: &mut CpuState) {
     state.cycles.add(4);
 }
 
-fn relative_jump(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn relative_jump(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
 
     let current_pc = state.pc.get();
     let target = memory::cpu_read(current_pc + 1, cpu_mem, shared_mem) as i8;
@@ -408,7 +408,7 @@ fn relative_jump(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Ar
     state.cycles.add(12);
 }
 
-fn conditional_jump(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn conditional_jump(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
 
     let should_jump: bool;
 
@@ -424,7 +424,7 @@ fn conditional_jump(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mu
     else { state.pc.add(3); state.cycles.add(12) }
 }
 
-fn conditional_relative_jump(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn conditional_relative_jump(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
 
     let should_jump: bool;
 
@@ -443,7 +443,7 @@ fn conditional_relative_jump(state: &mut CpuState, condition: JumpCondition, cpu
 
 // Calls and Returns
 
-fn call(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn call(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
 
     let current_pc = state.pc.get();
     let next_pc = state.pc.get() + 3;
@@ -453,7 +453,7 @@ fn call(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<I
     state.cycles.add(24);
 }
 
-fn conditional_call(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn conditional_call(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
 
     let should_call: bool;
 
@@ -469,19 +469,19 @@ fn conditional_call(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mu
     else { state.pc.add(3); state.cycles.add(12) }
 }
 
-fn ret(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn ret(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
     
     state.pc.set(cpu::stack_read(&mut state.sp, cpu_mem, shared_mem));
     state.cycles.add(16);
 }
 
-fn reti(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn reti(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
 
     cpu::toggle_interrupts(state, true);
     ret(state, cpu_mem, shared_mem);
 }
 
-fn conditional_ret(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn conditional_ret(state: &mut CpuState, condition: JumpCondition, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
 
     let should_ret: bool;
 
@@ -526,7 +526,7 @@ fn load_low_into_hi(register: &mut CpuReg) -> (u16, u16) {
     (1, 4)
 }
 
-fn add_imm_to_sp_save_in_hl(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn add_imm_to_sp_save_in_hl(state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(state.pc.get() + 1, cpu_mem, shared_mem) as i8;
     let result = state.sp.get_register().overflowing_add(value as u16);
@@ -542,21 +542,21 @@ fn add_imm_to_sp_save_in_hl(state: &mut CpuState, cpu_mem: &mut CpuMemory, share
 
 // Load register from immediate
 
-fn load_imm_into_hi(register: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_imm_into_hi(register: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = cpu::read_immediate(pc, cpu_mem, shared_mem);
     register.set_register_lb(value);
     (2, 8)
 }
 
-fn load_imm_into_low(register: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_imm_into_low(register: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = cpu::read_immediate(pc, cpu_mem, shared_mem);
     register.set_register_rb(value);
     (2, 8)
 }
 
-fn ld_imm_into_full(register: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_imm_into_full(register: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     register.set_register(cpu::read_u16(pc + 1, cpu_mem, shared_mem));
     (3, 12)
@@ -565,21 +565,21 @@ fn ld_imm_into_full(register: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, sha
 
 // Load register from address
 
-fn ld_a_from_imm_addr(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_a_from_imm_addr(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let target_addr = cpu::read_u16(pc + 1, cpu_mem, shared_mem);
     af.set_register_lb(memory::cpu_read(target_addr, cpu_mem, shared_mem));
     (3, 16)
 }
 
-fn ld_a_from_ff_imm(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_a_from_ff_imm(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let target_addr = 0xFF00 + cpu::read_immediate(pc, cpu_mem, shared_mem) as u16;
     af.set_register_lb(memory::cpu_read(target_addr, cpu_mem, shared_mem));
     (2, 12)
 }
 
-fn ld_a_from_ff_c(af: &mut CpuReg, bc: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_a_from_ff_c(af: &mut CpuReg, bc: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let address = 0xFF00 + bc.get_register_rb() as u16;
     let value = memory::cpu_read(address, cpu_mem, shared_mem);
@@ -591,56 +591,56 @@ fn ld_a_from_ff_c(af: &mut CpuReg, bc: &mut CpuReg, cpu_mem: &mut CpuMemory, sha
 
 // Load register from register address
 
-fn load_hl_into_hi(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_hl_into_hi(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     register.set_register_lb(value);
     (1, 8)
 }
 
-fn load_hl_into_low(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_hl_into_low(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     register.set_register_rb(value);
     (1, 8)
 }
 
-fn load_hl_into_h(register: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_hl_into_h(register: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let address = register.get_register();
     register.set_register_lb(memory::cpu_read(address, cpu_mem, shared_mem));
     (1, 8)
 }
 
-fn load_hl_into_l(register: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_hl_into_l(register: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let address = register.get_register();
     register.set_register_rb(memory::cpu_read(address, cpu_mem, shared_mem));
     (1, 8)
 }
 
-fn load_bc_into_a(register: &mut CpuReg, bc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_bc_into_a(register: &mut CpuReg, bc: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(bc, cpu_mem, shared_mem);
     register.set_register_lb(value);
     (1, 8)
 }
 
-fn load_de_into_a(register: &mut CpuReg, de: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn load_de_into_a(register: &mut CpuReg, de: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(de, cpu_mem, shared_mem);
     register.set_register_lb(value);
     (1, 8)
 }
 
-fn ld_a_from_hl_inc(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_a_from_hl_inc(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     af.set_register_lb(memory::cpu_read(hl.get_register(), cpu_mem, shared_mem));
     hl.increment();
     (1, 8)
 }
 
-fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
     
     af.set_register_lb(memory::cpu_read(hl.get_register(), cpu_mem, shared_mem));
     hl.decrement();
@@ -650,33 +650,33 @@ fn ld_a_from_hl_dec(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, s
 
 // Save register to HL
 
-fn save_a_to_hl_inc(register: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_hl_inc(register: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     memory::cpu_write(hl.get_register(), register.get_register_lb(), cpu_mem, shared_mem);
     hl.increment();
     (1, 8)
 }
 
-fn save_a_to_hl_dec(a: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_hl_dec(a: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     memory::cpu_write(hl.get_register(), a.get_register_lb(), cpu_mem, shared_mem);
     hl.decrement();
     (1, 8)
 }
 
-fn save_value_to_hl(value: u8, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_value_to_hl(value: u8, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     memory::cpu_write(hl, value, cpu_mem, shared_mem);
     (1, 8)
 }
 
-fn save_hi_to_hl(hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_hi_to_hl(hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     memory::cpu_write(hl.get_register(), hl.get_register_lb(), cpu_mem, shared_mem);
     (1, 8)
 }
 
-fn save_low_to_hl(hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_low_to_hl(hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     memory::cpu_write(hl.get_register(), hl.get_register_rb(), cpu_mem, shared_mem);
     (1, 8)
@@ -688,7 +688,7 @@ fn ld_hl_into_sp(sp: &mut CpuReg, hl: &mut CpuReg) -> (u16, u16) {
     (1, 8)
 }
 
-fn save_a_to_full(register: &mut CpuReg, full: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_full(register: &mut CpuReg, full: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     memory::cpu_write(full.get_register(), register.get_register_lb(), cpu_mem, shared_mem);
     (1, 8)
@@ -697,21 +697,21 @@ fn save_a_to_full(register: &mut CpuReg, full: &mut CpuReg, cpu_mem: &mut CpuMem
 
 // Save register to address
 
-fn save_a_to_ff_imm(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_ff_imm(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let target_addr = 0xFF00 + (cpu::read_immediate(pc, cpu_mem, shared_mem) as u16);
     memory::cpu_write(target_addr, af.get_register_lb(), cpu_mem, shared_mem);
     (2, 12)
 }
 
-fn save_a_to_ff_c(af: &mut CpuReg, bc: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_ff_c(af: &mut CpuReg, bc: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let target_addr = 0xFF00 + (bc.get_register_rb() as u16);
     memory::cpu_write(target_addr, af.get_register_lb(), cpu_mem, shared_mem);
     (1, 8)
 }
 
-fn save_a_to_nn(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_a_to_nn(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let target_addr = cpu::read_u16(pc + 1, cpu_mem, shared_mem);
     memory::cpu_write(target_addr, af.get_register_lb(), cpu_mem, shared_mem);
@@ -721,7 +721,7 @@ fn save_a_to_nn(af: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &
 
 // Save value to HL
 
-fn save_imm_to_hl(hl: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_imm_to_hl(hl: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = cpu::read_immediate(pc, cpu_mem, shared_mem);
     memory::cpu_write(hl.get_register(), value, cpu_mem, shared_mem);
@@ -731,7 +731,7 @@ fn save_imm_to_hl(hl: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem:
 
 // Save SP to immediate address
 
-fn save_sp_to_imm(sp: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn save_sp_to_imm(sp: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let target_addr = cpu::read_u16(pc + 1, cpu_mem, shared_mem);
     memory::cpu_write(target_addr, sp.get_register_rb(), cpu_mem, shared_mem);
@@ -778,7 +778,7 @@ fn increment_a(register: &mut CpuReg) -> (u16, u16) {
 
 // Increment value at HL
 
-fn increment_value(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn increment_value(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
     
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = value.overflowing_add(1);
@@ -828,7 +828,7 @@ fn decrement_a(af: &mut CpuReg) -> (u16, u16) {
 
 // Decrement value at HL
 
-fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
     
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = value.overflowing_sub(1);
@@ -863,7 +863,7 @@ fn add_hl_to_hl(hl: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
     (1, 8)
 }
 
-fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = cpu::read_immediate(pc, cpu_mem, shared_mem) as i8;
     sp.add_to_reg(value as u16);
@@ -893,7 +893,7 @@ fn add_a(register: &mut CpuReg) -> (u16, u16) {
     add(register, value)
 }
 
-fn add_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn add_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     add(register, value);
@@ -932,7 +932,7 @@ fn adc_a(register: &mut CpuReg) -> (u16, u16) {
     adc(register, value)
 }
 
-fn adc_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn adc_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     adc(register, value);
@@ -967,7 +967,7 @@ fn sub_a(register: &mut CpuReg) -> (u16, u16) {
     sub(register, value)
 }
 
-fn sub_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn sub_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     sub(register, value);
@@ -1004,7 +1004,7 @@ fn sbc_a(register: &mut CpuReg) -> (u16, u16) {
     sbc(register, value)
 }
 
-fn sbc_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn sbc_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     sbc(register, value);
@@ -1038,7 +1038,7 @@ fn and_a(register: &mut CpuReg) -> (u16, u16) {
     and(register, value)
 }
 
-fn and_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn and_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     and(register, value);
@@ -1072,7 +1072,7 @@ fn or_a(register: &mut CpuReg) -> (u16, u16) {
     or(register, value)
 }
 
-fn or_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn or_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
     
     let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     or(register, value);
@@ -1106,7 +1106,7 @@ fn xor_a(register: &mut CpuReg) -> (u16, u16) {
     xor(register, value)
 }
 
-fn xor_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn xor_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     xor(register, value);
@@ -1152,7 +1152,7 @@ fn cp_a(register: &mut CpuReg) -> (u16, u16) {
     cp(register, value)
 }
 
-fn cp_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn cp_hl(register: &mut CpuReg, hl: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = memory::cpu_read(hl, cpu_mem, shared_mem);
     cp(register, value);
@@ -1168,14 +1168,14 @@ fn cp_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
 // Push and Pop
 
-fn pop(reg: &mut CpuReg, sp: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn pop(reg: &mut CpuReg, sp: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     let value = cpu::stack_read(sp, cpu_mem, shared_mem);
     reg.set_register(value);
     (1, 12)
 }
 
-fn push(reg: &mut CpuReg, sp: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn push(reg: &mut CpuReg, sp: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) -> (u16, u16) {
 
     cpu::stack_write(sp, reg.get_register(), cpu_mem, shared_mem);
     (1, 16)
@@ -1279,7 +1279,7 @@ fn ccf(af: &mut CpuReg) -> (u16, u16) {
 
 // Reset opcode
 
-fn rst(target: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>), state: &mut CpuState) {
+fn rst(target: u16, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>, state: &mut CpuState) {
 
     cpu::stack_write(&mut state.sp, state.pc.get() + 1, cpu_mem, shared_mem);
     state.cycles.add(32);

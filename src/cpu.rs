@@ -1,11 +1,13 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::mpsc::Receiver;
+use std::sync::atomic::{AtomicU16, Ordering};
 
 use log::{info, error};
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::memory;
-use super::memory::{CpuMemory, IoRegisters, GpuMemory};
+use super::memory::CpuMemory;
+use super::memory::GeneralMemory;
 
 use super::emulator::InputEvent;
 use super::{timer, utils, opcodes, opcodes_prefixed};
@@ -87,22 +89,22 @@ pub enum CycleResult {
     Success,
 }
 
-pub fn start_cpu(cycles: Arc<Mutex<u16>>, memory: (CpuMemory, Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>), input: Receiver<InputEvent>) {
+pub fn start_cpu(cycles: Arc<AtomicU16>, cpu_mem: CpuMemory, shared_mem: Arc<GeneralMemory>, input: Receiver<InputEvent>) {
 
-    let mut current_state = CpuState::new(!memory.0.bootrom_finished);
+    let mut current_state = CpuState::new(!cpu_mem.bootrom_finished);
     let mut timer_state = timer::init_timer();
 
-    let mut cpu_memory = memory.0;
-    let shared_memory = (memory.1, memory.2);
+    let mut cpu_memory = cpu_mem;
+    let shared_memory = shared_mem;
 
     loop {
         
-        let input_value = memory::cpu_read(0xFF00, &mut cpu_memory, &shared_memory);
+        let input_value = memory::cpu_read(0xFF00, &cpu_memory, &shared_memory);
         if input_value == 0x30 || input_value == 0x20 || input_value == 0x10 {
             if update_inputs(&input, &mut cpu_memory, &shared_memory) {break}
         }
         handle_interrupts(&mut current_state, &mut cpu_memory, &shared_memory);
-        let mut opcode = memory::cpu_read(current_state.pc.get(), &mut cpu_memory, &shared_memory);
+        let mut opcode = memory::cpu_read(current_state.pc.get(), &cpu_memory, &shared_memory);
 
         if !current_state.halted {
             
@@ -139,13 +141,12 @@ pub fn start_cpu(cycles: Arc<Mutex<u16>>, memory: (CpuMemory, Arc<Mutex<IoRegist
             break;
         }
 
-        let mut cyc_mut = cycles.lock().unwrap();
-        *cyc_mut = cyc_mut.overflowing_add(current_state.cycles.get()).0;
-        timer::timer_cycle(&mut timer_state, current_state.cycles.get(), &shared_memory.0);
+        cycles.fetch_add(current_state.cycles.get(), Ordering::Relaxed);
+        timer::timer_cycle(&mut timer_state, current_state.cycles.get(), &shared_memory);
     }
 }
 
-fn update_inputs(input_rx: &Receiver<InputEvent>, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> bool {
+fn update_inputs(input_rx: &Receiver<InputEvent>, cpu_memory: &mut CpuMemory, shared_memory: &Arc<GeneralMemory>) -> bool {
 
     let received_input: bool;
     let input_event = input_rx.try_recv();
@@ -154,7 +155,7 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, cpu_mem: &mut CpuMemory, share
     let mut received_message = InputEvent::APressed;
     // Read the value of the input register, and default all input bits to 1.
     // The lower 4 bits are set when there's no input, and reset when there's a button press.
-    let mut input_value = memory::cpu_read(0xFF00, cpu_mem, shared_mem) | 0xCF;
+    let mut input_value = memory::cpu_read(0xFF00, cpu_memory, &shared_memory) | 0xCF;
 
     match input_event {
         Ok(message) => {
@@ -207,22 +208,22 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, cpu_mem: &mut CpuMemory, share
             }
         }
 
-        memory::cpu_write(0xFF00, input_value, cpu_mem, shared_mem);
-        let current_if = memory::cpu_read(0xFF0F, cpu_mem, shared_mem);
-        memory::cpu_write(0xFF0F, utils::set_bit(current_if, 4), cpu_mem, shared_mem);
+        memory::cpu_write(0xFF00, input_value, cpu_memory, shared_memory);
+        let current_if = memory::cpu_read(0xFF0F, cpu_memory, shared_memory);
+        memory::cpu_write(0xFF0F, utils::set_bit(current_if, 4), cpu_memory, shared_memory);
     }
     else {
-        memory::cpu_write(0xFF00, input_value, cpu_mem, shared_mem);
+        memory::cpu_write(0xFF00, input_value, cpu_memory, shared_memory);
     }
 
     should_break
 }
 
-fn handle_interrupts(current_state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn handle_interrupts(current_state: &mut CpuState, cpu_memory: &mut CpuMemory, shared_memory: &Arc<GeneralMemory>) {
 
-    let ie_value = memory::cpu_read(0xFFFF, cpu_mem, shared_mem);
+    let ie_value = memory::cpu_read(0xFFFF, cpu_memory, shared_memory);
     update_interrupts(ie_value, &mut current_state.interrupts);
-    let mut if_value = memory::cpu_read(0xFF0F, cpu_mem, shared_mem);
+    let mut if_value = memory::cpu_read(0xFF0F, cpu_memory, shared_memory);
 
     let vblank_interrupt = utils::check_bit(if_value, 0) && current_state.interrupts.vblank_enabled;
     let lcdc_interrupt = utils::check_bit(if_value, 1) && current_state.interrupts.lcdc_enabled;
@@ -234,8 +235,8 @@ fn handle_interrupts(current_state: &mut CpuState, cpu_mem: &mut CpuMemory, shar
 
         if current_state.interrupts.can_interrupt {
             if_value = utils::reset_bit(if_value, 0);
-            memory::cpu_write(0xFF0F, if_value, cpu_mem, shared_mem);
-            stack_write(&mut current_state.sp, current_state.pc.get(), cpu_mem, shared_mem);
+            memory::cpu_write(0xFF0F, if_value, cpu_memory, shared_memory);
+            stack_write(&mut current_state.sp, current_state.pc.get(), cpu_memory, shared_memory);
             current_state.pc.set(0x0040);
             current_state.interrupts.can_interrupt = false;
         }
@@ -245,8 +246,8 @@ fn handle_interrupts(current_state: &mut CpuState, cpu_mem: &mut CpuMemory, shar
         
         if current_state.interrupts.can_interrupt {
             if_value = utils::reset_bit(if_value, 1);
-            memory::cpu_write(0xFF0F, if_value, cpu_mem, shared_mem);
-            stack_write(&mut current_state.sp, current_state.pc.get(), cpu_mem, shared_mem);
+            memory::cpu_write(0xFF0F, if_value, cpu_memory, shared_memory);
+            stack_write(&mut current_state.sp, current_state.pc.get(), cpu_memory, shared_memory);
             current_state.pc.set(0x0048);
             current_state.interrupts.can_interrupt = false;
         }
@@ -256,8 +257,8 @@ fn handle_interrupts(current_state: &mut CpuState, cpu_mem: &mut CpuMemory, shar
         
         if current_state.interrupts.can_interrupt {
             if_value = utils::reset_bit(if_value, 2);
-            memory::cpu_write(0xFF0F, if_value, cpu_mem, shared_mem);
-            stack_write(&mut current_state.sp, current_state.pc.get(), cpu_mem, shared_mem);
+            memory::cpu_write(0xFF0F, if_value, cpu_memory, shared_memory);
+            stack_write(&mut current_state.sp, current_state.pc.get(), cpu_memory, shared_memory);
             current_state.pc.set(0x0050);
             current_state.interrupts.can_interrupt = false;
         }
@@ -267,8 +268,8 @@ fn handle_interrupts(current_state: &mut CpuState, cpu_mem: &mut CpuMemory, shar
         
         if current_state.interrupts.can_interrupt {
             if_value = utils::reset_bit(if_value, 3);
-            memory::cpu_write(0xFF0F, if_value, cpu_mem, shared_mem);
-            stack_write(&mut current_state.sp, current_state.pc.get(), cpu_mem, shared_mem);
+            memory::cpu_write(0xFF0F, if_value, cpu_memory, shared_memory);
+            stack_write(&mut current_state.sp, current_state.pc.get(), cpu_memory, shared_memory);
             current_state.pc.set(0x0058);
             current_state.interrupts.can_interrupt = false;
         }
@@ -278,8 +279,8 @@ fn handle_interrupts(current_state: &mut CpuState, cpu_mem: &mut CpuMemory, shar
         
         if current_state.interrupts.can_interrupt {
             if_value = utils::reset_bit(if_value, 4);
-            memory::cpu_write(0xFF0F, if_value, cpu_mem, shared_mem);
-            stack_write(&mut current_state.sp, current_state.pc.get(), cpu_mem, shared_mem);
+            memory::cpu_write(0xFF0F, if_value, cpu_memory, shared_memory);
+            stack_write(&mut current_state.sp, current_state.pc.get(), cpu_memory, shared_memory);
             current_state.pc.set(0x0060);
             current_state.interrupts.can_interrupt = false;
         }
@@ -301,41 +302,41 @@ fn update_interrupts(new_value: u8, interrupts: &mut InterruptState) {
     interrupts.input_enabled = utils::check_bit(new_value, 4);
 }
 
-pub fn read_immediate(address: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> u8 {
+pub fn read_immediate(address: u16, cpu_memory: &mut CpuMemory, shared_memory: &Arc<GeneralMemory>) -> u8 {
 
-    memory::cpu_read(address + 1, cpu_mem, shared_mem)
+    memory::cpu_read(address + 1, cpu_memory, shared_memory)
 }
 
-pub fn read_u16(addr: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> u16 {
+pub fn read_u16(addr: u16, cpu_memory: &mut CpuMemory, shared_memory: &Arc<GeneralMemory>) -> u16 {
 
     let mut bytes: Vec<u8> = vec![0; 2];
     let read_value: u16;
     
-    bytes[0] = memory::cpu_read(addr, cpu_mem, shared_mem);
-    bytes[1] = memory::cpu_read(addr + 1, cpu_mem, shared_mem);
+    bytes[0] = memory::cpu_read(addr, cpu_memory, shared_memory);
+    bytes[1] = memory::cpu_read(addr + 1, cpu_memory, shared_memory);
 
     read_value = LittleEndian::read_u16(&bytes);
     read_value
 }
 
-pub fn stack_read(sp: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> u16 {
+pub fn stack_read(sp: &mut CpuReg, cpu_memory: &mut CpuMemory, shared_memory: &Arc<GeneralMemory>) -> u16 {
 
     let final_value: u16;
     let mut values: Vec<u8> = vec![0; 2];
     
-    values[0] = memory::cpu_read(sp.get_register(), cpu_mem, shared_mem);
+    values[0] = memory::cpu_read(sp.get_register(), cpu_memory, shared_memory);
     sp.increment();
-    values[1] = memory::cpu_read(sp.get_register(), cpu_mem, shared_mem);
+    values[1] = memory::cpu_read(sp.get_register(), cpu_memory, shared_memory);
     sp.increment();
 
     final_value = LittleEndian::read_u16(&values);
     final_value
 }
 
-pub fn stack_write(sp: &mut CpuReg, value: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+pub fn stack_write(sp: &mut CpuReg, value: u16, cpu_memory: &mut CpuMemory, shared_memory: &Arc<GeneralMemory>) {
 
     sp.decrement();
-    memory::cpu_write(sp.get_register(), utils::get_lb(value), cpu_mem, shared_mem);
+    memory::cpu_write(sp.get_register(), utils::get_lb(value), cpu_memory, shared_memory);
     sp.decrement();
-    memory::cpu_write(sp.get_register(), utils::get_rb(value), cpu_mem, shared_mem);
+    memory::cpu_write(sp.get_register(), utils::get_rb(value), cpu_memory, shared_memory);
 }

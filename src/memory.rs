@@ -1,79 +1,109 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use log::{info, warn};
 
 use super::cart::CartData;
-
 
 pub struct CpuMemory {
 
     pub bootrom: Vec<u8>,
     pub cartridge: CartData,
     pub ram: Vec<u8>,
-    pub echo_ram: Vec<u8>,
     pub hram: Vec<u8>,
-    
     pub bootrom_finished: bool,
 }
 
-pub struct IoRegisters {
+impl CpuMemory {
+    pub fn new(data: ((Vec<u8>, bool), CartData)) -> CpuMemory {
+        
+        let bootrom_info = data.0;
 
-    pub io_regs: Vec<u8>,
-    pub interrupts: u8,
-    pub serial_buffer: Vec<u8>,
+        CpuMemory {
+            bootrom: bootrom_info.0,
+            cartridge: data.1,
+            ram: vec![0; 8192],
+            hram: vec![0; 127],
+            bootrom_finished: !bootrom_info.1,
+        }
+    }
 }
 
-pub struct GpuMemory {
+pub struct GeneralMemory {
 
-    pub char_ram: Vec<u8>,
-    pub bg_map: Vec<u8>,
-    pub oam_mem: Vec<u8>,
+    pub io_regs: Vec<AtomicU8>,
+    pub interrupts: AtomicU8,
 
-    pub tile_palette_dirty: bool,
-    pub sprite_palettes_dirty: bool,
+    pub char_ram: Vec<AtomicU8>,
+    pub bg_map: Vec<AtomicU8>,
+    pub oam_mem: Vec<AtomicU8>,
 
-    pub tiles_dirty_flags: u8,
-    pub sprites_dirty_flags: u8,
-    pub background_dirty_flags: u8,
+    pub tile_palette_dirty: AtomicBool,
+    pub sprite_palettes_dirty: AtomicBool,
+
+    pub tiles_dirty_flags: AtomicU8,
+    pub sprites_dirty_flags: AtomicU8,
+    pub background_dirty_flags: AtomicU8,
 }
 
-pub fn init_memory(data: ((Vec<u8>, bool), CartData)) -> (CpuMemory, Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>) {
-    
-    let bootrom_info = data.0;
+impl GeneralMemory {
 
-    let cpu_memory = CpuMemory {
-        bootrom: bootrom_info.0,
-        cartridge: data.1,
-        ram: vec![0; 8192],
-        echo_ram: vec![0; 8192],
-        hram: vec![0; 127],
+    pub fn new() -> GeneralMemory {
+        
+        let mut regs: Vec<AtomicU8> = Vec::new();
 
-        bootrom_finished: !bootrom_info.1,
-    };
+        let mut char_ram: Vec<AtomicU8> = Vec::new();
+        let mut bg_map: Vec<AtomicU8> = Vec::new();
+        let mut oam_mem: Vec<AtomicU8> = Vec::new();
 
-    let io_regs = IoRegisters {
-        io_regs: vec![0; 256],
-        interrupts: 0,
-        serial_buffer: Vec::new(),
-    };
+        let tile_palette_dirty = AtomicBool::new(false);
+        let sprite_palettes_dirty = AtomicBool::new(false);
 
-    let gpu_memory = GpuMemory {
-        char_ram: vec![0; 6144],
-        bg_map: vec![0; 2048],
-        oam_mem: vec![0; 160],
+        let tiles_dirty_flags = AtomicU8::new(1);
+        let sprites_dirty_flags = AtomicU8::new(1);
+        let background_dirty_flags = AtomicU8::new(1);
 
-        tile_palette_dirty: false,
-        sprite_palettes_dirty: false,
+        for _idx in 0..128 {
+            regs.push(AtomicU8::new(0));
+        }
 
-        tiles_dirty_flags: 0,
-        sprites_dirty_flags: 0,
-        background_dirty_flags: 0,
-    };
+        for _idx in 0..6144 {
+            char_ram.push(AtomicU8::new(1));
+        }
 
-    (cpu_memory, Arc::new(Mutex::new(io_regs)), Arc::new(Mutex::new(gpu_memory)))
+        for _idx in 0..2048 {
+            bg_map.push(AtomicU8::new(1));
+        }
+
+        for _idx in 0..160 {
+            oam_mem.push(AtomicU8::new(1));
+        }
+
+        GeneralMemory {
+            io_regs: regs,
+            interrupts: AtomicU8::new(0),
+
+            char_ram: char_ram,
+            bg_map: bg_map,
+            oam_mem: oam_mem,
+            tile_palette_dirty: tile_palette_dirty,
+            sprite_palettes_dirty: sprite_palettes_dirty,
+            tiles_dirty_flags: tiles_dirty_flags,
+            sprites_dirty_flags: sprites_dirty_flags,
+            background_dirty_flags: background_dirty_flags,
+        }
+    }
 }
 
-pub fn cpu_read(address: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> u8 {
+
+pub fn init_memory(data: ((Vec<u8>, bool), CartData)) -> (CpuMemory, Arc<GeneralMemory>) {
+
+    (CpuMemory::new(data), Arc::new(GeneralMemory::new()))
+}
+
+pub fn cpu_read(address: u16, cpu_mem: &CpuMemory, shared_mem: &Arc<GeneralMemory>) -> u8 {
 
     if address < 0x0100 
     {
@@ -90,13 +120,11 @@ pub fn cpu_read(address: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<I
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
-        let mem = shared_mem.1.lock().unwrap();
-        mem.char_ram[(address - 0x8000) as usize]
+        shared_mem.char_ram[(address - 0x8000) as usize].load(Ordering::Relaxed)
     }
     else if address >= 0x9800 && address <= 0x9FFF
     {
-        let mem = shared_mem.1.lock().unwrap();
-        mem.bg_map[(address - 0x9800) as usize]
+        shared_mem.bg_map[(address - 0x9800) as usize].load(Ordering::Relaxed)
     }
     else if address >= 0xA000 && address <= 0xBFFF 
     {
@@ -108,12 +136,11 @@ pub fn cpu_read(address: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<I
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
-        cpu_mem.echo_ram[(address - 0xE000) as usize]
+        cpu_mem.ram[(address - 0xE000) as usize]
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
-        let mem = shared_mem.1.lock().unwrap();
-        mem.oam_mem[(address - 0xFE00) as usize]
+        shared_mem.oam_mem[(address - 0xFE00) as usize].load(Ordering::Relaxed)
     }
     else if address >= 0xFEA0 && address <= 0xFEFF
     {
@@ -122,8 +149,7 @@ pub fn cpu_read(address: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<I
     }
     else if address >= 0xFF00 && address <= 0xFF7F
     {
-        let mem = shared_mem.0.lock().unwrap();
-        mem.io_regs[(address - 0xFF00) as usize]
+        shared_mem.io_regs[(address - 0xFF00) as usize].load(Ordering::Relaxed)
     }
     else if address >= 0xFF80 && address <= 0xFFFE
     {
@@ -131,8 +157,7 @@ pub fn cpu_read(address: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<I
     }
     else if address == 0xFFFF
     {
-        let mem = shared_mem.0.lock().unwrap();
-        mem.interrupts
+        shared_mem.interrupts.load(Ordering::Relaxed)
     }
     else
     {
@@ -140,7 +165,7 @@ pub fn cpu_read(address: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<I
     }
 }
 
-pub fn cpu_write(address: u16, value: u8, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+pub fn cpu_write(address: u16, value: u8, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
 
     if address <= 0x7FFF
     {
@@ -148,21 +173,19 @@ pub fn cpu_write(address: u16, value: u8, cpu_mem: &mut CpuMemory, shared_mem: &
     }
     else if address >= 0x8000 && address <= 0x97FF
     {
-        let mut mem = shared_mem.1.lock().unwrap();
-        if mem.char_ram[(address - 0x8000) as usize] != value {
-            mem.tiles_dirty_flags = mem.tiles_dirty_flags.wrapping_add(1);
-            mem.sprites_dirty_flags = mem.sprites_dirty_flags.wrapping_add(1);
-            mem.background_dirty_flags = mem.background_dirty_flags.wrapping_add(1);
+        if shared_mem.char_ram[(address - 0x8000) as usize].load(Ordering::Relaxed) != value {
+            shared_mem.tiles_dirty_flags.fetch_add(1, Ordering::Relaxed);
+            shared_mem.sprites_dirty_flags.fetch_add(1, Ordering::Relaxed);
+            shared_mem.background_dirty_flags.fetch_add(1, Ordering::Relaxed);
         }
-        mem.char_ram[(address - 0x8000) as usize] = value;
+        shared_mem.char_ram[(address - 0x8000) as usize].store(value, Ordering::Relaxed);
     }
     else if address >= 0x9800 && address <= 0x9FFF
     {
-        let mut mem = shared_mem.1.lock().unwrap();
-        if mem.bg_map[(address - 0x9800) as usize] != value {
-            mem.background_dirty_flags = mem.background_dirty_flags.wrapping_add(1);
+        if shared_mem.bg_map[(address - 0x9800) as usize].load(Ordering::Relaxed) != value {
+            shared_mem.background_dirty_flags.fetch_add(1, Ordering::Relaxed);
         }
-        mem.bg_map[(address - 0x9800) as usize] = value;
+        shared_mem.bg_map[(address - 0x9800) as usize].store(value, Ordering::Relaxed);
     }
     else if address >= 0xA000 && address <= 0xBFFF 
     {
@@ -171,21 +194,18 @@ pub fn cpu_write(address: u16, value: u8, cpu_mem: &mut CpuMemory, shared_mem: &
     else if address >= 0xC000 && address <= 0xDFFF
     {
         cpu_mem.ram[(address - 0xC000) as usize] = value;
-        cpu_mem.echo_ram[(address - 0xC000) as usize] = value;
     }
     else if address >= 0xE000 && address <= 0xFDFF 
     {
         if value != 0 {warn!("Memory: Write to echo ram. Address {}, value {}.", format!("{:#X}", address), format!("{:#X}", value))}
         cpu_mem.ram[(address - 0xE000) as usize] = value;
-        cpu_mem.echo_ram[(address - 0xE000) as usize] = value;
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
-        let mut mem = shared_mem.1.lock().unwrap();
-        if mem.oam_mem[(address - 0xFE00) as usize] != value {
-            mem.sprites_dirty_flags = mem.sprites_dirty_flags.wrapping_add(1);
+        if shared_mem.oam_mem[(address - 0xFE00) as usize].load(Ordering::Relaxed) != value {
+            shared_mem.sprites_dirty_flags.fetch_add(1, Ordering::Relaxed);
         }
-        mem.oam_mem[(address - 0xFE00) as usize] = value;
+        shared_mem.oam_mem[(address - 0xFE00) as usize].store(value, Ordering::Relaxed);
     }
     else if address >= 0xFEA0 && address <= 0xFEFF
     {
@@ -197,45 +217,17 @@ pub fn cpu_write(address: u16, value: u8, cpu_mem: &mut CpuMemory, shared_mem: &
             do_dma_transfer(value, cpu_mem, shared_mem);
         }
         else {
-
-            // Basically here to print the output of tests.
-            // Holds the values stored in FF01 until a line break, then prints them.
-            if address == 0xFF01 {
-                if value == 0xA {
-
-                    let mut idx: usize = 0;
-                    let mut new_string = String::from("");
-                    let mut mem = shared_mem.0.lock().unwrap();
-                    while idx < mem.serial_buffer.len() {
-                        new_string.push(mem.serial_buffer[idx] as char);
-                        idx += 1;
-                    }
-
-                    info!("Serial:  {} ", new_string);
-                    mem.serial_buffer = Vec::new();
-                }
-                else {
-                    let mut mem = shared_mem.0.lock().unwrap();
-                    mem.serial_buffer.push(value);
-                }
-            }
-            // According to the docs, writing any value to DIV (FF04) ot LY (FF44) from the CPU
-            // resets the value back to 0, so check if it's either of those before writing.
-            else if address == 0xFF04 || address == 0xFF44 {
-                let mut mem = shared_mem.0.lock().unwrap();
-                mem.io_regs[(address - 0xFF00) as usize] = 0;
+            if address == 0xFF04 || address == 0xFF44 {
+                shared_mem.io_regs[(address - 0xFF00) as usize].store(0, Ordering::Relaxed);
             }
             else {
                 if address == 0xFF47 {
-                    let mut mem = shared_mem.1.lock().unwrap();
-                    mem.tile_palette_dirty = true;
+                    shared_mem.tile_palette_dirty.store(true, Ordering::Relaxed);
                 }
                 if address == 0xFF48 || address == 0xFF49 {
-                    let mut mem = shared_mem.1.lock().unwrap();
-                    mem.sprite_palettes_dirty = true;
+                    shared_mem.sprite_palettes_dirty.store(true, Ordering::Relaxed);
                 }
-                let mut mem = shared_mem.0.lock().unwrap();
-                mem.io_regs[(address - 0xFF00) as usize] = value;
+                shared_mem.io_regs[(address - 0xFF00) as usize].store(value, Ordering::Relaxed);
             }
         }
         
@@ -246,8 +238,7 @@ pub fn cpu_write(address: u16, value: u8, cpu_mem: &mut CpuMemory, shared_mem: &
     }
     else if address == 0xFFFF
     {
-        let mut mem = shared_mem.0.lock().unwrap();
-        mem.interrupts = value;
+        shared_mem.interrupts.store(value,Ordering::Relaxed);
     }
     else
     {
@@ -255,12 +246,11 @@ pub fn cpu_write(address: u16, value: u8, cpu_mem: &mut CpuMemory, shared_mem: &
     }
 }
 
-pub fn timer_read(address: u16, memory: &Arc<Mutex<IoRegisters>>) -> u8 {
+pub fn timer_read(address: u16, memory: &Arc<GeneralMemory>) -> u8 {
 
     if address >= 0xFF00 && address <= 0xFF7F
     {
-        let mem = memory.lock().unwrap();
-        mem.io_regs[(address - 0xFF00) as usize]
+        memory.io_regs[(address - 0xFF00) as usize].load(Ordering::Relaxed)
     }
     else {
         info!("Memory: Timer tried to read at address {}, returning 0", format!("{:#X}", address));
@@ -268,39 +258,34 @@ pub fn timer_read(address: u16, memory: &Arc<Mutex<IoRegisters>>) -> u8 {
     }
 }
 
-pub fn timer_write(address: u16, value: u8, memory: &Arc<Mutex<IoRegisters>>) {
+pub fn timer_write(address: u16, value: u8, memory: &Arc<GeneralMemory>) {
 
     if address >= 0xFF00 && address <= 0xFF7F
     {
-        let mut mem = memory.lock().unwrap();
-        mem.io_regs[(address - 0xFF00) as usize] = value;
+        memory.io_regs[(address - 0xFF00) as usize].store(value, Ordering::Relaxed);
     }
     else {
         info!("Memory: Timer tried to write value {} at address {}", format!("{:#X}", value), format!("{:#X}", address));
     }
 }
 
-pub fn gpu_read(address: u16, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> u8 {
+pub fn gpu_read(address: u16, memory: &Arc<GeneralMemory>) -> u8 {
 
     if address >= 0x8000 && address <= 0x97FF
     {
-        let mem = memory.1.lock().unwrap();
-        mem.char_ram[(address - 0x8000) as usize]
+        memory.char_ram[(address - 0x8000) as usize].load(Ordering::Relaxed)
     }
     else if address >= 0x9800 && address <= 0x9FFF
     {
-        let mem = memory.1.lock().unwrap();
-        mem.bg_map[(address - 0x9800) as usize]
+        memory.bg_map[(address - 0x9800) as usize].load(Ordering::Relaxed)
     }
     else if address >= 0xFE00 && address <= 0xFE9F 
     {
-        let mem = memory.1.lock().unwrap();
-        mem.oam_mem[(address - 0xFE00) as usize]
+        memory.oam_mem[(address - 0xFE00) as usize].load(Ordering::Relaxed)
     }
     else if address >= 0xFF00 && address <= 0xFF7F
     {
-        let mem = memory.0.lock().unwrap();
-        mem.io_regs[(address - 0xFF00) as usize]
+        memory.io_regs[(address - 0xFF00) as usize].load(Ordering::Relaxed)
     }
     else 
     {
@@ -309,19 +294,18 @@ pub fn gpu_read(address: u16, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMe
     }
 }
 
-pub fn gpu_write(address: u16, value: u8, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+pub fn gpu_write(address: u16, value: u8, memory: &Arc<GeneralMemory>) {
 
     if address >= 0xFF00 && address <= 0xFF7F
     {
-        let mut mem = memory.0.lock().unwrap();
-        mem.io_regs[(address - 0xFF00) as usize] = value;
+        memory.io_regs[(address - 0xFF00) as usize].store(value, Ordering::Relaxed);
     }
     else {
         info!("Memory: GPU tried to write value {} at address {}", format!("{:#X}", value), format!("{:#X}", address));
     }
 }
 
-fn do_dma_transfer(value: u8, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn do_dma_transfer(value: u8, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
 
     let start_addr: u16 = (value as u16) << 8;
     let end_addr: u16 = start_addr + 0x009F;
@@ -329,7 +313,7 @@ fn do_dma_transfer(value: u8, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<I
     let mut current_addr = (start_addr, 0xFE00);
 
     while current_addr.0 < end_addr {
-        let value = cpu_read(current_addr.0, cpu_mem, shared_mem);
+        let value = cpu_read(current_addr.0, &cpu_mem, shared_mem);
         cpu_write(current_addr.1, value, cpu_mem, shared_mem);
         current_addr.0 += 1;
         current_addr.1 += 1;
