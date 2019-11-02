@@ -41,7 +41,7 @@ pub fn initialize() {
     start_emulation(mem_arcs);
 }
 
-pub fn start_emulation(arcs: (CpuMemory, Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+pub fn start_emulation(arcs: (CpuMemory, Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
         
     let cpu_cycles = Arc::new(Mutex::new(0 as u16));
     let cpu_arc = (Arc::clone(&arcs.1), Arc::clone(&arcs.2));

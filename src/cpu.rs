@@ -87,7 +87,7 @@ pub enum CycleResult {
     Success,
 }
 
-pub fn start_cpu(cycles: Arc<Mutex<u16>>, memory: (CpuMemory, Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>), input: Receiver<InputEvent>) {
+pub fn start_cpu(cycles: Arc<Mutex<u16>>, memory: (CpuMemory, Arc<IoRegisters>, Arc<Mutex<GpuMemory>>), input: Receiver<InputEvent>) {
 
     let mut current_state = CpuState::new(!memory.0.bootrom_finished);
     let mut timer_state = timer::init_timer();
@@ -145,7 +145,7 @@ pub fn start_cpu(cycles: Arc<Mutex<u16>>, memory: (CpuMemory, Arc<Mutex<IoRegist
     }
 }
 
-fn update_inputs(input_rx: &Receiver<InputEvent>, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> bool {
+fn update_inputs(input_rx: &Receiver<InputEvent>, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> bool {
 
     let received_input: bool;
     let input_event = input_rx.try_recv();
@@ -218,7 +218,7 @@ fn update_inputs(input_rx: &Receiver<InputEvent>, cpu_mem: &mut CpuMemory, share
     should_break
 }
 
-fn handle_interrupts(current_state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn handle_interrupts(current_state: &mut CpuState, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
 
     let ie_value = memory::cpu_read(0xFFFF, cpu_mem, shared_mem);
     update_interrupts(ie_value, &mut current_state.interrupts);
@@ -301,12 +301,12 @@ fn update_interrupts(new_value: u8, interrupts: &mut InterruptState) {
     interrupts.input_enabled = utils::check_bit(new_value, 4);
 }
 
-pub fn read_immediate(address: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> u8 {
+pub fn read_immediate(address: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> u8 {
 
     memory::cpu_read(address + 1, cpu_mem, shared_mem)
 }
 
-pub fn read_u16(addr: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> u16 {
+pub fn read_u16(addr: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> u16 {
 
     let mut bytes: Vec<u8> = vec![0; 2];
     let read_value: u16;
@@ -318,7 +318,7 @@ pub fn read_u16(addr: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRe
     read_value
 }
 
-pub fn stack_read(sp: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> u16 {
+pub fn stack_read(sp: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> u16 {
 
     let final_value: u16;
     let mut values: Vec<u8> = vec![0; 2];
@@ -332,7 +332,7 @@ pub fn stack_read(sp: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mu
     final_value
 }
 
-pub fn stack_write(sp: &mut CpuReg, value: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+pub fn stack_write(sp: &mut CpuReg, value: u16, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
 
     sp.decrement();
     memory::cpu_write(sp.get_register(), utils::get_lb(value), cpu_mem, shared_mem);

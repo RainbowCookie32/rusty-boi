@@ -13,7 +13,7 @@ use super::register::Register;
 use super::register::PcTrait;
 use super::register::CycleCounter;
 
-pub fn run_opcode(current_state: &mut CpuState, opcode: u8, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
+pub fn run_opcode(current_state: &mut CpuState, opcode: u8, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> CycleResult {
 
     let result = CycleResult::Success;
 
@@ -341,7 +341,7 @@ fn rlc_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rlc_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn rlc_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = rlc(af, value);
@@ -391,7 +391,7 @@ fn rrc_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rrc_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn rrc_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = rrc(af, value);
@@ -443,7 +443,7 @@ fn rl_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rl_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn rl_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = rl(af, value);
@@ -495,7 +495,7 @@ fn rr_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn rr_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn rr_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = rr(af, value);
@@ -545,7 +545,7 @@ fn sla_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn sla_val(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn sla_val(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = sla(af, value);
@@ -598,7 +598,7 @@ fn sra_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn sra_val(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn sra_val(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = sra(af, value);
@@ -647,7 +647,7 @@ fn swap_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn swap_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn swap_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = swap(af, value);
@@ -697,7 +697,7 @@ fn srl_a(af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn srl_val(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn srl_val(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = srl(af, value);
@@ -736,7 +736,7 @@ fn bit_rb(reg: &mut CpuReg, checked_bit: u8, af: &mut CpuReg) -> (u16, u16) {
     (2, 8)
 }
 
-fn bit_hl(checked_bit: u8, af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn bit_hl(checked_bit: u8, af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     bit(af, value, checked_bit);
@@ -764,7 +764,7 @@ fn res_rb(reg: &mut CpuReg, bit: u8) -> (u16, u16) {
     (2, 8)
 }
 
-fn res_hl(bit: u8, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn res_hl(bit: u8, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = res(value, bit);
@@ -793,7 +793,7 @@ fn set_rb(reg: &mut CpuReg, bit: u8) -> (u16, u16) {
     (2, 8)
 }
 
-fn set_hl(bit: u8, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
+fn set_hl(bit: u8, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, shared_mem: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) -> (u16, u16) {
 
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = set(value, bit);

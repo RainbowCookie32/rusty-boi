@@ -136,7 +136,7 @@ impl GpuState {
     }
 }
 
-pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: (Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: (Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
 
     let mut gpu_state = GpuState::new();
 
@@ -200,11 +200,11 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
 
                 if utils::check_bit(stat, 6) {
                     if_value = utils::set_bit(if_value, 1);
-                    memory::gpu_write(0xFF0F, if_value, &memory);
+                    memory::gpu_write(0xFF0F, if_value, &memory.0);
                 }
 
                 stat = utils::set_bit(stat, 2);
-                memory::gpu_write(0xFF41, stat, &memory);
+                memory::gpu_write(0xFF41, stat, &memory.0);
             }
         }
 
@@ -218,7 +218,7 @@ pub fn start_gpu(cycles: Arc<Mutex<u16>>, input_tx: Sender<InputEvent>, memory: 
     }
 }
 
-fn update_gpu_values(state: &mut GpuState, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn update_gpu_values(state: &mut GpuState, memory: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
 
     let lcdc = memory::gpu_read(0xFF40, memory);
     state.lcd_enabled = utils::check_bit(lcdc, 7);
@@ -248,13 +248,13 @@ fn update_gpu_values(state: &mut GpuState, memory: &(Arc<Mutex<IoRegisters>>, Ar
 
 // GPU Modes
 
-fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
 
     let mut stat_value = memory::gpu_read(0xFF41, &memory);
 
     stat_value = utils::reset_bit(stat_value, 1);
     stat_value = utils::reset_bit(stat_value, 0);
-    memory::gpu_write(0xFF41, stat_value, memory);
+    memory::gpu_write(0xFF41, stat_value, &memory.0);
 
     if state.background_enabled {draw_background(state, canvas)}
     if state.sprites_enabled {draw_sprites(state, canvas)}
@@ -262,7 +262,7 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
 
     state.gpu_cycles = 0;
     state.line += 1;
-    memory::gpu_write(0xFF44, state.line, memory);
+    memory::gpu_write(0xFF44, state.line, &memory.0);
     
     if state.line == 144 {
         state.gpu_mode = 1;
@@ -272,25 +272,25 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
 
     if utils::check_bit(stat_value, 3) {
         let if_value = utils::set_bit(memory::gpu_read(0xFF0F, memory), 1);
-        memory::gpu_write(0xFF0F, if_value, memory);
+        memory::gpu_write(0xFF0F, if_value, &memory.0);
     }
 }
 
-fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
     
     let mut if_value = memory::gpu_read(0xFF0F, memory);
     let mut stat_value = memory::gpu_read(0xFF41, memory);
 
     state.gpu_cycles = 0;
     state.line += 1;
-    memory::gpu_write(0xFF44, state.line, memory);
+    memory::gpu_write(0xFF44, state.line, &memory.0);
     
     if_value = utils::set_bit(if_value, 0);
-    memory::gpu_write(0xFF0F, if_value, memory);
+    memory::gpu_write(0xFF0F, if_value, &memory.0);
 
     stat_value = utils::reset_bit(stat_value, 1);
     stat_value = utils::set_bit(stat_value, 0);
-    memory::gpu_write(0xFF41, stat_value, memory);
+    memory::gpu_write(0xFF41, stat_value, &memory.0);
 
     if state.line == 154 {
 
@@ -298,11 +298,11 @@ fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &(Arc<
         state.line = 0;
 
         canvas.clear();
-        memory::gpu_write(0xFF44, 1, memory);
+        memory::gpu_write(0xFF44, 1, &memory.0);
     }
 }
 
-fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
 
     let mut stat_value = memory::gpu_read(0xFF41, memory);
 
@@ -310,7 +310,7 @@ fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, 
     state.gpu_mode = 3;
     stat_value = utils::set_bit(stat_value, 1);
     stat_value = utils::reset_bit(stat_value, 0);
-    memory::gpu_write(0xFF41, stat_value, memory);
+    memory::gpu_write(0xFF41, stat_value, &memory.0);
     
     if state.sprites_dirty_flags > 0 {
         make_sprites(state, creator, memory);
@@ -322,17 +322,17 @@ fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, 
     if utils::check_bit(stat_value, 5) {
 
         let if_value = utils::set_bit(memory::gpu_read(0xFF0F, memory), 1);
-        memory::gpu_write(0xFF0F, if_value, memory);
+        memory::gpu_write(0xFF0F, if_value, &memory.0);
     }
 }
 
-fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn lcd_transfer_mode(state: &mut GpuState, memory: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
 
     let mut stat_value = memory::gpu_read(0xFF41, memory);
 
     stat_value = utils::set_bit(stat_value, 1);
     stat_value = utils::set_bit(stat_value, 0);
-    memory::gpu_write(0xFF41, stat_value, memory);
+    memory::gpu_write(0xFF41, stat_value, &memory.0);
 
     state.gpu_cycles = 0;
     state.gpu_mode = 0;
@@ -412,7 +412,7 @@ fn draw_sprites(state: &mut GpuState, canvas: &mut Canvas<Window>) {
 
 // Tile, Sprites, and Background cache generation.
 
-fn make_tiles(state: &mut GpuState, target_bank: u8, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn make_tiles(state: &mut GpuState, target_bank: u8, memory: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
 
     let start_position = if target_bank == 0 {0x8000} else {0x8800};
     let end_position = if target_bank == 0 {0x8FFF} else {0x97FF};
@@ -469,7 +469,7 @@ fn make_tile(bytes: &Vec<u8>) -> Vec<u8> {
     generated_tile
 }
 
-fn make_sprites(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn make_sprites(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
 
     let mut current_address = 0xFE00;
     let mut generated_sprites: usize = 0;
@@ -590,7 +590,7 @@ fn make_sprite(state: &mut GpuState, creator: &TextureCreator<WindowContext>, by
     SpriteData::new((position_x, position_y), (flip_x, flip_y), new_sprite)
 }
 
-fn make_window(state: &mut GpuState, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn make_window(state: &mut GpuState, memory: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
 
     let mut generated_lines: u16 = 0;
     let mut current_address = state.window_tilemap.0;
@@ -639,7 +639,7 @@ fn make_window(state: &mut GpuState, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mute
     }
 }
 
-fn make_background(state: &mut GpuState, memory: &(Arc<Mutex<IoRegisters>>, Arc<Mutex<GpuMemory>>)) {
+fn make_background(state: &mut GpuState, memory: &(Arc<IoRegisters>, Arc<Mutex<GpuMemory>>)) {
 
     let mut generated_lines: u16 = 0;
     let mut current_background = if utils::check_bit(memory::gpu_read(0xFF40, memory), 3) {0x9C00} else {0x9800};
