@@ -829,7 +829,7 @@ fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, sh
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = value.overflowing_sub(1);
     let half_carry = (result.0 & 0x0F) == 0;
-    println!("Started on {}, decremented to {}", value, result.0);
+    
     memory::cpu_write(hl.get_register(), result.0, cpu_mem, shared_mem);
     utils::set_zf(result.0 == 0, af); utils::set_nf(true, af);
     utils::set_hf(half_carry, af);
@@ -874,7 +874,7 @@ fn add_imm_to_sp(af: &mut CpuReg, sp: &mut CpuReg, pc: u16, cpu_mem: &mut CpuMem
 
 fn add(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
-    let half_carry = utils::check_half_carry_u8((&register.get_register_lb(), &value));
+    let half_carry = utils::check_hf_add((&register.get_register_lb(), &value));
     let result = register.add_to_lb(value);
 
     utils::set_zf(register.get_register_lb() == 0, register);
@@ -909,7 +909,7 @@ fn add_imm(register: &mut CpuReg, value: u8) -> (u16, u16) {
 fn adc(register: &mut CpuReg, value: u8) -> (u16, u16) {
 
     let carry_value = utils::get_carry(register);
-    let half_carry = utils::check_half_carry_u8((&register.get_register_lb(), &value));
+    let half_carry = utils::check_hf_add((&register.get_register_lb(), &value));
     let result = register.get_register_lb() as u16 + value as u16 + carry_value as u16;
     let new_value = if result > 0xFF {0} else {result as u8};
 
