@@ -105,8 +105,8 @@ pub fn check_bit(value: u8, bit: u8) -> bool {
     (value & (1 << bit)) != 0
 }
 
-pub fn check_half_carry_u8(values: (&u8, &u8)) -> bool {
-    ((values.0 & 0xF) + (values.1 & 0xF)) > 0xF
+pub fn check_hf_add(values: (&u8, &u8)) -> bool {
+    ((values.0 & 0xF) + (values.1 & 0xF)) & 0x10 == 0x10
 }
 
 pub fn check_half_carry_u16(values: (&u16, &u16)) -> bool {
