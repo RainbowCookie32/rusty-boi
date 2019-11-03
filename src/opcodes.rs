@@ -339,24 +339,20 @@ fn daa(af: &mut CpuReg) -> (u16, u16) {
     if !utils::get_nf(af) {
         
         if utils::get_cf(af) || value > 0x99 {
-            let new_value = value.overflowing_sub(0x60);
-            af.set_register_lb(new_value.0);
+            af.add_to_lb(0x60);
             utils::set_cf(true, af);
         }
         else if utils::get_hf(af) || (value & 0x0F) > 0x09 {
-            let new_value = value.overflowing_sub(0x6);
-            af.set_register_lb(new_value.0);
+            af.add_to_lb(0x60);
         }
     }
     else {
 
         if utils::get_cf(af) {
-            let new_value = value.overflowing_sub(0x60);
-            af.set_register_lb(new_value.0);
+            af.sub_from_lb(0x60);
         }
         else if utils::get_hf(af) {
-            let new_value = value.overflowing_sub(0x6);
-            af.set_register_lb(new_value.0);
+            af.sub_from_lb(0x6);
         }
     }
 
@@ -833,6 +829,7 @@ fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, sh
     let value = memory::cpu_read(hl.get_register(), cpu_mem, shared_mem);
     let result = value.overflowing_sub(1);
     let half_carry = (result.0 & 0x0F) == 0;
+    println!("Started on {}, decremented to {}", value, result.0);
     memory::cpu_write(hl.get_register(), result.0, cpu_mem, shared_mem);
     utils::set_zf(result.0 == 0, af); utils::set_nf(true, af);
     utils::set_hf(half_carry, af);
