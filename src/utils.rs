@@ -109,8 +109,8 @@ pub fn check_hf_add(values: (&u8, &u8)) -> bool {
     ((values.0 & 0xF) + (values.1 & 0xF)) & 0x10 == 0x10
 }
 
-pub fn check_half_carry_u16(values: (&u16, &u16)) -> bool {
-    ((values.0 & 0xFFF) + (values.1 & 0xFFF)) > 0xFFF
+pub fn check_hf_add_u16(values: (&u16, &u16)) -> bool {
+    ((values.0 & 0xFFF) + (values.1 & 0xFFF)) & 0x1000 == 0x1000
 }
 
 pub fn check_half_borrow(values: (u8, u8)) -> bool {
