@@ -842,7 +842,7 @@ fn decrement_at_hl(af: &mut CpuReg, hl: &mut CpuReg, cpu_mem: &mut CpuMemory, sh
 fn add_full(target: &mut CpuReg, source: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
 
     let value = source.get_register();
-    let half_carry = utils::check_half_carry_u16((&target.get_register(), &source.get_register()));
+    let half_carry = utils::check_hf_add_u16((&target.get_register(), &source.get_register()));
     let overflow = target.add_to_reg(value);
     utils::set_nf(false, af);
     utils::set_hf(half_carry, af);
@@ -853,7 +853,7 @@ fn add_full(target: &mut CpuReg, source: &mut CpuReg, af: &mut CpuReg) -> (u16, 
 fn add_hl_to_hl(hl: &mut CpuReg, af: &mut CpuReg) -> (u16, u16) {
 
     let hl_value = hl.get_register();
-    let half_carry = utils::check_half_carry_u16((&hl_value, &hl_value));
+    let half_carry = utils::check_hf_add_u16((&hl_value, &hl_value));
     let overflow = hl.add_to_reg(hl_value);
     utils::set_nf(false, af); utils::set_cf(overflow, af);
     utils::set_hf(half_carry, af);
