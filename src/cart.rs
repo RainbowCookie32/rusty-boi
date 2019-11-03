@@ -8,7 +8,7 @@ use std::io::Read;
 use std::io::Write;
 use std::iter::FromIterator;
 
-
+#[derive(Debug)]
 pub enum CartType {
 
     None,
@@ -46,7 +46,7 @@ impl CartData {
 
     pub fn new(data: Vec<u8>) -> CartData {
 
-        let title = (String::from_utf8(data[308..323].to_vec()).unwrap().trim_matches(char::from(0))).to_string().to_lowercase();
+        let title = (String::from_utf8(data[308..323].to_vec()).unwrap().trim_matches(char::from(0))).to_string();
 
         let battery = data[0x0147] == 0x03 || data[0x0147] == 0x06 || data[0x0147] == 0x09 || data[0x0147] == 0x10
         || data[0x0147] == 0x13 || data[0x0147] == 0x1B || data[0x0147] == 0x1E;
@@ -86,7 +86,7 @@ impl CartData {
             _ => 0,
         };
 
-        let ram_path = path::PathBuf::from(format!("saved_ram/{}.rr", title));
+        let ram_path = path::PathBuf::from(format!("saved_ram/{}.rr", title.to_lowercase()));
         let mut ram_banks: Vec<Vec<u8>> = vec![vec![0; 8192]; ram_size];
 
         if ram_path.exists() {
@@ -115,10 +115,13 @@ impl CartData {
             loaded_banks += 1;
         }
 
+        info!("Loader: Cart loaded successfully.");
+        println!("\nROM Title: {} \nMBC Type: {:#?} \nROM Size: {} kb \nRAM Size: {}kb\n", title, cart_type, rom_size, ram_size);
+
         CartData {
             rom_banks: rom_banks,
             ram_banks: ram_banks,
-            rom_title: title,
+            rom_title: title.to_lowercase(),
             has_ram: ram_size > 0,
             has_battery: battery,
             ram_enabled: false,
