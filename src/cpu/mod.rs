@@ -571,7 +571,7 @@ impl Cpu {
 
     fn jr(&mut self) {
         let value = self.memory.read(self.pc + 1) as i8;
-        self.pc = self.pc.wrapping_add(value as u16);
+        self.pc = self.pc.wrapping_add(value as u16 + 2);
         self.cycles.fetch_add(8, Ordering::Relaxed);
     }
 
@@ -997,7 +997,7 @@ impl Cpu {
         let address = LittleEndian::read_u16(&bytes);
 
         self.pc = address;
-        self.instruction_finished(0, 16);
+        self.instruction_finished(1, 16);
     }
 
     fn di(&mut self) {
