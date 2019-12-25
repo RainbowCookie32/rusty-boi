@@ -703,22 +703,60 @@ impl Cpu {
     }
 
     fn rlca(&mut self) {
-        panic!("Unimplemented instruction: RLCA");
+        let value = self.get_register(7);
+        let carry = ((value >> 7) & 1) == 1;
+        let result = value.rotate_left(1);
+
+        self.set_register(7, result);
+        self.cpu_flags.set_zf(false);
+        self.cpu_flags.set_nf(false);
+        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_cf(carry);
+        self.instruction_finished(1, 4);
     }
 
     fn rrca(&mut self) {
-        panic!("Unimplemented instruction: RRCA");
+        let value = self.get_register(7);
+        let carry = (value & 1) == 1;
+        let result = value.rotate_right(1);
+
+        self.set_register(7, result);
+        self.cpu_flags.set_zf(false);
+        self.cpu_flags.set_nf(false);
+        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_cf(carry);
+        self.instruction_finished(2, 8);
     }
 
     fn rla(&mut self) {
-        panic!("Unimplemented instruction: RLA");
+        let carry = self.cpu_flags.get_cf();
+        let value = self.get_register(7);
+        let result = (value << 1) | carry;
+
+        self.set_register(7, result);
+        self.cpu_flags.set_zf(false);
+        self.cpu_flags.set_nf(false);
+        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_cf(((result >> 7) & 1) == 1);
+        self.instruction_finished(1, 4);
     }
 
     fn rra(&mut self) {
-        panic!("Unimplemented instruction: RRA");
+        let value = self.get_register(7);
+        let carry = self.cpu_flags.get_cf();
+        let will_carry = (value & 1) == 1;
+        let result = (value >> 1) | (carry << 7);
+
+        self.set_register(7, result);
+        self.cpu_flags.set_zf(result == 0);
+        self.cpu_flags.set_nf(false);
+        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_cf(will_carry);
+        self.instruction_finished(1, 4);
     }
 
     fn daa(&mut self) {
+        // I'll implement this whenever I find a ROM (that's not a test) that needs it.
         panic!("Unimplemented instruction: DAA");
     }
 
@@ -1226,7 +1264,17 @@ impl Cpu {
     }
 
     fn sra(&mut self, index: u8) {
-        panic!("Unimplemented instruction: SRA");
+        let value = self.get_register(index);
+        let will_carry = (value & 1) == 1;
+        let msb = (value >> 7) & 1;
+        let result = (value >> 1) | (msb << 7);
+
+        self.set_register(index, result);
+        self.cpu_flags.set_zf(result == 0);
+        self.cpu_flags.set_nf(false);
+        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_cf(will_carry);
+        self.instruction_finished(2, if index == 6 {16} else {8});
     }
 
     fn swap(&mut self, index: u8) {
@@ -1242,7 +1290,16 @@ impl Cpu {
     }
 
     fn srl(&mut self, index: u8) {
-        panic!("Unimplemented instruction: SRL");
+        let value = self.get_register(index);
+        let will_carry = (value & 1) == 1;
+        let result = value >> 1;
+
+        self.set_register(index, result);
+        self.cpu_flags.set_zf(result == 0);
+        self.cpu_flags.set_nf(false);
+        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_cf(will_carry);
+        self.instruction_finished(2, if index == 6 {16} else {8});
     }
 
     fn bit(&mut self, index: u8, bit: u8) {
