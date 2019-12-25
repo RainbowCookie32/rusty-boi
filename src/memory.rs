@@ -1,44 +1,141 @@
 use std::sync::Arc;
-use std::sync::atomic::AtomicU8;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU8, AtomicBool, Ordering};
 
-use log::{info, warn};
+use log::warn;
 
 use super::cart::CartData;
 
+
 pub struct CpuMemory {
 
-    pub bootrom: Vec<u8>,
-    pub cartridge: CartData,
-    pub ram: Vec<u8>,
-    pub hram: Vec<u8>,
-    pub bootrom_finished: bool,
+    bootrom: Vec<u8>,
+    cartridge: CartData,
+    ram: Vec<u8>,
+    hram: Vec<u8>,
+    bootrom_finished: bool,
+
+    shared_memory: Arc<SharedMemory>,
 }
 
 impl CpuMemory {
-    pub fn new(data: ((Vec<u8>, bool), CartData)) -> CpuMemory {
-        
-        let bootrom_info = data.0;
 
+    pub fn new(bootrom: Vec<u8>, use_bootrom: bool, cart: CartData, shared_mem: Arc<SharedMemory>) -> CpuMemory {
         CpuMemory {
-            bootrom: bootrom_info.0,
-            cartridge: data.1,
+            bootrom: bootrom,
+            cartridge: cart,
             ram: vec![0; 8192],
             hram: vec![0; 127],
-            bootrom_finished: !bootrom_info.1,
+            bootrom_finished: !use_bootrom,
+
+            shared_memory: shared_mem,
         }
+    }
+
+    pub fn use_bootrom(&self) -> bool {
+        return self.bootrom_finished;
+    }
+
+    pub fn read(&self, address: u16) -> u8 {
+        
+        if address < 0x0100 
+        {
+            if self.bootrom_finished {
+                return self.cartridge.read(address);
+            }
+            else {
+                return self.bootrom[address as usize];
+            }
+        }
+
+        if address <= 0x7FFF
+        {
+            return self.cartridge.read(address);
+        }
+
+        if address >= 0xA000 && address <= 0xBFFF
+        {
+            return self.cartridge.read(address);
+        }
+
+        if address >= 0xC000 && address <= 0xDFFF
+        {
+            return self.ram[(address - 0xC000) as usize];
+        }
+
+        if address >= 0xE000 && address <= 0xFDFF 
+        {
+            return self.ram[(address - 0xE000) as usize];
+        }
+
+        if address >= 0xFEA0 && address <= 0xFEFF
+        {
+            warn!("Memory: Read to unusable memory at address {}. Returning 0", format!("{:#X}", address));
+            return 0;
+        }
+
+        if address >= 0xFF80 && address <= 0xFFFE
+        {
+            return self.hram[(address - 0xFF80) as usize];
+        }
+
+        return self.shared_memory.read(address);
+    }
+
+    pub fn write(&mut self, address: u16, value: u8) {
+        if address < 0x0100 && self.bootrom_finished
+        {
+            self.cartridge.write(address, value);
+            return;
+        }
+
+        if address <= 0x7FFF
+        {
+            self.cartridge.write(address, value);
+            return;
+        }
+
+        if address >= 0xA000 && address <= 0xBFFF
+        {
+            self.cartridge.write(address, value);
+            return;
+        }
+
+        if address >= 0xC000 && address <= 0xDFFF
+        {
+            self.ram[address as usize - 0xC000] = value;
+            return;
+        }
+
+        if address >= 0xE000 && address <= 0xFDFF 
+        {
+            self.ram[address as usize - 0xE000] = value;
+            return;
+        }
+
+        if address >= 0xFEA0 && address <= 0xFEFF
+        {
+            warn!("Memory: Tried to write {:#X} to unusable memory at address {:#X}. Ignoring...", value, address);
+            return;
+        }
+
+        if address >= 0xFF80 && address <= 0xFFFE
+        {
+            self.hram[address as usize - 0xFF80] = value;
+            return;
+        }
+
+        self.shared_memory.write(address, value, true);
     }
 }
 
-pub struct GeneralMemory {
+pub struct SharedMemory {
+    
+    pub io_registers: Vec<AtomicU8>,
+    pub interrupts_enabled: AtomicU8,
 
-    pub io_regs: Vec<AtomicU8>,
-    pub interrupts: AtomicU8,
-
-    pub char_ram: Vec<AtomicU8>,
-    pub bg_map: Vec<AtomicU8>,
-    pub oam_mem: Vec<AtomicU8>,
+    pub oam_memory: Vec<AtomicU8>,
+    pub character_ram: Vec<AtomicU8>,
+    pub background_map: Vec<AtomicU8>,
 
     pub tile_palette_dirty: AtomicBool,
     pub sprite_palettes_dirty: AtomicBool,
@@ -48,274 +145,146 @@ pub struct GeneralMemory {
     pub background_dirty_flags: AtomicU8,
 }
 
-impl GeneralMemory {
+impl SharedMemory {
 
-    pub fn new() -> GeneralMemory {
-        
+    pub fn new() -> SharedMemory {
+
         let mut regs: Vec<AtomicU8> = Vec::new();
 
         let mut char_ram: Vec<AtomicU8> = Vec::new();
         let mut bg_map: Vec<AtomicU8> = Vec::new();
         let mut oam_mem: Vec<AtomicU8> = Vec::new();
 
-        let tile_palette_dirty = AtomicBool::new(false);
-        let sprite_palettes_dirty = AtomicBool::new(false);
-
-        let tiles_dirty_flags = AtomicU8::new(1);
-        let sprites_dirty_flags = AtomicU8::new(1);
-        let background_dirty_flags = AtomicU8::new(1);
-
-        for _idx in 0..128 {
+        for _item in 0..160 {
+            oam_mem.push(AtomicU8::new(0));
+        }
+        
+        for _item in 0..128 {
             regs.push(AtomicU8::new(0));
         }
 
-        for _idx in 0..6144 {
-            char_ram.push(AtomicU8::new(1));
+        for _item in 0..6144 {
+            char_ram.push(AtomicU8::new(0));
         }
 
-        for _idx in 0..2048 {
-            bg_map.push(AtomicU8::new(1));
+        for _item in 0..2048 {
+            bg_map.push(AtomicU8::new(0));
         }
 
-        for _idx in 0..160 {
-            oam_mem.push(AtomicU8::new(1));
-        }
+        SharedMemory {
+            io_registers: regs,
+            interrupts_enabled: AtomicU8::new(0),
 
-        GeneralMemory {
-            io_regs: regs,
-            interrupts: AtomicU8::new(0),
+            oam_memory: oam_mem,
+            character_ram: char_ram,
+            background_map: bg_map,
 
-            char_ram: char_ram,
-            bg_map: bg_map,
-            oam_mem: oam_mem,
-            tile_palette_dirty: tile_palette_dirty,
-            sprite_palettes_dirty: sprite_palettes_dirty,
-            tiles_dirty_flags: tiles_dirty_flags,
-            sprites_dirty_flags: sprites_dirty_flags,
-            background_dirty_flags: background_dirty_flags,
+            tile_palette_dirty: AtomicBool::new(false),
+            sprite_palettes_dirty: AtomicBool::new(false),
+
+            tiles_dirty_flags: AtomicU8::new(0),
+            sprites_dirty_flags: AtomicU8::new(0),
+            background_dirty_flags: AtomicU8::new(0),
         }
     }
-}
 
-
-pub fn init_memory(data: ((Vec<u8>, bool), CartData)) -> (CpuMemory, Arc<GeneralMemory>) {
-
-    (CpuMemory::new(data), Arc::new(GeneralMemory::new()))
-}
-
-pub fn cpu_read(address: u16, cpu_mem: &CpuMemory, shared_mem: &Arc<GeneralMemory>) -> u8 {
-
-    if address < 0x0100 
-    {
-        if cpu_mem.bootrom_finished {
-            cpu_mem.cartridge.read(address)
+    pub fn read(&self, address: u16) -> u8 {
+        
+        if address >= 0x8000 && address <= 0x97FF
+        {
+            return self.character_ram[address as usize - 0x8000].load(Ordering::Relaxed);
         }
-        else {
-            cpu_mem.bootrom[address as usize]
-        }
-    }
-    else if address <= 0x7FFF
-    {
-        cpu_mem.cartridge.read(address)
-    }
-    else if address >= 0x8000 && address <= 0x97FF
-    {
-        shared_mem.char_ram[(address - 0x8000) as usize].load(Ordering::Relaxed)
-    }
-    else if address >= 0x9800 && address <= 0x9FFF
-    {
-        shared_mem.bg_map[(address - 0x9800) as usize].load(Ordering::Relaxed)
-    }
-    else if address >= 0xA000 && address <= 0xBFFF 
-    {
-        cpu_mem.cartridge.read(address)
-    }
-    else if address >= 0xC000 && address <= 0xDFFF
-    {
-        cpu_mem.ram[(address - 0xC000) as usize]
-    }
-    else if address >= 0xE000 && address <= 0xFDFF 
-    {
-        cpu_mem.ram[(address - 0xE000) as usize]
-    }
-    else if address >= 0xFE00 && address <= 0xFE9F 
-    {
-        shared_mem.oam_mem[(address - 0xFE00) as usize].load(Ordering::Relaxed)
-    }
-    else if address >= 0xFEA0 && address <= 0xFEFF
-    {
-        warn!("Memory: Read to unusable memory at address {}. Returning 0", format!("{:#X}", address));
-        0
-    }
-    else if address >= 0xFF00 && address <= 0xFF7F
-    {
-        shared_mem.io_regs[(address - 0xFF00) as usize].load(Ordering::Relaxed)
-    }
-    else if address >= 0xFF80 && address <= 0xFFFE
-    {
-        cpu_mem.hram[(address - 0xFF80) as usize]
-    }
-    else if address == 0xFFFF
-    {
-        shared_mem.interrupts.load(Ordering::Relaxed)
-    }
-    else
-    {
-        panic!("Invalid or unimplemented read at {}", format!("{:#X}", address));
-    }
-}
 
-pub fn cpu_write(address: u16, value: u8, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
+        if address >= 0x9800 && address <= 0x9FFF
+        {
+            return self.background_map[address as usize - 0x9800].load(Ordering::Relaxed);
+        }
 
-    if address <= 0x7FFF
-    {
-        cpu_mem.cartridge.write(address, value);
-    }
-    else if address >= 0x8000 && address <= 0x97FF
-    {
-        if shared_mem.char_ram[(address - 0x8000) as usize].load(Ordering::Relaxed) != value {
-            shared_mem.tiles_dirty_flags.fetch_add(1, Ordering::Relaxed);
-            shared_mem.sprites_dirty_flags.fetch_add(1, Ordering::Relaxed);
-            shared_mem.background_dirty_flags.fetch_add(1, Ordering::Relaxed);
+        if address >= 0xFE00 && address <= 0xFE9F 
+        {
+            return self.oam_memory[address as usize - 0xFE00].load(Ordering::Relaxed);
         }
-        shared_mem.char_ram[(address - 0x8000) as usize].store(value, Ordering::Relaxed);
-    }
-    else if address >= 0x9800 && address <= 0x9FFF
-    {
-        if shared_mem.bg_map[(address - 0x9800) as usize].load(Ordering::Relaxed) != value {
-            shared_mem.background_dirty_flags.fetch_add(1, Ordering::Relaxed);
+
+        if address >= 0xFF00 && address <= 0xFF7F
+        {
+            return self.io_registers[address as usize - 0xFF00].load(Ordering::Relaxed);
         }
-        shared_mem.bg_map[(address - 0x9800) as usize].store(value, Ordering::Relaxed);
-    }
-    else if address >= 0xA000 && address <= 0xBFFF 
-    {
-        cpu_mem.cartridge.write(address, value);
-    }
-    else if address >= 0xC000 && address <= 0xDFFF
-    {
-        cpu_mem.ram[(address - 0xC000) as usize] = value;
-    }
-    else if address >= 0xE000 && address <= 0xFDFF 
-    {
-        if value != 0 {warn!("Memory: Write to echo ram. Address {}, value {}.", format!("{:#X}", address), format!("{:#X}", value))}
-        cpu_mem.ram[(address - 0xE000) as usize] = value;
-    }
-    else if address >= 0xFE00 && address <= 0xFE9F 
-    {
-        if shared_mem.oam_mem[(address - 0xFE00) as usize].load(Ordering::Relaxed) != value {
-            shared_mem.sprites_dirty_flags.fetch_add(1, Ordering::Relaxed);
+
+        if address == 0xFFFF
+        {
+            return self.interrupts_enabled.load(Ordering::Relaxed);
         }
-        shared_mem.oam_mem[(address - 0xFE00) as usize].store(value, Ordering::Relaxed);
+
+        panic!("Memory: Invalid read on shared memory at address {:#X}", address);
     }
-    else if address >= 0xFEA0 && address <= 0xFEFF
-    {
-        if value != 0 {warn!("Memory: Write to unusable memory at address {}, value {}. Ignoring...", format!("{:#X}", address), format!("{:#X}", value))}
-    }
-    else if address >= 0xFF00 && address <= 0xFF7F
-    {
-        if address == 0xFF46 {
-            do_dma_transfer(value, cpu_mem, shared_mem);
+
+    pub fn write(&self, address: u16, value: u8, is_cpu: bool) {
+        
+        if address >= 0x8000 && address <= 0x97FF
+        {
+            self.character_ram[address as usize - 0x8000].store(value, Ordering::Relaxed);
+            self.tiles_dirty_flags.fetch_add(1, Ordering::Relaxed);
+            self.background_dirty_flags.fetch_add(1, Ordering::Relaxed);
+            self.sprites_dirty_flags.fetch_add(1, Ordering::Relaxed);
+            return;
         }
-        else {
-            if address == 0xFF04 || address == 0xFF44 {
-                shared_mem.io_regs[(address - 0xFF00) as usize].store(0, Ordering::Relaxed);
+
+        if address >= 0x9800 && address <= 0x9FFF
+        {
+            self.background_map[address as usize - 0x9800].store(value, Ordering::Relaxed);
+            self.background_dirty_flags.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+
+        if address >= 0xFE00 && address <= 0xFE9F 
+        {
+            self.oam_memory[address as usize - 0xFE00].store(value, Ordering::Relaxed);
+            self.sprites_dirty_flags.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+
+        if address >= 0xFF00 && address <= 0xFF7F
+        {
+            
+            if address == 0xFF04 && is_cpu {
+                self.io_registers[address as usize - 0xFF00].store(0, Ordering::Relaxed);
+                return;
+            }
+            else if address == 0xFF46 {
+                self.io_registers[address as usize - 0xFF00].store(0, Ordering::Relaxed);
+                warn!("Memory: Tried to start a DMA transfer");
+                //self.dma_transfer();
+                return;
             }
             else {
-                if address == 0xFF47 {
-                    shared_mem.tile_palette_dirty.store(true, Ordering::Relaxed);
-                }
-                if address == 0xFF48 || address == 0xFF49 {
-                    shared_mem.sprite_palettes_dirty.store(true, Ordering::Relaxed);
-                }
-                shared_mem.io_regs[(address - 0xFF00) as usize].store(value, Ordering::Relaxed);
+                self.io_registers[address as usize - 0xFF00].store(value, Ordering::Relaxed);
+                return;
             }
         }
-        
-    }
-    else if address >= 0xFF80 && address <= 0xFFFE 
-    {
-        cpu_mem.hram[(address - 0xFF80) as usize] = value;
-    }
-    else if address == 0xFFFF
-    {
-        shared_mem.interrupts.store(value,Ordering::Relaxed);
-    }
-    else
-    {
-        panic!("Invalid or unimplemented write at {}", format!("{:#X}", address));
-    }
-}
 
-pub fn timer_read(address: u16, memory: &Arc<GeneralMemory>) -> u8 {
+        if address == 0xFFFF
+        {
+            self.interrupts_enabled.store(value, Ordering::Relaxed);
+            return;
+        }
 
-    if address >= 0xFF00 && address <= 0xFF7F
-    {
-        memory.io_regs[(address - 0xFF00) as usize].load(Ordering::Relaxed)
+        panic!("Memory: Invalid read on shared memory at address {:#X}", address);
     }
-    else {
-        info!("Memory: Timer tried to read at address {}, returning 0", format!("{:#X}", address));
-        0
-    }
-}
 
-pub fn timer_write(address: u16, value: u8, memory: &Arc<GeneralMemory>) {
 
-    if address >= 0xFF00 && address <= 0xFF7F
-    {
-        memory.io_regs[(address - 0xFF00) as usize].store(value, Ordering::Relaxed);
-    }
-    else {
-        info!("Memory: Timer tried to write value {} at address {}", format!("{:#X}", value), format!("{:#X}", address));
-    }
-}
+    // FIXME: DMA Transfers are done from the cartridge, so SharedMemory can't directly access it.
+    // Currently, a DMA transfer causes a panic.
+    fn dma_transfer(&self) {
+        let address = (self.read(0xFF46) as u16) << 8;
+        let end_address = address + 0x009F;
 
-pub fn gpu_read(address: u16, memory: &Arc<GeneralMemory>) -> u8 {
+        let mut transfer_progress = (address, 0xFE00);
 
-    if address >= 0x8000 && address <= 0x97FF
-    {
-        memory.char_ram[(address - 0x8000) as usize].load(Ordering::Relaxed)
-    }
-    else if address >= 0x9800 && address <= 0x9FFF
-    {
-        memory.bg_map[(address - 0x9800) as usize].load(Ordering::Relaxed)
-    }
-    else if address >= 0xFE00 && address <= 0xFE9F 
-    {
-        memory.oam_mem[(address - 0xFE00) as usize].load(Ordering::Relaxed)
-    }
-    else if address >= 0xFF00 && address <= 0xFF7F
-    {
-        memory.io_regs[(address - 0xFF00) as usize].load(Ordering::Relaxed)
-    }
-    else 
-    {
-        info!("Memory: GPU tried to read at {}, returning 0", format!("{:#X}", address));
-        0
-    }
-}
-
-pub fn gpu_write(address: u16, value: u8, memory: &Arc<GeneralMemory>) {
-
-    if address >= 0xFF00 && address <= 0xFF7F
-    {
-        memory.io_regs[(address - 0xFF00) as usize].store(value, Ordering::Relaxed);
-    }
-    else {
-        info!("Memory: GPU tried to write value {} at address {}", format!("{:#X}", value), format!("{:#X}", address));
-    }
-}
-
-fn do_dma_transfer(value: u8, cpu_mem: &mut CpuMemory, shared_mem: &Arc<GeneralMemory>) {
-
-    let start_addr: u16 = (value as u16) << 8;
-    let end_addr: u16 = start_addr + 0x009F;
-
-    let mut current_addr = (start_addr, 0xFE00);
-
-    while current_addr.0 < end_addr {
-        let value = cpu_read(current_addr.0, &cpu_mem, shared_mem);
-        cpu_write(current_addr.1, value, cpu_mem, shared_mem);
-        current_addr.0 += 1;
-        current_addr.1 += 1;
+        while transfer_progress.0 < end_address {
+            let value = self.read(transfer_progress.0);
+            self.write(transfer_progress.1, value, false);
+            transfer_progress.0 += 1;
+            transfer_progress.1 += 1;
+        }
     }
 }

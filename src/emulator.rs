@@ -10,11 +10,10 @@ use std::sync::atomic::AtomicU16;
 use log::info;
 use log::error;
 
-use super::cpu;
-use super::gpu;
+use super::cpu::Cpu;
+use super::gpu::Gpu;
 use super::cart::CartData;
-use super::memory;
-use super::memory::{CpuMemory, GeneralMemory};
+use super::memory::{CpuMemory, SharedMemory};
 
 
 #[derive(PartialEq)]
@@ -36,33 +35,39 @@ pub enum InputEvent {
 
 pub fn initialize() {
 
-    let rom_data = (load_bootrom(), load_rom());
-    let mem_arcs = memory::init_memory(rom_data);
+    let cart_data = load_rom();
+    let bootrom_data = load_bootrom();
     
-    start_emulation(mem_arcs.0, mem_arcs.1);
+    let shared_memory = Arc::new(SharedMemory::new());
+    let cpu_memory = CpuMemory::new(bootrom_data.0, bootrom_data.1, cart_data, Arc::clone(&shared_memory));
+    
+    start_emulation(cpu_memory, shared_memory);
 }
 
-pub fn start_emulation(cpu_mem: CpuMemory, shared_mem: Arc<GeneralMemory>) {
+pub fn start_emulation(cpu_mem: CpuMemory, shared_mem: Arc<SharedMemory>) {
         
     let cpu_cycles = Arc::new(AtomicU16::new(0));
     let gpu_cycles = Arc::clone(&cpu_cycles);
 
-    let cpu_memory = (cpu_mem, Arc::clone(&shared_mem));
-    let gpu_memory = Arc::clone(&shared_mem);
+    let cpu_shared_memory = Arc::clone(&shared_mem);
+    let gpu_shared_memory = Arc::clone(&shared_mem);
     
     let (input_tx, input_rx) = mpsc::channel();
 
     let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        cpu::start_cpu(cpu_cycles, cpu_memory.0, cpu_memory.1, input_rx);
+        let bootrom = cpu_mem.use_bootrom();
+        let mut current_cpu = Cpu::new(cpu_mem, cpu_shared_memory, cpu_cycles, input_rx, bootrom);
+        current_cpu.execution_loop();
     }).unwrap();
 
     let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
-        gpu::start_gpu(gpu_cycles, gpu_memory, input_tx);
+        let mut current_gpu = Gpu::new(gpu_cycles, gpu_shared_memory, input_tx);
+        current_gpu.execution_loop();
     }).unwrap();
 
     cpu_thread.join().unwrap();
 
-    info!("Emu: Stopped emulation.");
+    info!("Emu: CPU thread finished execution, stopping emulator...");
 }
 
 fn load_bootrom() -> (Vec<u8>, bool) {
@@ -79,7 +84,7 @@ fn load_bootrom() -> (Vec<u8>, bool) {
                     (data, true)
                 },
                 Err(error) => {
-                    error!("Loader: Failed to open the Bootrom file. Error: {}", error);
+                    error!("Loader: Failed to open the Bootrom file. Error: {}. The emulator will continue without it", error);
                     (Vec::new(), false)
                 }
             };
@@ -87,7 +92,7 @@ fn load_bootrom() -> (Vec<u8>, bool) {
             result
         },
         Err(error) => {
-            error!("Loader: Failed to open the Bootrom file. Error: {}", error);
+            error!("Loader: Failed to open the Bootrom file. Error: {}. The emulator will continue without it", error);
             (Vec::new(), false)
         }
     }
@@ -103,7 +108,7 @@ fn load_rom() -> CartData {
 
     match rom_file.read_to_end(&mut data){
         Ok(_) => info!("Loader: ROM loaded"),
-        Err(_) => error!("Loader: Failed to open the ROM file"),
+        Err(_) => panic!("Loader: Failed to open the ROM file. Can't continue operation"),
     };
 
     CartData::new(data)
