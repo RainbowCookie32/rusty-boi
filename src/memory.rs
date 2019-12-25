@@ -32,7 +32,7 @@ impl CpuMemory {
     }
 
     pub fn use_bootrom(&self) -> bool {
-        return self.bootrom_finished;
+        return !self.bootrom_finished;
     }
 
     pub fn read(&self, address: u16) -> u8 {
