@@ -308,27 +308,21 @@ impl Cpu {
                     2 => self.rl(instruction.z),
                     3 => self.rr(instruction.z),
                     4 => self.sla(instruction.z),
-                    5 => self.sra(instruction.z), // SRA
-                    6 => self.swap(instruction.z), // SWAP
-                    7 => self.srl(instruction.z), // SRL
+                    5 => self.sra(instruction.z),
+                    6 => self.swap(instruction.z),
+                    7 => self.srl(instruction.z),
                     _ => panic!("Invalid operation"),
                 }
-                return;
             }
-
-            if instruction.x == 1 {
+            else if instruction.x == 1 {
                 self.bit(instruction.z, instruction.y);
-                return;
             }
-
-            if instruction.x == 2 {
+            else if instruction.x == 2 {
                 self.res(instruction.z, instruction.y);
                 return;
             }
-
-            if instruction.x == 3 {
+            else if instruction.x == 3 {
                 self.set(instruction.z, instruction.y);
-                return;
             }
         }
         else {
@@ -345,19 +339,15 @@ impl Cpu {
                         4 | 5 | 6 | 7 => self.jr_cc(instruction.y - 4),
                         _ => panic!("Invalid operation"),
                     }
-                    return;
                 }
-
-                if instruction.z == 1 {
+                else if instruction.z == 1 {
                     match instruction.q {
                         0 => self.load_imm_to_rp(instruction.p),
                         1 => self.add_rp_to_hl(instruction.p),
                         _ => panic!("Invalid operation"),
                     }
-                    return;
                 }
-
-                if instruction.z == 2 {
+                else if instruction.z == 2 {
                     if instruction.q == 0 {
                         match instruction.p {
                             0 => self.save_a_to_rp(0),
@@ -367,8 +357,7 @@ impl Cpu {
                             _ => panic!("Invalid operation"),
                         }
                     }
-
-                    if instruction.q == 1 {
+                    else if instruction.q == 1 {
                         match instruction.p {
                             0 => self.load_a_from_rp(0),
                             1 => self.load_a_from_rp(1),
@@ -377,39 +366,25 @@ impl Cpu {
                             _ => panic!("Invalid operation"),
                         }
                     }
-                    return;
                 }
-
-                if instruction.z == 3 {
+                else if instruction.z == 3 {
                     if instruction.q == 0 {
                         self.inc_rp(instruction.p);
-                        return;
                     }
-
-                    if instruction.q == 1 {
+                    else if instruction.q == 1 {
                         self.dec_rp(instruction.p);
-                        return;
                     }
-
-                    return;
                 }
-
-                if instruction.z == 4 {
+                else if instruction.z == 4 {
                     self.inc_reg(instruction.y);
-                    return;
                 }
-
-                if instruction.z == 5 {
+                else if instruction.z == 5 {
                     self.dec_reg(instruction.y);
-                    return;
                 }
-
-                if instruction.z == 6 {
+                else if instruction.z == 6 {
                     self.load_imm_into_reg(instruction.y);
-                    return;
                 }
-
-                if instruction.z == 7 {
+                else if instruction.z == 7 {
                     match instruction.y {
                         0 => self.rlca(),
                         1 => self.rrca(),
@@ -421,23 +396,17 @@ impl Cpu {
                         7 => self.ccf(),
                         _ => panic!("Invalid operation"),
                     }
-                    return;
                 }
-
-                return;
             }
-
-            if instruction.x == 1 {
+            else if instruction.x == 1 {
                 if instruction.z == 6 && instruction.y == 6 {
                     self.halt();
-                    return;
                 }
-
-                self.load_reg_into_reg(instruction.y, instruction.z);
-                return;
+                else {
+                    self.load_reg_into_reg(instruction.y, instruction.z);
+                }
             }
-
-            if instruction.x == 2 {
+            else if instruction.x == 2 {
                 match instruction.y {
                     0 => self.add(instruction.z),
                     1 => self.adc(instruction.z),
@@ -450,8 +419,7 @@ impl Cpu {
                     _ => panic!("Invalid operation")
                 }
             }
-
-            if instruction.x == 3 {
+            else if instruction.x == 3 {
                 if instruction.z == 0 {
                     match instruction.y {
                         0 | 1 | 2 | 3 => self.ret_cc(instruction.y),
@@ -462,14 +430,11 @@ impl Cpu {
                         _ => panic!("Invalid operation"),
                     }
                 }
-
-                if instruction.z == 1 {
+                else if instruction.z == 1 {
                     if instruction.q == 0 {
                         self.pop(instruction.p);
-                        return;
                     }
-
-                    if instruction.q == 1 {
+                    else if instruction.q == 1 {
                         match instruction.p {
                             0 => self.ret(),
                             1 => self.reti(),
@@ -477,11 +442,9 @@ impl Cpu {
                             3 => self.load_hl_to_sp(),
                             _ => panic!("Invalid operation"),
                         }
-                        return;
                     }
                 }
-
-                if instruction.z == 2 {
+                else if instruction.z == 2 {
                     match instruction.y {
                         0|1|2|3 => self.jp_cc(instruction.y),
                         4 => self.save_a_to_ff_c(),
@@ -490,42 +453,33 @@ impl Cpu {
                         7 => self.load_a_from_imm(),
                         _ => panic!("Invalid operation"),
                     }
-                    return;
                 }
-
-                if instruction.z == 3 {
+                else if instruction.z == 3 {
                     match instruction.y {
                         0 => self.jp(),
                         6 => self.di(),
                         7 => self.ei(),
                         _ => panic!("Invalid operation"),
                     }
-                    return;
                 }
-
-                if instruction.z == 4 {
+                else if instruction.z == 4 {
                     match instruction.y {
                         0|1|2|3 => self.call_cc(instruction.y),
                         _ => panic!("Invalid operation"),
                     }
-                    return;
                 }
-
-                if instruction.z == 5 {
+                else if instruction.z == 5 {
                     if instruction.q == 0 {
                         self.push(instruction.p);
-                        return;
                     }
-
-                    if instruction.q == 1 && instruction.p == 0 {
+                    else if instruction.q == 1 && instruction.p == 0 {
                         self.call();
                     }
                     else {
                         panic!("Invalid operation");
                     }
                 }
-
-                if instruction.z == 6 {
+                else if instruction.z == 6 {
                     match instruction.y {
                         0 => self.add_imm(),
                         1 => self.adc_imm(),
@@ -537,12 +491,9 @@ impl Cpu {
                         7 => self.cp_imm(),
                         _ => panic!("Invalid operation"),
                     }
-                    return;
                 }
-
-                if instruction.z == 7 {
+                else if instruction.z == 7 {
                     self.rst(instruction.y * 8);
-                    return;
                 }
             }
         }
@@ -944,8 +895,8 @@ impl Cpu {
         let sp = self.get_rp(3);
 
         bytes[0] = self.memory.read(sp);
-        bytes[1] = self.memory.read(sp - 1);
-        self.set_rp(3, sp.wrapping_sub(2));
+        bytes[1] = self.memory.read(sp + 1);
+        self.set_rp(3, sp.wrapping_add(2));
 
         let value = LittleEndian::read_u16(&bytes);
         self.set_rp2(index, value);
@@ -1071,8 +1022,8 @@ impl Cpu {
         let hi = (reg >> 8) as u8;
         let low = reg as u8;
 
-        self.memory.write(sp, hi);
-        self.memory.write(sp - 1, low);
+        self.memory.write(sp - 1, hi);
+        self.memory.write(sp - 2, low);
         self.set_rp(3, sp - 2);
         self.instruction_finished(1, 16);
     }
@@ -1101,7 +1052,7 @@ impl Cpu {
         self.cpu_flags.set_nf(false);
         self.cpu_flags.set_hf(false);
         self.cpu_flags.set_cf(result > 0xFF);
-        self.instruction_finished(1, 8);
+        self.instruction_finished(2, 8);
     }
 
     fn adc_imm(&mut self) {
@@ -1112,7 +1063,7 @@ impl Cpu {
         self.cpu_flags.set_nf(false);
         self.cpu_flags.set_hf(false);
         self.cpu_flags.set_cf(result > 0xFF);
-        self.instruction_finished(1, 8);
+        self.instruction_finished(2, 8);
     }
 
     fn sub_imm(&mut self) {
@@ -1123,7 +1074,7 @@ impl Cpu {
         self.cpu_flags.set_nf(true);
         self.cpu_flags.set_hf(false);
         self.cpu_flags.set_cf(result < 0);
-        self.instruction_finished(1, 8);
+        self.instruction_finished(2, 8);
     }
 
     fn sbc_imm(&mut self) {
@@ -1134,7 +1085,7 @@ impl Cpu {
         self.cpu_flags.set_nf(true);
         self.cpu_flags.set_hf(false);
         self.cpu_flags.set_cf(result < 0);
-        self.instruction_finished(1, 8);
+        self.instruction_finished(2, 8);
     }
 
     fn and_imm(&mut self) {
@@ -1145,7 +1096,7 @@ impl Cpu {
         self.cpu_flags.set_nf(false);
         self.cpu_flags.set_hf(true);
         self.cpu_flags.set_cf(false);
-        self.instruction_finished(1, 8);
+        self.instruction_finished(2, 8);
     }
 
     fn xor_imm(&mut self) {
@@ -1156,7 +1107,7 @@ impl Cpu {
         self.cpu_flags.set_nf(false);
         self.cpu_flags.set_hf(false);
         self.cpu_flags.set_cf(false);
-        self.instruction_finished(1, 8);
+        self.instruction_finished(2, 8);
     }
 
     fn or_imm(&mut self) {
@@ -1167,7 +1118,7 @@ impl Cpu {
         self.cpu_flags.set_nf(false);
         self.cpu_flags.set_hf(false);
         self.cpu_flags.set_cf(false);
-        self.instruction_finished(1, 8);
+        self.instruction_finished(2, 8);
     }
 
     fn cp_imm(&mut self) {
@@ -1176,7 +1127,7 @@ impl Cpu {
         self.cpu_flags.set_nf(true);
         self.cpu_flags.set_hf(false);
         self.cpu_flags.set_cf(values.0 < values.1);
-        self.instruction_finished(1, 8);
+        self.instruction_finished(2, 8);
     }
 
     fn rst(&mut self, offset: u8) {
