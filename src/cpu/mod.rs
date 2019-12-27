@@ -292,7 +292,74 @@ impl Cpu {
     }
 
     fn check_interrupts(&mut self) {
-        
+        let if_value = self.memory.read(0xFF0F);
+        let ie_value = self.memory.read(0xFFFF);
+
+        let sp = self.get_rp(3);
+        let hi = (self.pc >> 8) as u8;
+        let low = self.pc as u8;
+
+        // Vblank interrupt.
+        if (if_value & 1) == 1 {
+            if self.interrupts_enabled && (ie_value & 1) == 1 {
+                self.memory.write(0xFF0F, if_value & !(1));
+                self.memory.write(sp - 1, hi);
+                self.memory.write(sp - 2, low);
+                self.set_rp(3, sp - 2);
+                self.pc = 0x0040;
+                self.interrupts_enabled = false;
+            }
+            self.halted = false;
+        }
+        // LCDC interrupt.
+        else if ((if_value >> 1) & 1) == 1 {
+            if self.interrupts_enabled && ((ie_value >> 1) & 1) == 1 {
+                self.memory.write(0xFF0F, if_value & !(1 << 1));
+                self.memory.write(sp - 1, hi);
+                self.memory.write(sp - 2, low);
+                self.set_rp(3, sp - 2);
+                self.pc = 0x0048;
+                self.interrupts_enabled = false;
+
+            }
+            self.halted = false;
+        }
+        // Timer interrupt.
+        else if ((if_value >> 1) & 2) == 1 {
+            if self.interrupts_enabled && ((ie_value >> 2) & 1) == 1 {
+                self.memory.write(0xFF0F, if_value & !(1 << 2));
+                self.memory.write(sp - 1, hi);
+                self.memory.write(sp - 2, low);
+                self.set_rp(3, sp - 2);
+                self.pc = 0x0050;
+                self.interrupts_enabled = false;
+            }
+            self.halted = false;
+        }
+        // Serial transfer interrupt.
+        else if ((if_value >> 1) & 3) == 1 {
+            if self.interrupts_enabled && ((ie_value >> 3) & 1) == 1 {
+                self.memory.write(0xFF0F, if_value & !(1 << 3));
+                self.memory.write(sp - 1, hi);
+                self.memory.write(sp - 2, low);
+                self.set_rp(3, sp - 2);
+                self.pc = 0x0058;
+                self.interrupts_enabled = false;
+            }
+            self.halted = false;
+        }
+        // Input interrupt.
+        else if ((if_value >> 1) & 4) == 1 {
+            if self.interrupts_enabled && ((ie_value >> 4) & 1) == 1 {
+                self.memory.write(0xFF0F, if_value & !(1 << 1));
+                self.memory.write(sp - 1, hi);
+                self.memory.write(sp - 2, low);
+                self.set_rp(3, sp - 2);
+                self.pc = 0x0060;
+                self.interrupts_enabled = false;
+            }
+            self.halted = false;
+        }
     }
 
     fn run_instruction(&mut self) {
