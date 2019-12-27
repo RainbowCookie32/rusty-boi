@@ -333,7 +333,7 @@ impl Cpu {
                 if instruction.z == 0 {
                     match instruction.y {
                         0 => self.nop(),
-                        1 => self.load_imm_to_sp(),
+                        1 => self.save_sp_to_imm(),
                         2 => self.stop(),
                         3 => self.jr(),
                         4 | 5 | 6 | 7 => self.jr_cc(instruction.y - 4),
@@ -508,11 +508,15 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn load_imm_to_sp(&mut self) {
+    fn save_sp_to_imm(&mut self) {
+        let value = self.get_rp(3);
         let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
-        let value = LittleEndian::read_u16(&bytes);
+        let hi = (value >> 8) as u8;
+        let low = value as u8;
+        let address = LittleEndian::read_u16(&bytes);
 
-        self.set_rp(3, value);
+        self.memory.write(address, low);
+        self.memory.write(address - 1, hi);
         self.instruction_finished(3, 20);
     }
 
