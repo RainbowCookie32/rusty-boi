@@ -516,7 +516,7 @@ impl Cpu {
         let address = LittleEndian::read_u16(&bytes);
 
         self.memory.write(address, low);
-        self.memory.write(address - 1, hi);
+        self.memory.write(address + 1, hi);
         self.instruction_finished(3, 20);
     }
 
