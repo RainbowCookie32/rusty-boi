@@ -89,7 +89,7 @@ impl CartData {
         let ram_path = path::PathBuf::from(format!("saved_ram/{}.rr", title.to_lowercase()));
         let mut ram_banks: Vec<Vec<u8>> = vec![vec![0; 8192]; ram_size];
 
-        if ram_path.exists() {
+        if ram_path.exists() && ram_size > 0 {
 
             info!("Cart: RAM file found at {:#?}, loading.", ram_path);
             let mut ram_contents: Vec<u8> = Vec::new();
