@@ -1,0 +1,17 @@
+name: Rust
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: [ubuntu-latest]
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Run apt update
+      run: sudo apt update
+    - name: Install SDL2 libs
+      run: sudo apt install libsdl2-dev
+    - name: Build
+      run: cargo build --verbose 
