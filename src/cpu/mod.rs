@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 use std::sync::atomic::{AtomicU16, Ordering};
 
+use log::error;
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::timer::TimerModule;
@@ -521,7 +522,8 @@ impl Cpu {
     }
 
     fn stop(&mut self) {
-        panic!("Unimplemented instruction: STOP");
+        error!("Unimplemented opcode STOP. Execution will continue, but things may break");
+        self.instruction_finished(2, 4);
     }
 
     fn jr(&mut self) {
@@ -712,7 +714,8 @@ impl Cpu {
 
     fn daa(&mut self) {
         // I'll implement this whenever I find a ROM (that's not a test) that needs it.
-        panic!("Unimplemented instruction: DAA");
+        error!("Unimplemented opcode DAA. Execution will continue, but things may break");
+        self.instruction_finished(1, 4);
     }
 
     fn cpl(&mut self) {
@@ -745,7 +748,8 @@ impl Cpu {
     }
 
     fn halt(&mut self) {
-        panic!("Unimplemented instruction: HALT");
+        error!("Unimplemented opcode HALT. Execution will continue, but things may break");
+        self.instruction_finished(1, 4);
     }
 
     fn add(&mut self, index: u8) {
