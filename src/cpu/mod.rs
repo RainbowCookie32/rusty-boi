@@ -529,7 +529,7 @@ impl Cpu {
     fn jr(&mut self) {
         let value = self.memory.read(self.pc + 1) as i8;
         self.pc = self.pc.wrapping_add(value as u16 + 2);
-        self.cycles.fetch_add(8, Ordering::Relaxed);
+        self.instruction_finished(0, 12);
     }
 
     fn jr_cc(&mut self, condition: u8) {
@@ -545,7 +545,7 @@ impl Cpu {
             self.jr();
         }
         else {
-            self.instruction_finished(2, 12);
+            self.instruction_finished(2, 8);
         }
     }
 
@@ -682,7 +682,7 @@ impl Cpu {
         self.cpu_flags.set_nf(false);
         self.cpu_flags.set_hf(false);
         self.cpu_flags.set_cf(carry);
-        self.instruction_finished(2, 8);
+        self.instruction_finished(1, 4);
     }
 
     fn rla(&mut self) {
@@ -895,7 +895,7 @@ impl Cpu {
         // TODO: Proper flags
         self.cpu_flags.set_hf(false);
         self.cpu_flags.set_cf(false);
-        self.instruction_finished(2, 16);
+        self.instruction_finished(2, 12);
     }
 
     fn pop(&mut self, index: u8) {
@@ -935,8 +935,8 @@ impl Cpu {
     }
 
     fn load_hl_to_sp(&mut self) {
-        let sp = self.get_rp(3);
-        self.set_rp(2, sp);
+        let hl = self.get_rp(2);
+        self.set_rp(3, hl);
         self.instruction_finished(1, 8);
     }
 
@@ -953,7 +953,7 @@ impl Cpu {
             self.jp();
         }
         else {
-            self.instruction_finished(2, 12);
+            self.instruction_finished(3, 12);
         }
     }
 
@@ -994,7 +994,7 @@ impl Cpu {
         let address = LittleEndian::read_u16(&bytes);
 
         self.pc = address;
-        self.instruction_finished(1, 16);
+        self.instruction_finished(0, 16);
     }
 
     fn di(&mut self) {
