@@ -12,7 +12,7 @@ pub struct CpuMemory {
     cartridge: CartData,
     ram: Vec<u8>,
     hram: Vec<u8>,
-    bootrom_finished: bool,
+    use_bootrom: bool,
 
     shared_memory: Arc<SharedMemory>,
 }
@@ -25,21 +25,25 @@ impl CpuMemory {
             cartridge: cart,
             ram: vec![0; 8192],
             hram: vec![0; 127],
-            bootrom_finished: !use_bootrom,
+            use_bootrom: use_bootrom,
 
             shared_memory: shared_mem,
         }
     }
 
-    pub fn use_bootrom(&self) -> bool {
-        return !self.bootrom_finished;
+    pub fn is_bootrom_loaded(&self) -> bool {
+        return self.use_bootrom;
+    }
+
+    pub fn bootrom_finished(&mut self) {
+        self.use_bootrom = false;
     }
 
     pub fn read(&self, address: u16) -> u8 {
         
         if address < 0x0100 
         {
-            if self.bootrom_finished {
+            if !self.use_bootrom {
                 return self.cartridge.read(address);
             }
             else {
@@ -82,7 +86,7 @@ impl CpuMemory {
     }
 
     pub fn write(&mut self, address: u16, value: u8) {
-        if address < 0x0100 && self.bootrom_finished
+        if address < 0x0100 && !self.use_bootrom
         {
             self.cartridge.write(address, value);
             return;

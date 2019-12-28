@@ -55,7 +55,7 @@ pub fn start_emulation(cpu_mem: CpuMemory, shared_mem: Arc<SharedMemory>) {
     let (input_tx, input_rx) = mpsc::channel();
 
     let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        let bootrom = cpu_mem.use_bootrom();
+        let bootrom = cpu_mem.is_bootrom_loaded();
         let mut current_cpu = Cpu::new(cpu_mem, cpu_shared_memory, cpu_cycles, input_rx, bootrom);
         current_cpu.execution_loop();
     }).unwrap();

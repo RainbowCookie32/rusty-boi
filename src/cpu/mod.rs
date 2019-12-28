@@ -363,6 +363,12 @@ impl Cpu {
     }
 
     fn run_instruction(&mut self) {
+        
+        if self.pc == 0x0100 {
+            log::info!("CPU: Bootrom execution finished, executing loaded ROM.");
+            self.memory.bootrom_finished();
+        }
+        
         let opcode = self.memory.read(self.pc);
 
         if opcode == 0xCB {
@@ -568,6 +574,9 @@ impl Cpu {
     }
 
     fn instruction_finished(&mut self, pc: u16, cycles: u16) {
+        if self.pc + pc == 0x100 {
+            println!("doot");
+        }
         self.pc += pc;
         self.cycles.fetch_add(cycles, Ordering::Relaxed);
     }
