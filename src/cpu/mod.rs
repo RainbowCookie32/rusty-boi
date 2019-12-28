@@ -277,6 +277,24 @@ impl Cpu {
         self.registers[index as usize].set(value);
     }
 
+    fn stack_read(&mut self) -> u16 {
+        let sp = self.get_rp(3);
+        let bytes = vec![self.memory.read(sp), self.memory.read(sp + 1)];
+
+        self.set_rp(3, sp + 2);
+        LittleEndian::read_u16(&bytes)
+    }
+
+    fn stack_write(&mut self, value: u16) {
+        let hi = (value >> 8) as u8;
+        let low = value as u8;
+        let sp = self.get_rp(3);
+
+        self.memory.write(sp - 1, hi);
+        self.memory.write(sp - 2, low);
+        self.set_rp(3, sp - 2);
+    }
+
     pub fn execution_loop(&mut self) {
 
         loop {
@@ -295,17 +313,11 @@ impl Cpu {
         let if_value = self.memory.read(0xFF0F);
         let ie_value = self.memory.read(0xFFFF);
 
-        let sp = self.get_rp(3);
-        let hi = (self.pc >> 8) as u8;
-        let low = self.pc as u8;
-
         // Vblank interrupt.
         if (if_value & 1) == 1 {
             if self.interrupts_enabled && (ie_value & 1) == 1 {
                 self.memory.write(0xFF0F, if_value & !(1));
-                self.memory.write(sp - 1, hi);
-                self.memory.write(sp - 2, low);
-                self.set_rp(3, sp - 2);
+                self.stack_write(self.pc);
                 self.pc = 0x0040;
                 self.interrupts_enabled = false;
             }
@@ -315,9 +327,7 @@ impl Cpu {
         else if ((if_value >> 1) & 1) == 1 {
             if self.interrupts_enabled && ((ie_value >> 1) & 1) == 1 {
                 self.memory.write(0xFF0F, if_value & !(1 << 1));
-                self.memory.write(sp - 1, hi);
-                self.memory.write(sp - 2, low);
-                self.set_rp(3, sp - 2);
+                self.stack_write(self.pc);
                 self.pc = 0x0048;
                 self.interrupts_enabled = false;
 
@@ -328,9 +338,7 @@ impl Cpu {
         else if ((if_value >> 1) & 2) == 1 {
             if self.interrupts_enabled && ((ie_value >> 2) & 1) == 1 {
                 self.memory.write(0xFF0F, if_value & !(1 << 2));
-                self.memory.write(sp - 1, hi);
-                self.memory.write(sp - 2, low);
-                self.set_rp(3, sp - 2);
+                self.stack_write(self.pc);
                 self.pc = 0x0050;
                 self.interrupts_enabled = false;
             }
@@ -340,9 +348,7 @@ impl Cpu {
         else if ((if_value >> 1) & 3) == 1 {
             if self.interrupts_enabled && ((ie_value >> 3) & 1) == 1 {
                 self.memory.write(0xFF0F, if_value & !(1 << 3));
-                self.memory.write(sp - 1, hi);
-                self.memory.write(sp - 2, low);
-                self.set_rp(3, sp - 2);
+                self.stack_write(self.pc);
                 self.pc = 0x0058;
                 self.interrupts_enabled = false;
             }
@@ -352,9 +358,7 @@ impl Cpu {
         else if ((if_value >> 1) & 4) == 1 {
             if self.interrupts_enabled && ((ie_value >> 4) & 1) == 1 {
                 self.memory.write(0xFF0F, if_value & !(1 << 1));
-                self.memory.write(sp - 1, hi);
-                self.memory.write(sp - 2, low);
-                self.set_rp(3, sp - 2);
+                self.stack_write(self.pc);
                 self.pc = 0x0060;
                 self.interrupts_enabled = false;
             }
@@ -367,6 +371,10 @@ impl Cpu {
         if self.pc == 0x0100 {
             log::info!("CPU: Bootrom execution finished, executing loaded ROM.");
             self.memory.bootrom_finished();
+        }
+
+        if self.pc == 0x000C {
+            log::info!("CPU: Breakpoint.");
         }
         
         let opcode = self.memory.read(self.pc);
@@ -574,9 +582,6 @@ impl Cpu {
     }
 
     fn instruction_finished(&mut self, pc: u16, cycles: u16) {
-        if self.pc + pc == 0x100 {
-            println!("doot");
-        }
         self.pc += pc;
         self.cycles.fetch_add(cycles, Ordering::Relaxed);
     }
@@ -975,28 +980,13 @@ impl Cpu {
     }
 
     fn pop(&mut self, index: u8) {
-        let mut bytes = vec![0; 2];
-        let sp = self.get_rp(3);
-
-        bytes[0] = self.memory.read(sp);
-        bytes[1] = self.memory.read(sp + 1);
-        self.set_rp(3, sp.wrapping_add(2));
-
-        let value = LittleEndian::read_u16(&bytes);
+        let value = self.stack_read();
         self.set_rp2(index, value);
         self.instruction_finished(1, 12);
     }
 
     fn ret(&mut self) {
-        let mut bytes = vec![0; 2];
-        let sp = self.get_rp(3);
-
-        bytes[0] = self.memory.read(sp);
-        bytes[1] = self.memory.read(sp - 1);
-        self.set_rp(3, sp.wrapping_sub(2));
-
-        let value = LittleEndian::read_u16(&bytes);
-        self.pc = value;
+        self.pc = self.stack_read();
         self.instruction_finished(0, 16);
     }
 
@@ -1102,13 +1092,7 @@ impl Cpu {
 
     fn push(&mut self, index: u8) {
         let reg = self.get_rp2(index);
-        let sp = self.get_rp(3);
-        let hi = (reg >> 8) as u8;
-        let low = reg as u8;
-
-        self.memory.write(sp - 1, hi);
-        self.memory.write(sp - 2, low);
-        self.set_rp(3, sp - 2);
+        self.stack_write(reg);
         self.instruction_finished(1, 16);
     }
 
@@ -1116,14 +1100,8 @@ impl Cpu {
         let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
         let target_address = LittleEndian::read_u16(&bytes);
         let ret_address = self.pc + 3;
-        let sp = self.get_rp(3);
-        let hi = (ret_address >> 8) as u8;
-        let low = ret_address as u8;
-
-        self.memory.write(sp, hi);
-        self.memory.write(sp - 1, low);
-        self.set_rp(3, sp - 2);
         
+        self.stack_write(ret_address);
         self.pc = target_address;
         self.instruction_finished(0, 24);
     }
@@ -1217,14 +1195,8 @@ impl Cpu {
     fn rst(&mut self, offset: u8) {
         let target_address = offset as u16;
         let ret_address = self.pc + 1;
-        let sp = self.get_rp(3);
-        let hi = (ret_address >> 8) as u8;
-        let low = ret_address as u8;
-
-        self.memory.write(sp, hi);
-        self.memory.write(sp - 1, low);
-        self.set_rp(3, sp - 2);
         
+        self.stack_write(ret_address);
         self.pc = target_address;
         self.instruction_finished(0, 16);
     }
