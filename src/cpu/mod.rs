@@ -609,7 +609,7 @@ impl Cpu {
 
     fn jr(&mut self) {
         let value = self.memory.read(self.pc + 1) as i8;
-        self.pc = self.pc.wrapping_add(value as u16 + 2);
+        self.pc = self.pc.wrapping_add(value as u16) + 2;
         self.instruction_finished(0, 12);
     }
 
@@ -734,6 +734,7 @@ impl Cpu {
         self.instruction_finished(1, if index == 6 {12} else {4});
     }
 
+    // Load immediate 16-bit value into a register pair.
     fn load_imm_into_reg(&mut self, index: u8) {
         let value = self.memory.read(self.pc + 1);
         self.set_register(index, value);
@@ -822,6 +823,7 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
+    // Load a register pair into another.
     fn load_reg_into_reg(&mut self, target: u8, source: u8) {
         let value = self.get_register(source);
         self.set_register(target, value);
@@ -957,6 +959,7 @@ impl Cpu {
         self.instruction_finished(2, 16);
     }
 
+    // Load the value pointed by 0xFF00 + immediate value into A.
     fn load_a_from_ff_imm(&mut self) {
         let address = 0xFF00 + self.memory.read(self.pc + 1) as u16;
         let value = self.memory.read(address);
@@ -1023,6 +1026,7 @@ impl Cpu {
         }
     }
 
+    // Save the value of A into 0xFF00 + the value of C
     fn save_a_to_ff_c(&mut self) {
         let address = 0xFF00 + self.get_register(1) as u16;
         let value = self.get_register(7);
@@ -1031,6 +1035,7 @@ impl Cpu {
         self.instruction_finished(1, 8);
     }
 
+    // Save the value of A into address at immediate value.
     fn save_a_to_imm(&mut self) {
         let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
         let value = self.get_register(7);
@@ -1039,6 +1044,7 @@ impl Cpu {
         self.instruction_finished(3, 16);
     }
 
+    // Read address 0xFF00 + the value of C, and load the value into A.
     fn load_a_from_ff_c(&mut self) {
         let address = 0xFF00 + self.get_register(1) as u16;
         let value = self.memory.read(address);
@@ -1047,6 +1053,7 @@ impl Cpu {
         self.instruction_finished(1, 8);
     }
 
+    // Load value from address at immediate value into A.
     fn load_a_from_imm(&mut self) {
         let address = 0xFF00 + self.memory.read(self.pc + 1) as u16;
         let value = self.memory.read(address);
@@ -1202,6 +1209,7 @@ impl Cpu {
     }
 
 
+    // Prefixed opcodes
 
     fn rlc(&mut self, index: u8) {
         let value = self.get_register(index);

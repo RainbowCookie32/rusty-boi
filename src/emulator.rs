@@ -76,7 +76,7 @@ fn load_bootrom() -> (Vec<u8>, bool) {
         Ok(file) => {
 
             let mut bootrom_file = file;
-            let mut data = Vec::new();
+            let mut data = Vec::with_capacity(256);
 
             let result = match bootrom_file.read_to_end(&mut data) {
                 Ok(_) => {
