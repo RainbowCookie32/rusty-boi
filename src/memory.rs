@@ -116,6 +116,11 @@ impl CpuMemory {
             return;
         }
 
+        if address == 0xFF46 {
+            self.shared_memory.write(0xFF46, value, true);
+            self.dma_transfer(value);
+        }
+
         if address >= 0xFEA0 && address <= 0xFEFF
         {
             warn!("Memory: Tried to write {:#X} to unusable memory at address {:#X}. Ignoring...", value, address);
@@ -129,6 +134,20 @@ impl CpuMemory {
         }
 
         self.shared_memory.write(address, value, true);
+    }
+
+    fn dma_transfer(&mut self, value: u8) {
+        let address = (value as u16) << 8;
+        let end_address = address + 0x009F;
+
+        let mut transfer_progress = (address, 0xFE00);
+
+        while transfer_progress.0 < end_address {
+            let value = self.read(transfer_progress.0);
+            self.write(transfer_progress.1, value);
+            transfer_progress.0 += 1;
+            transfer_progress.1 += 1;
+        }
     }
 }
 
@@ -153,11 +172,11 @@ impl SharedMemory {
 
     pub fn new() -> SharedMemory {
 
-        let mut regs: Vec<AtomicU8> = Vec::new();
+        let mut regs: Vec<AtomicU8> = Vec::with_capacity(128);
 
-        let mut char_ram: Vec<AtomicU8> = Vec::new();
-        let mut bg_map: Vec<AtomicU8> = Vec::new();
-        let mut oam_mem: Vec<AtomicU8> = Vec::new();
+        let mut char_ram: Vec<AtomicU8> = Vec::with_capacity(6144);
+        let mut bg_map: Vec<AtomicU8> = Vec::with_capacity(2048);
+        let mut oam_mem: Vec<AtomicU8> = Vec::with_capacity(160);
 
         for _item in 0..160 {
             oam_mem.push(AtomicU8::new(0));
@@ -249,15 +268,12 @@ impl SharedMemory {
 
         if address >= 0xFF00 && address <= 0xFF7F
         {
+            if address == 0xFF01 {
+                log::info!("{}", value as char);
+            }
             
             if address == 0xFF04 && is_cpu {
                 self.io_registers[address as usize - 0xFF00].store(0, Ordering::Relaxed);
-                return;
-            }
-            else if address == 0xFF46 {
-                self.io_registers[address as usize - 0xFF00].store(0, Ordering::Relaxed);
-                warn!("Memory: Tried to start a DMA transfer");
-                //self.dma_transfer();
                 return;
             }
             else {
@@ -273,22 +289,5 @@ impl SharedMemory {
         }
 
         panic!("Memory: Invalid read on shared memory at address {:#X}", address);
-    }
-
-
-    // FIXME: DMA Transfers are done from the cartridge, so SharedMemory can't directly access it.
-    // Currently, a DMA transfer causes a panic.
-    fn dma_transfer(&self) {
-        let address = (self.read(0xFF46) as u16) << 8;
-        let end_address = address + 0x009F;
-
-        let mut transfer_progress = (address, 0xFE00);
-
-        while transfer_progress.0 < end_address {
-            let value = self.read(transfer_progress.0);
-            self.write(transfer_progress.1, value, false);
-            transfer_progress.0 += 1;
-            transfer_progress.1 += 1;
-        }
     }
 }
