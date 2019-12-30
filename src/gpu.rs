@@ -407,11 +407,9 @@ impl Gpu {
             while current_bit != 0 {
     
                 current_bit -= 1;
-                let bits = (((bytes_to_check.0 >> current_bit) & 1) == 1, ((bytes_to_check.1 >> current_bit) & 1) == 1);
-                if bits.0 && bits.1 {generated_tile[tile_index] = 3}
-                else if !bits.0 && bits.1 {generated_tile[tile_index] = 2}
-                else if bits.0 && !bits.1 {generated_tile[tile_index] = 1}
-                else if !bits.0 && !bits.1 {generated_tile[tile_index] = 0}
+                let bits = (((bytes_to_check.0 >> current_bit) & 1), ((bytes_to_check.1 >> current_bit) & 1));
+                let color = (bits.0 << 1) | (bits.1);
+                generated_tile[tile_index] = color;
                 tile_index += 1;
             }
         }
@@ -687,7 +685,7 @@ impl Gpu {
             1 => result[1] = Color::RGBA(192, 192, 192, 255),
             2 => result[1] = Color::RGBA(96, 96, 96, 255),
             3 => result[1] = Color::RGBA(0, 0, 0, 255),
-            _ => result[0] = Color::RGBA(0, 0, 0, 255),
+            _ => result[1] = Color::RGBA(0, 0, 0, 255),
         };
     
         match color_2 {
@@ -695,7 +693,7 @@ impl Gpu {
             1 => result[2] = Color::RGBA(192, 192, 192, 255),
             2 => result[2] = Color::RGBA(96, 96, 96, 255),
             3 => result[2] = Color::RGBA(0, 0, 0, 255),
-            _ => result[0] = Color::RGBA(0, 0, 0, 255),
+            _ => result[2] = Color::RGBA(0, 0, 0, 255),
         };
     
         match color_3 {
@@ -703,7 +701,7 @@ impl Gpu {
             1 => result[3] = Color::RGBA(192, 192, 192, 255),
             2 => result[3] = Color::RGBA(96, 96, 96, 255),
             3 => result[3] = Color::RGBA(0, 0, 0, 255),
-            _ => result[0] = Color::RGBA(0, 0, 0, 255),
+            _ => result[3] = Color::RGBA(0, 0, 0, 255),
         };
     
         result
