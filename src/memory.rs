@@ -269,7 +269,7 @@ impl SharedMemory {
         if address >= 0xFF00 && address <= 0xFF7F
         {
             if address == 0xFF01 {
-                log::info!("{}", value as char);
+                //log::info!("{}", value as char);
             }
             
             if address == 0xFF04 && is_cpu {

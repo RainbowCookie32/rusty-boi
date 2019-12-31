@@ -298,15 +298,76 @@ impl Cpu {
     pub fn execution_loop(&mut self) {
 
         loop {
-            self.update_input();
+            if self.update_input() { break };
             self.check_interrupts();
             self.run_instruction();
             self.timer.timer_cycle();
         }
     }
 
-    fn update_input(&mut self) {
+    fn update_input(&mut self) -> bool {
+        let event_type: InputEvent;
+        let event_happened: bool;
+        let event_message = self.input_receiver.try_recv();
 
+        match event_message {
+            Ok(message) => {
+                event_type = message;
+                event_happened = true;
+            },
+            Err(_error) => {
+                event_type = InputEvent::APressed;
+                event_happened = false;
+            }
+        };
+
+        if event_type == InputEvent::Quit {
+            return true;
+        }
+
+        let mut input_value = self.memory.read(0xFF00) | 0xCF;
+
+        if event_happened {
+
+            let if_value = self.memory.read(0xFF0F);
+
+            if input_value == 0xFF {
+                match event_type {
+                    InputEvent::RightPressed => { input_value = 0xFE },
+                    InputEvent::LeftPressed => { input_value = 0xFD },
+                    InputEvent::UpPressed => { input_value = 0xFB },
+                    InputEvent::DownPressed => { input_value = 0xF7 },
+                    InputEvent::APressed => { input_value = 0xFE },
+                    InputEvent::BPressed => { input_value = 0xFD },
+                    InputEvent::SelectPressed => { input_value = 0xFB },
+                    InputEvent::StartPressed => { input_value = 0xF7 },
+                    _ => {}
+                }
+            }
+            else if input_value == 0xEF {
+                match event_type {
+                    InputEvent::RightPressed => { input_value = 0xEE },
+                    InputEvent::LeftPressed => { input_value = 0xED },
+                    InputEvent::UpPressed => { input_value = 0xEB },
+                    InputEvent::DownPressed => { input_value = 0xE7 },
+                    _ => {}
+                }    
+            }
+            else if input_value == 0xDF {
+                match event_type {
+                    InputEvent::APressed => { input_value = 0xDE },
+                    InputEvent::BPressed => { input_value = 0xDD },
+                    InputEvent::SelectPressed => { input_value = 0xDB },
+                    InputEvent::StartPressed => { input_value = 0xD7 },
+                    _ => {}
+                }
+    
+            }
+            self.memory.write(0xFF0F, if_value | (1 << 4));
+        }
+
+        self.memory.write(0xFF00, input_value);
+        return false;
     }
 
     fn check_interrupts(&mut self) {
@@ -371,10 +432,6 @@ impl Cpu {
         if self.pc == 0x0100 {
             log::info!("CPU: Bootrom execution finished, executing loaded ROM.");
             self.memory.bootrom_finished();
-        }
-
-        if self.pc == 0x000C {
-            log::info!("CPU: Breakpoint.");
         }
         
         let opcode = self.memory.read(self.pc);
@@ -1200,7 +1257,7 @@ impl Cpu {
     }
 
     fn rst(&mut self, offset: u8) {
-        let target_address = offset as u16;
+        let target_address = 0x0000 + offset as u16;
         let ret_address = self.pc + 1;
         
         self.stack_write(ret_address);
