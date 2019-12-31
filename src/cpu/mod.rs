@@ -298,9 +298,9 @@ impl Cpu {
     pub fn execution_loop(&mut self) {
 
         loop {
-            if self.update_input() { break };
+            if self.update_input() {break}
             self.check_interrupts();
-            self.run_instruction();
+            if !self.halted {self.run_instruction()}
             self.timer.timer_cycle();
         }
     }
@@ -888,7 +888,7 @@ impl Cpu {
     }
 
     fn halt(&mut self) {
-        error!("Unimplemented opcode HALT. Execution will continue, but things may break");
+        self.halted = true;
         self.instruction_finished(1, 4);
     }
 
