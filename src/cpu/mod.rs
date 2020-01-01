@@ -329,7 +329,7 @@ impl Cpu {
 
         if event_happened {
 
-            let if_value = self.memory.read(0xFF0F);
+            let if_value = self.memory.read(0xFF0F) | (1 << 4);
 
             if input_value == 0xFF {
                 match event_type {
@@ -363,19 +363,25 @@ impl Cpu {
                 }
     
             }
-            self.memory.write(0xFF0F, if_value | (1 << 4));
+            self.memory.write(0xFF0F, if_value);
         }
 
         self.memory.write(0xFF00, input_value);
-        return false;
+        false
     }
 
     fn check_interrupts(&mut self) {
         let if_value = self.memory.read(0xFF0F);
         let ie_value = self.memory.read(0xFFFF);
 
+        let vblank_int = (if_value & 1) == 1;
+        let lcdc_int = ((if_value >> 1) & 1) == 1;
+        let timer_int = ((if_value >> 2) & 1) == 1;
+        let serial_int = ((if_value >> 3) & 1) == 1;
+        let input_int = ((if_value >> 4) & 1) == 1;
+
         // Vblank interrupt.
-        if (if_value & 1) == 1 {
+        if vblank_int {
             if self.interrupts_enabled && (ie_value & 1) == 1 {
                 self.memory.write(0xFF0F, if_value & !(1));
                 self.stack_write(self.pc);
@@ -385,7 +391,7 @@ impl Cpu {
             self.halted = false;
         }
         // LCDC interrupt.
-        else if ((if_value >> 1) & 1) == 1 {
+        else if lcdc_int {
             if self.interrupts_enabled && ((ie_value >> 1) & 1) == 1 {
                 self.memory.write(0xFF0F, if_value & !(1 << 1));
                 self.stack_write(self.pc);
@@ -396,7 +402,7 @@ impl Cpu {
             self.halted = false;
         }
         // Timer interrupt.
-        else if ((if_value >> 1) & 2) == 1 {
+        else if timer_int {
             if self.interrupts_enabled && ((ie_value >> 2) & 1) == 1 {
                 self.memory.write(0xFF0F, if_value & !(1 << 2));
                 self.stack_write(self.pc);
@@ -406,7 +412,7 @@ impl Cpu {
             self.halted = false;
         }
         // Serial transfer interrupt.
-        else if ((if_value >> 1) & 3) == 1 {
+        else if serial_int {
             if self.interrupts_enabled && ((ie_value >> 3) & 1) == 1 {
                 self.memory.write(0xFF0F, if_value & !(1 << 3));
                 self.stack_write(self.pc);
@@ -416,9 +422,9 @@ impl Cpu {
             self.halted = false;
         }
         // Input interrupt.
-        else if ((if_value >> 1) & 4) == 1 {
+        else if input_int {
             if self.interrupts_enabled && ((ie_value >> 4) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 1));
+                self.memory.write(0xFF0F, if_value & !(1 << 4));
                 self.stack_write(self.pc);
                 self.pc = 0x0060;
                 self.interrupts_enabled = false;
