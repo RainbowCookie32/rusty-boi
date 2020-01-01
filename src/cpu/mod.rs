@@ -596,16 +596,18 @@ impl Cpu {
                 else if instruction.z == 3 {
                     match instruction.y {
                         0 => self.jp(),
+                        1 => panic!("Prefixed opcode in unprefixed codepath"),
                         6 => self.di(),
                         7 => self.ei(),
                         _ => panic!("Invalid operation"),
                     }
                 }
                 else if instruction.z == 4 {
-                    match instruction.y {
-                        0|1|2|3 => self.call_cc(instruction.y),
-                        _ => panic!("Invalid operation"),
+                    if instruction.y < 4 {
+                        self.call_cc(instruction.y);
+                        return;
                     }
+                    panic!("Invalid operation");
                 }
                 else if instruction.z == 5 {
                     if instruction.q == 0 {
@@ -791,7 +793,7 @@ impl Cpu {
         self.instruction_finished(1, if index == 6 {12} else {4});
     }
 
-    // Load immediate 16-bit value into a register pair.
+    // Load immediate 8-bit value into a register.
     fn load_imm_into_reg(&mut self, index: u8) {
         let value = self.memory.read(self.pc + 1);
         self.set_register(index, value);
@@ -825,15 +827,16 @@ impl Cpu {
     }
 
     fn rla(&mut self) {
-        let carry = self.cpu_flags.get_cf();
         let value = self.get_register(7);
+        let carry = self.cpu_flags.get_cf();
+        let will_carry = ((value >> 7) & 1) == 1;
         let result = (value << 1) | carry;
 
         self.set_register(7, result);
         self.cpu_flags.set_zf(false);
         self.cpu_flags.set_nf(false);
         self.cpu_flags.set_hf(false);
-        self.cpu_flags.set_cf(((result >> 7) & 1) == 1);
+        self.cpu_flags.set_cf(will_carry);
         self.instruction_finished(1, 4);
     }
 
@@ -880,7 +883,7 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    // Load a register pair into another.
+    // Load an 8-bit register into another.
     fn load_reg_into_reg(&mut self, target: u8, source: u8) {
         let value = self.get_register(source);
         self.set_register(target, value);
@@ -1004,7 +1007,7 @@ impl Cpu {
     }
 
     fn add_imm_to_sp(&mut self) {
-        let value = self.memory.read(self.pc + 1) as i8;
+        let value = self.memory.read(self.pc + 1) as i16;
         let result = self.get_rp(3).wrapping_add(value as u16);
 
         self.set_rp(3, result);
@@ -1026,7 +1029,7 @@ impl Cpu {
     }
 
     fn load_sp_imm_to_hl(&mut self) {
-        let imm = self.memory.read(self.pc + 1) as i8;
+        let imm = self.memory.read(self.pc + 1) as i16;
         let sp_result = self.get_rp(3).wrapping_add(imm as u16);
         let result = self.get_rp(2).wrapping_add(sp_result);
 
@@ -1112,8 +1115,8 @@ impl Cpu {
 
     // Load value from address at immediate value into A.
     fn load_a_from_imm(&mut self) {
-        let address = 0xFF00 + self.memory.read(self.pc + 1) as u16;
-        let value = self.memory.read(address);
+        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
+        let value = self.memory.read(LittleEndian::read_u16(&bytes));
 
         self.set_register(7, value);
         self.instruction_finished(3, 16);
