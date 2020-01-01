@@ -52,7 +52,7 @@ impl TimerModule {
                     let modulo_value = self.shared_memory.read(0xFF06);
 
                     self.shared_memory.write(0xFF05, modulo_value, false);
-                    self.shared_memory.write(0xFF06, if_value, false);
+                    self.shared_memory.write(0xFF0F, if_value, false);
                 }
                 else {
                     self.shared_memory.write(0xFF05, result.0, false);
