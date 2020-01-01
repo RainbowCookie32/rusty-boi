@@ -1020,7 +1020,7 @@ impl Cpu {
     }
 
     fn add_imm_to_sp(&mut self) {
-        let value = self.memory.read(self.pc + 1) as i16;
+        let value = self.memory.read(self.pc + 1) as i8;
         let result = self.get_rp(3).wrapping_add(value as u16);
 
         self.set_rp(3, result);
@@ -1042,9 +1042,8 @@ impl Cpu {
     }
 
     fn load_sp_imm_to_hl(&mut self) {
-        let imm = self.memory.read(self.pc + 1) as i16;
-        let sp_result = self.get_rp(3).wrapping_add(imm as u16);
-        let result = self.get_rp(2).wrapping_add(sp_result);
+        let imm = self.memory.read(self.pc + 1) as i8;
+        let result = self.get_rp(3).wrapping_add(imm as u16);
 
         self.set_rp(2, result);
         self.cpu_flags.set_zf(false);
