@@ -700,11 +700,12 @@ impl Cpu {
     fn add_rp_to_hl(&mut self, index: u8) {
         let hl = self.get_rp(2) as u32;
         let value = self.get_rp(index) as u32;
+        let hf = ((hl & 0xFFF) + (value & 0xFFF)) > 0xFFF;
         let result = hl + value;
 
         self.set_rp(2, result as u16);
         self.cpu_flags.set_nf(false);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf(hf);
         self.cpu_flags.set_cf((result & 0x10000) != 0);
         self.instruction_finished(1, 8);
     }
@@ -779,7 +780,7 @@ impl Cpu {
         self.set_register(index, result);
         self.cpu_flags.set_zf(result == 0);
         self.cpu_flags.set_nf(false);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf((result & 0x0F) == 0);
         self.instruction_finished(1, if index == 6 {12} else {4});
     }
 
@@ -789,7 +790,7 @@ impl Cpu {
         self.set_register(index, result);
         self.cpu_flags.set_zf(result == 0);
         self.cpu_flags.set_nf(true);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf((result & 0x0F) == 0x0F);
         self.instruction_finished(1, if index == 6 {12} else {4});
     }
 
@@ -847,7 +848,7 @@ impl Cpu {
         let result = (value >> 1) | (carry << 7);
 
         self.set_register(7, result);
-        self.cpu_flags.set_zf(result == 0);
+        self.cpu_flags.set_zf(false);
         self.cpu_flags.set_nf(false);
         self.cpu_flags.set_hf(false);
         self.cpu_flags.set_cf(will_carry);
@@ -896,45 +897,49 @@ impl Cpu {
     }
 
     fn add(&mut self, index: u8) {
+        let hf = (((self.get_register(7) & 0xF) + (self.get_register(index) & 0xF)) & 0x10) == 0x10;
         let result = self.get_register(7) as u16 + self.get_register(index) as u16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
         self.cpu_flags.set_nf(false);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf(hf);
         self.cpu_flags.set_cf(result > 0xFF);
         self.instruction_finished(1, if index == 6 {8} else {4});
     }
 
     fn adc(&mut self, index: u8) {
+        let hf = (((self.get_register(7) & 0xF) + (self.get_register(index) & 0xF) + (self.cpu_flags.get_cf())) & 0x10) == 0x10;
         let result = self.get_register(7) as u16 + self.get_register(index) as u16 + self.cpu_flags.get_cf() as u16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
         self.cpu_flags.set_nf(false);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf(hf);
         self.cpu_flags.set_cf(result > 0xFF);
         self.instruction_finished(1, if index == 6 {8} else {4});
     }
 
     fn sub(&mut self, index: u8) {
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.get_register(index) as i16 & 0xF)) < 0;
         let result = self.get_register(7) as i16 - self.get_register(index) as i16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
         self.cpu_flags.set_nf(true);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf(hf);
         self.cpu_flags.set_cf(result < 0);
         self.instruction_finished(1, if index == 6 {8} else {4});
     }
 
     fn sbc(&mut self, index: u8) {
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.get_register(index) as i16 & 0xF) - self.cpu_flags.get_cf() as i16) < 0;
         let result = self.get_register(7) as i16 - self.get_register(index) as i16 - self.cpu_flags.get_cf() as i16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
         self.cpu_flags.set_nf(true);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf(hf);
         self.cpu_flags.set_cf(result < 0);
         self.instruction_finished(1, if index == 6 {8} else {4});
     }
@@ -973,10 +978,12 @@ impl Cpu {
     }
 
     fn cp(&mut self, index: u8) {
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.get_register(index) as i16 & 0xF)) < 0;
         let values = (self.get_register(7), self.get_register(index));
+
         self.cpu_flags.set_zf(values.0 == values.1);
         self.cpu_flags.set_nf(true);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf(hf);
         self.cpu_flags.set_cf(values.0 < values.1);
         self.instruction_finished(1, if index == 6 {8} else {4});
     }
@@ -1174,45 +1181,49 @@ impl Cpu {
     }
 
     fn add_imm(&mut self) {
+        let hf = (((self.get_register(7) & 0xF) + (self.memory.read(self.pc + 1) & 0xF)) & 0x10) == 0x10;
         let result = self.get_register(7) as u16 + self.memory.read(self.pc + 1) as u16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
         self.cpu_flags.set_nf(false);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf(hf);
         self.cpu_flags.set_cf(result > 0xFF);
         self.instruction_finished(2, 8);
     }
 
     fn adc_imm(&mut self) {
+        let hf = (((self.get_register(7) & 0xF) + (self.memory.read(self.pc + 1) & 0xF) + (self.cpu_flags.get_cf())) & 0x10) == 0x10;
         let result = self.get_register(7) as u16 + self.memory.read(self.pc + 1) as u16 + self.cpu_flags.get_cf() as u16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
         self.cpu_flags.set_nf(false);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf(hf);
         self.cpu_flags.set_cf(result > 0xFF);
         self.instruction_finished(2, 8);
     }
 
     fn sub_imm(&mut self) {
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.memory.read(self.pc + 1) as i16 & 0xF)) < 0;
         let result = self.get_register(7) as i16 - self.memory.read(self.pc + 1) as i16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
         self.cpu_flags.set_nf(true);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf(hf);
         self.cpu_flags.set_cf(result < 0);
         self.instruction_finished(2, 8);
     }
 
     fn sbc_imm(&mut self) {
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.memory.read(self.pc + 1) as i16 & 0xF) - self.cpu_flags.get_cf() as i16) < 0;
         let result = self.get_register(7) as i16 - self.memory.read(self.pc + 1) as i16 - self.cpu_flags.get_cf() as i16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
         self.cpu_flags.set_nf(true);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf(hf);
         self.cpu_flags.set_cf(result < 0);
         self.instruction_finished(2, 8);
     }
@@ -1251,10 +1262,12 @@ impl Cpu {
     }
 
     fn cp_imm(&mut self) {
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.memory.read(self.pc + 1) as i16 & 0xF)) < 0;
         let values = (self.get_register(7), self.memory.read(self.pc + 1));
+
         self.cpu_flags.set_zf(values.0 == values.1);
         self.cpu_flags.set_nf(true);
-        self.cpu_flags.set_hf(false);
+        self.cpu_flags.set_hf(hf);
         self.cpu_flags.set_cf(values.0 < values.1);
         self.instruction_finished(2, 8);
     }
