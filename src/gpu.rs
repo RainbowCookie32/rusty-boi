@@ -87,7 +87,7 @@ pub struct Gpu {
     pub frames: u16,
     pub total_cycles: Arc<AtomicU16>,
 
-    pub shared_memory: Arc<Memory>,
+    pub memory: Arc<Memory>,
 
     pub event_pump: sdl2::EventPump,
     pub input_tx: Sender<InputEvent>,
@@ -151,7 +151,7 @@ impl Gpu {
             frames: 0,
             total_cycles: cycles,
 
-            shared_memory: mem,
+            memory: mem,
             
             event_pump: sdl_ctx.event_pump().unwrap(),
             input_tx: tx,
@@ -171,9 +171,9 @@ impl Gpu {
 
             if self.lcd_enabled {
 
-                self.tile_palette = self.make_palette(self.shared_memory.read(0xFF47));
-                self.sprites_palettes[0] = self.make_palette(self.shared_memory.read(0xFF48));
-                self.sprites_palettes[1] = self.make_palette(self.shared_memory.read(0xFF49));
+                self.tile_palette = self.make_palette(self.memory.read(0xFF47));
+                self.sprites_palettes[0] = self.make_palette(self.memory.read(0xFF48));
+                self.sprites_palettes[1] = self.make_palette(self.memory.read(0xFF49));
 
                 if self.gpu_mode == 0 && self.gpu_cycles >= 204 {
                     self.hblank_mode();
@@ -188,17 +188,17 @@ impl Gpu {
                     self.lcd_transfer_mode();
                 }
 
-                let lyc_value = self.shared_memory.read(0xFF45);
+                let lyc_value = self.memory.read(0xFF45);
 
-                if lyc_value == self.line {
-                    let stat_value = self.shared_memory.read(0xFF41) | (1 << 2);
-                    let mut if_value = self.shared_memory.read(0xFF0F);
+                if lyc_value == self.memory.read(0xFF44) {
+                    let stat_value = self.memory.read(0xFF41) | 2;
+                    let mut if_value = self.memory.read(0xFF0F);
 
-                    self.shared_memory.write(0xFF41, stat_value, false);
+                    self.memory.write(0xFF41, stat_value, false);
 
-                    if ((if_value >> 6) & 1) == 1 {
+                    if ((stat_value >> 6) & 1) == 1 {
                         if_value |= 2;
-                        self.shared_memory.write(0xFF0F, if_value, false);
+                        self.memory.write(0xFF0F, if_value, false);
                     }
                 }
             }
@@ -214,8 +214,8 @@ impl Gpu {
 
     fn hblank_mode(&mut self) {
 
-        let stat_value = self.shared_memory.read(0xFF41);
-        self.shared_memory.write(0xFF41, stat_value & 0xFC, false);
+        let stat_value = self.memory.read(0xFF41);
+        self.memory.write(0xFF41, stat_value & 0xFC, false);
 
         if self.background_enabled {self.draw_background()}
         if self.sprites_enabled {self.draw_sprites()}
@@ -223,7 +223,7 @@ impl Gpu {
 
         self.gpu_cycles = 0;
         self.line += 1;
-        self.shared_memory.write(0xFF44, self.line, false);
+        self.memory.write(0xFF44, self.line, false);
 
         if self.line == 144 {
             self.gpu_mode = 1;
@@ -232,56 +232,56 @@ impl Gpu {
         }
 
         if ((stat_value >> 3) & 1) == 1 {
-            let if_value = self.shared_memory.read(0xFF0F);
-            self.shared_memory.write(0xFF0F, if_value | 2, false);
+            let if_value = self.memory.read(0xFF0F);
+            self.memory.write(0xFF0F, if_value | 2, false);
         }
     }
 
     fn vblank_mode(&mut self) {
-        let if_value = self.shared_memory.read(0xFF0F) | 1;
-        let stat_value = (self.shared_memory.read(0xFF41) & 0xFD) | 1;
+        let if_value = self.memory.read(0xFF0F) | 1;
+        let stat_value = (self.memory.read(0xFF41) & 0xFD) | 1;
 
         self.gpu_cycles = 0;
         self.line += 1;
 
-        self.shared_memory.write(0xFF41, stat_value, false);
-        self.shared_memory.write(0xFF44, self.line, false);
-        self.shared_memory.write(0xFF0F, if_value, false);
+        self.memory.write(0xFF41, stat_value, false);
+        self.memory.write(0xFF44, self.line, false);
+        self.memory.write(0xFF0F, if_value, false);
 
         if self.line == 154 {
             self.gpu_mode = 2;
             self.line = 0;
 
             self.game_canvas.clear();
-            self.shared_memory.write(0xFF44, 1, false);
+            self.memory.write(0xFF44, 1, false);
         }
     }
 
     fn oam_scan_mode(&mut self) {
         
-        let stat_value = self.shared_memory.read(0xFF41);
+        let stat_value = self.memory.read(0xFF41);
 
         self.gpu_cycles = 0;
         self.gpu_mode = 3;
 
-        self.shared_memory.write(0xFF41, (stat_value | 2) & 0xFE, false);
+        self.memory.write(0xFF41, (stat_value | 2) & 0xFE, false);
 
         if self.sprites_dirty_flags > 0 {
             self.make_sprites();
             self.sprites_dirty_flags -= 1;
-            self.shared_memory.sprites_dirty_flags.fetch_sub(1, Ordering::Relaxed);
+            self.memory.sprites_dirty_flags.fetch_sub(1, Ordering::Relaxed);
         }
 
         if ((stat_value >> 5) & 1) == 1 {
-            let if_value = self.shared_memory.read(0xFF0F) | 1;
-            self.shared_memory.write(0xFF0F, if_value, false);
+            let if_value = self.memory.read(0xFF0F) | 2;
+            self.memory.write(0xFF0F, if_value, false);
         }
     }
 
     fn lcd_transfer_mode(&mut self) {
-        let stat_value = self.shared_memory.read(0xFF41) | 3;
+        let stat_value = self.memory.read(0xFF41) | 3;
 
-        self.shared_memory.write(0xFF41, stat_value, false);
+        self.memory.write(0xFF41, stat_value, false);
         
         self.gpu_cycles = 0;
         self.gpu_mode = 0;
@@ -290,14 +290,14 @@ impl Gpu {
             self.make_tiles(0);
             self.make_tiles(1);
             self.tiles_dirty_flags -= 1;
-            self.shared_memory.tiles_dirty_flags.fetch_sub(1, Ordering::Relaxed);
+            self.memory.tiles_dirty_flags.fetch_sub(1, Ordering::Relaxed);
         }
 
         if self.background_dirty_flags > 0 {
             self.make_background();
             self.make_window();
             self.background_dirty_flags -= 1;
-            self.shared_memory.background_dirty_flags.fetch_sub(1, Ordering::Relaxed);
+            self.memory.background_dirty_flags.fetch_sub(1, Ordering::Relaxed);
         }
     }
 
@@ -366,7 +366,7 @@ impl Gpu {
 
             while loaded_bytes < 16 {
 
-                tile_bytes[loaded_bytes] = self.shared_memory.read(memory_position);
+                tile_bytes[loaded_bytes] = self.memory.read(memory_position);
                 memory_position += 1;
                 loaded_bytes += 1;
             }
@@ -418,7 +418,7 @@ impl Gpu {
             let mut loaded_bytes: usize = 0;
     
             while loaded_bytes < 4 {
-                sprite_bytes[loaded_bytes] = self.shared_memory.read(current_address);
+                sprite_bytes[loaded_bytes] = self.memory.read(current_address);
                 current_address += 1;
                 loaded_bytes += 1;
             }
@@ -530,7 +530,7 @@ impl Gpu {
         let mut generated_lines: u16 = 0;
         let mut current_address = self.window_tilemap.0;
     
-        let lcdc_value =  ((self.shared_memory.read(0xFF40) >> 4) & 1) == 1;
+        let lcdc_value =  ((self.memory.read(0xFF40) >> 4) & 1) == 1;
         let tile_bank = if lcdc_value {&self.tile_bank0} else {&self.tile_bank1};
     
         let mut window_index: usize = 0;
@@ -544,7 +544,7 @@ impl Gpu {
             // 32 tiles is the maximum amount of tiles per line.
             while tile_idx < 32 {
     
-                let tile_id = self.shared_memory.read(current_address);
+                let tile_id = self.memory.read(current_address);
                 if lcdc_value {
                     let target_tile = tile_id;
                     tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
@@ -578,9 +578,9 @@ impl Gpu {
     fn make_background(&mut self) {
         let mut generated_lines: u16 = 0;
         
-        let mut current_background = if ((self.shared_memory.read(0xFF40) >> 3) & 1) == 1 {0x9C00} else {0x9800};
+        let mut current_background = if ((self.memory.read(0xFF40) >> 3) & 1) == 1 {0x9C00} else {0x9800};
     
-        let lcdc_value =  ((self.shared_memory.read(0xFF40) >> 4) & 1) == 1;
+        let lcdc_value =  ((self.memory.read(0xFF40) >> 4) & 1) == 1;
         let tile_bank = if lcdc_value {&self.tile_bank0} else {&self.tile_bank1};
     
         let mut background_idx: usize = 0;
@@ -594,7 +594,7 @@ impl Gpu {
             // 32 tiles is the maximum amount of tiles per line in the background.
             while tile_idx < 32 {
     
-                let bg_value = self.shared_memory.read(current_background);
+                let bg_value = self.memory.read(current_background);
                 if lcdc_value {
                     let target_tile = bg_value;
                     tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
@@ -698,7 +698,7 @@ impl Gpu {
     }
 
     fn update_gpu_values(&mut self) {
-        let lcdc_value = self.shared_memory.read(0xFF40);
+        let lcdc_value = self.memory.read(0xFF40);
 
         self.lcd_enabled = ((lcdc_value >> 7) & 1) == 1;
 
@@ -713,15 +713,15 @@ impl Gpu {
 
         self.background_enabled = (lcdc_value & 1) == 1;
 
-        self.scroll_y = self.shared_memory.read(0xFF42);
-        self.scroll_x = self.shared_memory.read(0xFF43);
+        self.scroll_y = self.memory.read(0xFF42);
+        self.scroll_x = self.memory.read(0xFF43);
         
-        self.window_y = self.shared_memory.read(0xFF4A);
-        self.window_x = self.shared_memory.read(0xFF4B);
+        self.window_y = self.memory.read(0xFF4A);
+        self.window_x = self.memory.read(0xFF4B);
 
-        self.tiles_dirty_flags = self.shared_memory.tiles_dirty_flags.load(Ordering::Relaxed);
-        self.sprites_dirty_flags = self.shared_memory.sprites_dirty_flags.load(Ordering::Relaxed);
-        self.background_dirty_flags = self.shared_memory.background_dirty_flags.load(Ordering::Relaxed);
+        self.tiles_dirty_flags = self.memory.tiles_dirty_flags.load(Ordering::Relaxed);
+        self.sprites_dirty_flags = self.memory.sprites_dirty_flags.load(Ordering::Relaxed);
+        self.background_dirty_flags = self.memory.background_dirty_flags.load(Ordering::Relaxed);
         self.gpu_cycles = self.total_cycles.load(Ordering::Relaxed);
     }
 
