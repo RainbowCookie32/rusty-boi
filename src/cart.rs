@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::Read;
 use std::io::Write;
 use std::iter::FromIterator;
+use std::sync::atomic::{AtomicU8, AtomicBool, Ordering};
 
 #[derive(Debug)]
 pub enum CartType {
@@ -25,19 +26,19 @@ pub enum CartType {
 
 pub struct CartData {
     
-    rom_banks: Vec<Vec<u8>>,
-    ram_banks: Vec<Vec<u8>>,
+    rom_banks: Vec<Vec<AtomicU8>>,
+    ram_banks: Vec<Vec<AtomicU8>>,
 
     rom_title: String,
     
     has_ram: bool,
     has_battery: bool,
-    ram_enabled: bool,
+    ram_enabled: AtomicBool,
 
-    selected_rom_bank: u8,
-    selected_ram_bank: u8,
+    selected_rom_bank: AtomicU8,
+    selected_ram_bank: AtomicU8,
 
-    rom_banking_mode: bool,
+    rom_banking_mode: AtomicBool,
 
     mbc: CartType,
 }
@@ -87,7 +88,7 @@ impl CartData {
         };
 
         let ram_path = path::PathBuf::from(format!("saved_ram/{}.rr", title.to_lowercase()));
-        let mut ram_banks: Vec<Vec<u8>> = vec![vec![0; 8192]; ram_size];
+        let mut ram_banks: Vec<Vec<AtomicU8>> = Vec::with_capacity(rom_size);
 
         if ram_path.exists() && ram_size > 0 {
 
@@ -100,18 +101,30 @@ impl CartData {
 
             while loaded_banks < ram_size {
                 let bank = Vec::from_iter(ram_contents[8192 * loaded_banks..(8192 * loaded_banks) + 8192].iter().cloned());
-                ram_banks[loaded_banks] = bank;
+                let mut atomic_bank: Vec<AtomicU8> = Vec::with_capacity(8192);
+                let mut index: usize = 0;
+                for item in bank.iter() {
+                    atomic_bank.insert(index, AtomicU8::from(*item));
+                    index += 1;
+                }
+                ram_banks.insert(loaded_banks, atomic_bank);
                 loaded_banks += 1;
             }
         }
 
         let mut loaded_banks = 0;
-        let mut rom_banks: Vec<Vec<u8>> = vec![Vec::new(); rom_size];
+        let mut rom_banks: Vec<Vec<AtomicU8>> = Vec::with_capacity(rom_size);
 
         while loaded_banks < rom_size {
 
             let bank = Vec::from_iter(data[16384 * loaded_banks..(16384 * loaded_banks) + 16384].iter().cloned());
-            rom_banks[loaded_banks] = bank;
+            let mut atomic_bank: Vec<AtomicU8> = Vec::with_capacity(16384);
+            let mut index: usize = 0;
+            for item in bank.iter() {
+                atomic_bank.insert(index, AtomicU8::from(*item));
+                index += 1;
+            }
+            rom_banks.insert(loaded_banks, atomic_bank);
             loaded_banks += 1;
         }
 
@@ -124,10 +137,10 @@ impl CartData {
             rom_title: title.to_lowercase(),
             has_ram: ram_size > 0,
             has_battery: battery,
-            ram_enabled: false,
-            selected_rom_bank: 1,
-            selected_ram_bank: 0,
-            rom_banking_mode: true,
+            ram_enabled: AtomicBool::from(false),
+            selected_rom_bank: AtomicU8::from(1),
+            selected_ram_bank: AtomicU8::from(0),
+            rom_banking_mode: AtomicBool::from(true),
             mbc: cart_type,
         }
     }
@@ -135,12 +148,12 @@ impl CartData {
     pub fn read(&self, address: u16) -> u8 {
 
         if address <= 0x3FFF {
-            self.rom_banks[0][address as usize]
+            self.rom_banks[0][address as usize].load(Ordering::Relaxed)
         }
         else if address >= 0x4000 && address <= 0x7FFF {
-            let result = self.rom_banks.get(self.selected_rom_bank as usize);
+            let result = self.rom_banks.get(self.selected_rom_bank.load(Ordering::Relaxed) as usize);
             match result {
-                Some(value) => value[(address - 0x4000) as usize],
+                Some(value) => value[(address - 0x4000) as usize].load(Ordering::Relaxed),
                 None => {
                     warn!("Memory: ROM Bank selection was out of bounds, returning 0");
                     0
@@ -148,10 +161,10 @@ impl CartData {
             }
         }
         else if address >= 0xA000 && address <= 0xBFFF {
-            if self.ram_enabled {
-                let result = self.ram_banks.get(self.selected_ram_bank as usize);
+            if self.ram_enabled.load(Ordering::Relaxed) {
+                let result = self.ram_banks.get(self.selected_ram_bank.load(Ordering::Relaxed) as usize);
                 match result {
-                    Some(value) => value[(address - 0xA000) as usize],
+                    Some(value) => value[(address - 0xA000) as usize].load(Ordering::Relaxed),
                     None => {
                         warn!("Memory: RAM Bank selection was out of bounds, returning 0");
                         0
@@ -167,7 +180,7 @@ impl CartData {
         }
     }
 
-    pub fn write(&mut self, address: u16, value: u8) {
+    pub fn write(&self, address: u16, value: u8) {
         
         match self.mbc {
             CartType::None => warn!("Memory: Attempting write to cart without a MBC, ignoring."),
@@ -179,25 +192,25 @@ impl CartData {
         }
     }
 
-    fn mbc1_write(&mut self, address: u16, value: u8) {
+    fn mbc1_write(&self, address: u16, value: u8) {
 
         if address <= 0x1FFF {
-            self.ram_enabled = (value & 0x0A) == 0x0A;
+            self.ram_enabled.store((value & 0x0A) == 0x0A, Ordering::Relaxed);
         }
         else if address >= 0x2000 && address <= 0x3FFF {
-            if value == 0x0 {self.selected_rom_bank = 0x01}
-            else if value == 0x20 {self.selected_rom_bank = 0x21}
-            else if value == 0x40 {self.selected_rom_bank = 0x41}
-            else if value == 0x60 {self.selected_rom_bank = 0x61}
-            else {self.selected_rom_bank = value}
+            if value == 0x0 {self.selected_rom_bank.store(0x01, Ordering::Relaxed)}
+            else if value == 0x20 {self.selected_rom_bank.store(0x21, Ordering::Relaxed)}
+            else if value == 0x40 {self.selected_rom_bank.store(0x41, Ordering::Relaxed)}
+            else if value == 0x60 {self.selected_rom_bank.store(0x61, Ordering::Relaxed)}
+            else {self.selected_rom_bank.store(value, Ordering::Relaxed)}
         }
         else if address >= 0xA000 && address <= 0xBFFF {
             
-            if self.ram_enabled && self.has_ram {
-                let result = self.ram_banks.get_mut(self.selected_ram_bank as usize);
+            if self.ram_enabled.load(Ordering::Relaxed) && self.has_ram {
+                let result = self.ram_banks.get(self.selected_ram_bank.load(Ordering::Relaxed) as usize);
                 match result {
                     Some(bank) => {
-                        bank[(address - 0xA000) as usize] = value;
+                        bank[(address - 0xA000) as usize].store(value, Ordering::Relaxed);
                         if self.has_battery{self.save_cart_ram()}
                     }
                     None => warn!("Memory: Selected RAM Bank is out of bounds, ignoring write"),
@@ -206,30 +219,30 @@ impl CartData {
         }
         else if address >= 0x4000 && address <= 0x5FFF {
 
-            if self.rom_banking_mode {
-                self.selected_rom_bank = value;
+            if self.rom_banking_mode.load(Ordering::Relaxed) {
+                self.selected_rom_bank.store(value, Ordering::Relaxed);
             }
             else {
-                self.selected_ram_bank = value;
+                self.selected_ram_bank.store(value, Ordering::Relaxed);
             }
         }
         else if address >= 0x6000 && address <= 0x7FFF {
 
-            self.rom_banking_mode = value == 0x1;
+            self.rom_banking_mode.store(value == 0x1, Ordering::Relaxed);
         }
     }
     
-    fn mbc2_write(&mut self, address: u16, value: u8) {
+    fn mbc2_write(&self, address: u16, value: u8) {
 
         if address < 0x1FFF {
-            self.ram_enabled = value == 0x1;
+            self.ram_enabled.store(value == 0x1, Ordering::Relaxed);
         }
         else if address >= 0x2000 && address <= 0x3FFF {
-            if value == 0x0 {self.selected_rom_bank = 0x01}
-            else if value == 0x20 {self.selected_rom_bank = 0x21}
-            else if value == 0x40 {self.selected_rom_bank = 0x41}
-            else if value == 0x60 {self.selected_rom_bank = 0x61}
-            else {self.selected_rom_bank = value}
+            if value == 0x0 {self.selected_rom_bank.store(0x01, Ordering::Relaxed)}
+            else if value == 0x20 {self.selected_rom_bank.store(0x21, Ordering::Relaxed)}
+            else if value == 0x40 {self.selected_rom_bank.store(0x41, Ordering::Relaxed)}
+            else if value == 0x60 {self.selected_rom_bank.store(0x61, Ordering::Relaxed)}
+            else {self.selected_rom_bank.store(value, Ordering::Relaxed)}
         }
         else if address >= 0xA000 && address <= 0xA1FF {
             // TODO: Implement MBC2 RAM.
@@ -237,26 +250,26 @@ impl CartData {
         }
     }
 
-    fn mbc3_write(&mut self, address: u16, value: u8) {
+    fn mbc3_write(&self, address: u16, value: u8) {
 
         if address < 0x1FFF {
             // TODO: Also enables R/W to RTC registers.
-            self.ram_enabled = (value & 0x0A) == 0x0A;
+            self.ram_enabled.store((value & 0x0A) == 0x0A, Ordering::Relaxed);
         }
         else if address >= 0x2000 && address <= 0x3FFF {
-            if value == 0x0 {self.selected_rom_bank = 0x1}
-            else {self.selected_rom_bank = value}
+            if value == 0x0 {self.selected_rom_bank.store(0x1, Ordering::Relaxed)}
+            else {self.selected_rom_bank.store(value, Ordering::Relaxed)}
         }
         else if address >= 0x4000 && address <= 0x5FFF {
             // TODO: Can be either RAM bank, or RTC register selection
-            self.selected_ram_bank = value;
+            self.selected_ram_bank.store(value, Ordering::Relaxed);
         }
         else if address >= 0xA000 && address <= 0xBFFF {
-            if self.ram_enabled && self.has_ram {
-                let result = self.ram_banks.get_mut(self.selected_ram_bank as usize);
+            if self.ram_enabled.load(Ordering::Relaxed) && self.has_ram {
+                let result = self.ram_banks.get(self.selected_ram_bank.load(Ordering::Relaxed) as usize);
                 match result {
                     Some(bank) => {
-                        bank[(address - 0xA000) as usize] = value;
+                        bank[(address - 0xA000) as usize].store(value, Ordering::Relaxed);
                         if self.has_battery{self.save_cart_ram()}
                     }
                     None => warn!("Memory: Selected RAM Bank is out of bounds, ignoring write"),
@@ -265,13 +278,16 @@ impl CartData {
         }
     }
 
-    fn save_cart_ram(&mut self) {
+    fn save_cart_ram(&self) {
         let path = format!("saved_ram/{}.rr", self.rom_title);
         let mut ram: Vec<u8> = Vec::new();
+        let mut index: usize = 0;
 
-        for bank in self.ram_banks.iter_mut() {
-            let mut cloned_bank = bank.clone();
-            ram.append(&mut cloned_bank);
+        for bank in self.ram_banks.iter() {
+            for item in bank.iter() {
+                ram.insert(index, item.load(Ordering::Relaxed));
+                index += 1;
+            }
         }
         match fs::create_dir("saved_ram") {
             Ok(_) => {},

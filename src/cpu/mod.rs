@@ -7,7 +7,7 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use super::timer::TimerModule;
 use super::emulator::InputEvent;
-use super::memory::{CpuMemory, SharedMemory};
+use super::memory::Memory;
 
 const ZF_BIT: u8 = 7;
 const NF_BIT: u8 = 6;
@@ -141,14 +141,13 @@ pub struct Cpu {
 
     pub timer: TimerModule,
 
-    pub memory: CpuMemory,
-    pub shared_memory: Arc<SharedMemory>,
+    pub memory: Arc<Memory>,
 
     pub input_receiver: Receiver<InputEvent>,
 }
 
 impl Cpu {
-    pub fn new(cpu_mem: CpuMemory, shared: Arc<SharedMemory>, cycles: Arc<AtomicU16>, input: Receiver<InputEvent>, run_bootrom: bool) -> Cpu {
+    pub fn new(memory: Arc<Memory>, cycles: Arc<AtomicU16>, input: Receiver<InputEvent>, run_bootrom: bool) -> Cpu {
         
         let timer_cycles = Arc::clone(&cycles);
         
@@ -164,11 +163,9 @@ impl Cpu {
             stopped: false,
             interrupts_enabled: false,
 
-            timer: TimerModule::new(timer_cycles, Arc::clone(&shared)),
+            timer: TimerModule::new(timer_cycles, Arc::clone(&memory)),
 
-            memory: cpu_mem,
-            shared_memory: shared,
-
+            memory: memory,
             input_receiver: input,
         }
     }
@@ -270,7 +267,7 @@ impl Cpu {
     pub fn set_register(&mut self, index: u8, value: u8) {
         if index == 6 {
             let address = self.get_rp(2);
-            self.memory.write(address, value);
+            self.memory.write(address, value, true);
             return;
         }
 
@@ -290,8 +287,8 @@ impl Cpu {
         let low = value as u8;
         let sp = self.get_rp(3);
 
-        self.memory.write(sp - 1, hi);
-        self.memory.write(sp - 2, low);
+        self.memory.write(sp - 1, hi, true);
+        self.memory.write(sp - 2, low, true);
         self.set_rp(3, sp - 2);
     }
 
@@ -325,10 +322,11 @@ impl Cpu {
             return true;
         }
 
-        let mut input_value = self.memory.read(0xFF00) | 0xCF;
+        let mut input_value = self.memory.read(0xFF00);
 
-        if event_happened {
+        if event_happened && (input_value == 0x30 || input_value == 0x20 || input_value == 0x10) {
 
+            input_value |= 0xCF;
             let if_value = self.memory.read(0xFF0F) | (1 << 4);
 
             if input_value == 0xFF {
@@ -363,10 +361,10 @@ impl Cpu {
                 }
     
             }
-            self.memory.write(0xFF0F, if_value);
+            self.memory.write(0xFF0F, if_value, true);
         }
 
-        self.memory.write(0xFF00, input_value);
+        self.memory.write(0xFF00, input_value, true);
         false
     }
 
@@ -383,7 +381,7 @@ impl Cpu {
         // Vblank interrupt.
         if vblank_int {
             if self.interrupts_enabled && (ie_value & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1));
+                self.memory.write(0xFF0F, if_value & !(1), true);
                 self.stack_write(self.pc);
                 self.pc = 0x0040;
                 self.interrupts_enabled = false;
@@ -393,7 +391,7 @@ impl Cpu {
         // LCDC interrupt.
         else if lcdc_int {
             if self.interrupts_enabled && ((ie_value >> 1) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 1));
+                self.memory.write(0xFF0F, if_value & !(1 << 1), true);
                 self.stack_write(self.pc);
                 self.pc = 0x0048;
                 self.interrupts_enabled = false;
@@ -404,7 +402,7 @@ impl Cpu {
         // Timer interrupt.
         else if timer_int {
             if self.interrupts_enabled && ((ie_value >> 2) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 2));
+                self.memory.write(0xFF0F, if_value & !(1 << 2), true);
                 self.stack_write(self.pc);
                 self.pc = 0x0050;
                 self.interrupts_enabled = false;
@@ -414,7 +412,7 @@ impl Cpu {
         // Serial transfer interrupt.
         else if serial_int {
             if self.interrupts_enabled && ((ie_value >> 3) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 3));
+                self.memory.write(0xFF0F, if_value & !(1 << 3), true);
                 self.stack_write(self.pc);
                 self.pc = 0x0058;
                 self.interrupts_enabled = false;
@@ -424,7 +422,7 @@ impl Cpu {
         // Input interrupt.
         else if input_int {
             if self.interrupts_enabled && ((ie_value >> 4) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 4));
+                self.memory.write(0xFF0F, if_value & !(1 << 4), true);
                 self.stack_write(self.pc);
                 self.pc = 0x0060;
                 self.interrupts_enabled = false;
@@ -662,8 +660,8 @@ impl Cpu {
         let low = value as u8;
         let address = LittleEndian::read_u16(&bytes);
 
-        self.memory.write(address, low);
-        self.memory.write(address + 1, hi);
+        self.memory.write(address, low, true);
+        self.memory.write(address + 1, hi, true);
         self.instruction_finished(3, 20);
     }
 
@@ -746,7 +744,7 @@ impl Cpu {
         let address = self.get_rp(index);
         let value = self.get_register(7);
 
-        self.memory.write(address, value);
+        self.memory.write(address, value, true);
         self.instruction_finished(1, 8);
     }
 
@@ -754,7 +752,7 @@ impl Cpu {
         let address = self.get_rp(2);
         let value = self.get_register(7);
 
-        self.memory.write(address, value);
+        self.memory.write(address, value, true);
         self.set_rp(2, address.wrapping_add(1));
         self.instruction_finished(1, 8);
     }
@@ -763,7 +761,7 @@ impl Cpu {
         let address = self.get_rp(2);
         let value = self.get_register(7);
 
-        self.memory.write(address, value);
+        self.memory.write(address, value, true);
         self.set_rp(2, address.wrapping_sub(1));
         self.instruction_finished(1, 8);
     }
@@ -1015,7 +1013,7 @@ impl Cpu {
         let address = 0xFF00 + self.memory.read(self.pc + 1) as u16;
         let value = self.get_register(7);
 
-        self.memory.write(address, value);
+        self.memory.write(address, value, true);
         self.instruction_finished(2, 12);
     }
 
@@ -1103,7 +1101,7 @@ impl Cpu {
         let address = 0xFF00 + self.get_register(1) as u16;
         let value = self.get_register(7);
 
-        self.memory.write(address, value);
+        self.memory.write(address, value, true);
         self.instruction_finished(1, 8);
     }
 
@@ -1112,7 +1110,7 @@ impl Cpu {
         let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
         let value = self.get_register(7);
 
-        self.memory.write(LittleEndian::read_u16(&bytes), value);
+        self.memory.write(LittleEndian::read_u16(&bytes), value, true);
         self.instruction_finished(3, 16);
     }
 

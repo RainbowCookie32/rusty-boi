@@ -13,7 +13,7 @@ use log::error;
 use super::cpu::Cpu;
 use super::gpu::Gpu;
 use super::cart::CartData;
-use super::memory::{CpuMemory, SharedMemory};
+use super::memory::Memory;
 
 
 #[derive(PartialEq)]
@@ -38,30 +38,30 @@ pub fn initialize() {
     let cart_data = load_rom();
     let bootrom_data = load_bootrom();
     
-    let shared_memory = Arc::new(SharedMemory::new());
-    let cpu_memory = CpuMemory::new(bootrom_data.0, bootrom_data.1, cart_data, Arc::clone(&shared_memory));
-    
-    start_emulation(cpu_memory, shared_memory);
+    let memory = Arc::new(Memory::new(bootrom_data.0, bootrom_data.1, cart_data));
+    let arcs = (Arc::clone(&memory), memory);
+
+    start_emulation(arcs);
 }
 
-pub fn start_emulation(cpu_mem: CpuMemory, shared_mem: Arc<SharedMemory>) {
+pub fn start_emulation(memory: (Arc<Memory>, Arc<Memory>)) {
         
     let cpu_cycles = Arc::new(AtomicU16::new(0));
     let gpu_cycles = Arc::clone(&cpu_cycles);
 
-    let cpu_shared_memory = Arc::clone(&shared_mem);
-    let gpu_shared_memory = Arc::clone(&shared_mem);
+    let cpu_memory = memory.0;
+    let gpu_memory = memory.1;
     
     let (input_tx, input_rx) = mpsc::channel();
 
     let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        let bootrom = cpu_mem.is_bootrom_loaded();
-        let mut current_cpu = Cpu::new(cpu_mem, cpu_shared_memory, cpu_cycles, input_rx, bootrom);
+        let bootrom = cpu_memory.is_bootrom_loaded();
+        let mut current_cpu = Cpu::new(cpu_memory, cpu_cycles, input_rx, bootrom);
         current_cpu.execution_loop();
     }).unwrap();
 
     let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
-        let mut current_gpu = Gpu::new(gpu_cycles, gpu_shared_memory, input_tx);
+        let mut current_gpu = Gpu::new(gpu_cycles, gpu_memory, input_tx);
         current_gpu.execution_loop();
     }).unwrap();
 

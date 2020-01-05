@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
 
-use super::memory::SharedMemory;
+use super::memory::Memory;
 
 
 pub struct TimerModule {
@@ -10,11 +10,11 @@ pub struct TimerModule {
     cycles_needed: u16,
 
     total_cycles: Arc<AtomicU16>,
-    shared_memory: Arc<SharedMemory>,
+    shared_memory: Arc<Memory>,
 }
 
 impl TimerModule {
-    pub fn new(cycles: Arc<AtomicU16>, memory: Arc<SharedMemory>) -> TimerModule {
+    pub fn new(cycles: Arc<AtomicU16>, memory: Arc<Memory>) -> TimerModule {
         TimerModule {
             div_cycles: 0,
             timer_cycles: 0,

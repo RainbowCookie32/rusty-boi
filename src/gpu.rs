@@ -23,7 +23,7 @@ use sdl2::render::Canvas;
 use sdl2::render::Texture;
 use sdl2::render::TextureCreator;
 
-use super::memory::SharedMemory;
+use super::memory::Memory;
 use super::emulator::InputEvent;
 
 
@@ -79,8 +79,6 @@ pub struct Gpu {
 
     pub tile_palette: Vec<Color>,
     pub sprites_palettes: Vec<Vec<Color>>,
-    pub tile_palette_dirty: bool,
-    pub sprite_palettes_dirty: bool,
 
     pub tiles_dirty_flags: u8,
     pub sprites_dirty_flags: u8,
@@ -89,7 +87,7 @@ pub struct Gpu {
     pub frames: u16,
     pub total_cycles: Arc<AtomicU16>,
 
-    pub shared_memory: Arc<SharedMemory>,
+    pub shared_memory: Arc<Memory>,
 
     pub event_pump: sdl2::EventPump,
     pub input_tx: Sender<InputEvent>,
@@ -99,7 +97,7 @@ pub struct Gpu {
 }
 
 impl Gpu {
-    pub fn new(cycles: Arc<AtomicU16>, mem: Arc<SharedMemory>, tx: Sender<InputEvent>) -> Gpu {
+    pub fn new(cycles: Arc<AtomicU16>, mem: Arc<Memory>, tx: Sender<InputEvent>) -> Gpu {
 
         let sdl_ctx = sdl2::init().unwrap();
         let sdl_video = sdl_ctx.video().unwrap();
@@ -145,8 +143,6 @@ impl Gpu {
             Color::RGBA(0, 0, 0, 255)],
             sprites_palettes: vec![vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255), 
             Color::RGBA(0, 0, 0, 255)]; 2],
-            tile_palette_dirty: false,
-            sprite_palettes_dirty: false,
 
             tiles_dirty_flags: 0,
             sprites_dirty_flags: 0,
@@ -175,16 +171,9 @@ impl Gpu {
 
             if self.lcd_enabled {
 
-                if self.tile_palette_dirty {
-                    self.tile_palette = self.make_palette(self.shared_memory.read(0xFF47));
-                }
-                if self.sprite_palettes_dirty {
-                    self.sprites_palettes[0] = self.make_palette(self.shared_memory.read(0xFF48));
-                    self.sprites_palettes[1] = self.make_palette(self.shared_memory.read(0xFF49));
-
-                    self.sprites_dirty_flags = self.sprites_dirty_flags.wrapping_add(1);
-                    self.sprite_palettes_dirty = true;
-                }
+                self.tile_palette = self.make_palette(self.shared_memory.read(0xFF47));
+                self.sprites_palettes[0] = self.make_palette(self.shared_memory.read(0xFF48));
+                self.sprites_palettes[1] = self.make_palette(self.shared_memory.read(0xFF49));
 
                 if self.gpu_mode == 0 && self.gpu_cycles >= 204 {
                     self.hblank_mode();
@@ -255,9 +244,9 @@ impl Gpu {
         self.gpu_cycles = 0;
         self.line += 1;
 
-        self.shared_memory.write(0xFF0F, if_value, false);
         self.shared_memory.write(0xFF41, stat_value, false);
         self.shared_memory.write(0xFF44, self.line, false);
+        self.shared_memory.write(0xFF0F, if_value, false);
 
         if self.line == 154 {
             self.gpu_mode = 2;
@@ -733,12 +722,6 @@ impl Gpu {
         self.tiles_dirty_flags = self.shared_memory.tiles_dirty_flags.load(Ordering::Relaxed);
         self.sprites_dirty_flags = self.shared_memory.sprites_dirty_flags.load(Ordering::Relaxed);
         self.background_dirty_flags = self.shared_memory.background_dirty_flags.load(Ordering::Relaxed);
-        self.tile_palette_dirty = self.shared_memory.tile_palette_dirty.load(Ordering::Relaxed);
-        self.sprite_palettes_dirty = self.shared_memory.sprite_palettes_dirty.load(Ordering::Relaxed);
-
-        self.shared_memory.tile_palette_dirty.store(false, Ordering::Relaxed);
-        self.shared_memory.sprite_palettes_dirty.store(false, Ordering::Relaxed);
-
         self.gpu_cycles = self.total_cycles.load(Ordering::Relaxed);
     }
 
@@ -771,7 +754,7 @@ impl Gpu {
                     }
                 },
                 Event::KeyDown{keycode: Some(Keycode::Return), ..} => {
-                    let mut count = 5;
+                    let mut count = 15;
                     while count > 0 {
                         let result = self.input_tx.send(InputEvent::StartPressed);
                         match result {
