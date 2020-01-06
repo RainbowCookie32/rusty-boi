@@ -56,7 +56,7 @@ impl Memory {
     }
 
     pub fn read(&self, address: u16) -> u8 {
-        if address < 0x100 {
+        if address < 0x0100 {
             if self.using_bootrom.load(Ordering::Relaxed) {
                 self.bootrom[address as usize]
             }
@@ -116,6 +116,10 @@ impl Memory {
     }
 
     pub fn write(&self, address: u16, value: u8, cpu: bool) {
+
+        if address < 0x0100 && !self.using_bootrom.load(Ordering::Relaxed) {
+            self.loaded_cart.write(address, value);
+        }
 
         if address <= 0x7FFF {
             self.loaded_cart.write(address, value);
