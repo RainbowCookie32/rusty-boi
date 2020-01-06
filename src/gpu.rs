@@ -754,7 +754,7 @@ impl Gpu {
                     }
                 },
                 Event::KeyDown{keycode: Some(Keycode::Return), ..} => {
-                    let mut count = 15;
+                    let mut count = 5;
                     while count > 0 {
                         let result = self.input_tx.send(InputEvent::StartPressed);
                         match result {
