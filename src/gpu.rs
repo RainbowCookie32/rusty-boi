@@ -26,6 +26,21 @@ use sdl2::render::TextureCreator;
 use super::memory::Memory;
 use super::emulator::InputEvent;
 
+#[derive(Clone, Copy, PartialEq)]
+enum InterruptType {
+    Hblank = 3,
+    Vblank = 4,
+    Oam = 5,
+    Lyc = 6,
+}
+
+enum GpuMode {
+    Hblank = 0,
+    Vblank = 1,
+    Oam = 2,
+    Lcd = 3,
+}
+
 
 struct SpriteData {
     pub x: u8,
@@ -190,13 +205,8 @@ impl Gpu {
 
                 if lyc_value == self.memory.read(0xFF44) {
                     let stat_value = self.memory.read(0xFF41);
-                    let mut if_value = self.memory.read(0xFF0F);
-
-                    if ((stat_value >> 6) & 1) == 1 {
-                        if_value |= 2;
-                        self.memory.write(0xFF0F, if_value, false);
-                    }
                     self.memory.write(0xFF41, stat_value | 2, false);
+                    self.request_interrupt(InterruptType::Lyc);
                 }
             }
 
@@ -210,8 +220,8 @@ impl Gpu {
     }
 
     fn hblank_mode(&mut self) {
-        let stat_value = self.memory.read(0xFF41);
-        self.memory.write(0xFF41, stat_value & 0xFC, false);
+
+        self.set_gpu_mode(GpuMode::Hblank);
 
         if self.background_enabled {self.draw_background()}
         if self.sprites_enabled {self.draw_sprites()}
@@ -226,19 +236,15 @@ impl Gpu {
             self.frames += 1;
             self.game_canvas.present();
         }
-        if ((stat_value >> 3) & 1) == 1 {
-            let if_value = self.memory.read(0xFF0F);
-            self.memory.write(0xFF0F, if_value | 2, false);
-        }
+
+        self.request_interrupt(InterruptType::Hblank);
     }
 
     fn vblank_mode(&mut self) {
-        let if_value = self.memory.read(0xFF0F) | 1;
-        let stat_value = (self.memory.read(0xFF41) & 0xFD) | 1;
 
+        self.set_gpu_mode(GpuMode::Vblank);
         self.gpu_cycles = 0;
         self.line += 1;
-        self.memory.write(0xFF41, stat_value, false);
         self.memory.write(0xFF44, self.line, false);
 
         if self.line == 154 {
@@ -247,32 +253,27 @@ impl Gpu {
             self.game_canvas.clear();
             self.memory.write(0xFF44, 1, false);
         }
-        if ((stat_value >> 4) & 1) == 1 {
-            self.memory.write(0xFF0F, if_value | 2, false);
-        }
+        
+        self.request_interrupt(InterruptType::Vblank);
     }
 
     fn oam_scan_mode(&mut self) {
-        let stat_value = self.memory.read(0xFF41);
 
+        self.set_gpu_mode(GpuMode::Oam);
         self.gpu_cycles = 0;
         self.gpu_mode = 3;
-        self.memory.write(0xFF41, (stat_value | 2) & 0xFE, false);
 
         if self.sprites_dirty {
             self.make_sprites();
             self.sprites_dirty = false;
         }
-        if ((stat_value >> 5) & 1) == 1 {
-            let if_value = self.memory.read(0xFF0F) | 2;
-            self.memory.write(0xFF0F, if_value, false);
-        }
+        
+        self.request_interrupt(InterruptType::Oam);
     }
 
     fn lcd_transfer_mode(&mut self) {
-        let stat_value = self.memory.read(0xFF41) | 3;
 
-        self.memory.write(0xFF41, stat_value, false);
+        self.set_gpu_mode(GpuMode::Lcd);
         self.gpu_cycles = 0;
         self.gpu_mode = 0;
 
@@ -786,5 +787,48 @@ impl Gpu {
             }
         }
     
+    }
+
+    fn request_interrupt(&self, interrupt: InterruptType) {
+        let mut if_value = self.memory.read(0xFF0F);
+
+        if interrupt == InterruptType::Vblank {
+            if_value |= 1;
+        }
+
+        if self.is_interrupt_enabled(&interrupt) {
+            match interrupt {
+                InterruptType::Vblank => {
+                    if_value |= 3;
+                }
+                _ => {
+                    if_value |= 2;
+                }
+            }
+        }
+
+        self.memory.write(0xFF0F, if_value, false);
+    }
+
+    fn is_interrupt_enabled(&self, interrupt: &InterruptType) -> bool {
+        let bit = *interrupt as u8;
+        let stat = self.memory.read(0xFF41);
+
+        stat & (1 << bit) != 0
+    }
+
+    fn set_gpu_mode(&self, mode: GpuMode) {
+        let mut stat = self.memory.read(0xFF41);
+
+        match mode {
+            GpuMode::Hblank => {
+                stat &= 0xFC;
+            }
+            _ => {
+                stat |= mode as u8;
+            }
+        }
+
+        self.memory.write(0xFF41, stat, false);
     }
 }
