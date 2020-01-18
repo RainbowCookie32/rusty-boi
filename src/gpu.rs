@@ -27,7 +27,7 @@ use super::memory::Memory;
 use super::emulator::InputEvent;
 
 
-pub struct SpriteData {
+struct SpriteData {
     pub x: u8,
     pub y: u8,
     pub data: Texture,
@@ -49,51 +49,53 @@ impl SpriteData {
 
 pub struct Gpu {
 
-    pub gpu_mode: u8,
-    pub gpu_cycles: u16,
-    pub line: u8,
+    gpu_mode: u8,
+    gpu_cycles: u16,
+    line: u8,
 
-    pub lcd_enabled: bool,
+    lcd_enabled: bool,
 
-    pub scroll_x: u8,
-    pub scroll_y: u8,
+    scroll_x: u8,
+    scroll_y: u8,
 
-    pub background_tilemap: (u16, u16),
-    pub background_enabled: bool,
+    background_tilemap: (u16, u16),
+    background_enabled: bool,
     
-    pub window_tilemap: (u16, u16),
-    pub window_enabled: bool,
-    pub window_x: u8,
-    pub window_y: u8,
+    window_tilemap: (u16, u16),
+    window_enabled: bool,
+    window_x: u8,
+    window_y: u8,
 
-    pub tiles_area: (u16, u16),
+    tiles_area: (u16, u16),
 
-    pub big_sprites: bool,
-    pub sprites_enabled: bool,
+    big_sprites: bool,
+    sprites_enabled: bool,
 
-    pub sprites: Vec<SpriteData>,
-    pub tile_bank0: Vec<Vec<u8>>,
-    pub tile_bank1: Vec<Vec<u8>>,
-    pub background_points: Vec<u8>,
-    pub window_points: Vec<u8>,
+    sprites: Vec<SpriteData>,
+    tile_bank0: Vec<Vec<u8>>,
+    tile_bank1: Vec<Vec<u8>>,
+    background_points: Vec<u8>,
+    window_points: Vec<u8>,
 
-    pub tile_palette: Vec<Color>,
-    pub sprites_palettes: Vec<Vec<Color>>,
+    tile_palette: Vec<Color>,
+    sprites_palettes: Vec<Vec<Color>>,
 
-    pub tiles_dirty_flags: u8,
-    pub sprites_dirty_flags: u8,
-    pub background_dirty_flags: u8,
+    oam_hash: u64,
+    sprites_dirty: bool,
 
-    pub frames: u16,
-    pub total_cycles: Arc<AtomicU16>,
+    tiles_dirty_flags: u8,
+    background_dirty_flags: u8,
 
-    pub memory: Arc<Memory>,
+    frames: u16,
+    total_cycles: Arc<AtomicU16>,
 
-    pub event_pump: sdl2::EventPump,
-    pub input_tx: Sender<InputEvent>,
+    memory: Arc<Memory>,
 
-    pub game_canvas: Canvas<Window>,
-    pub texture_creator: TextureCreator<WindowContext>,
+    event_pump: sdl2::EventPump,
+    input_tx: Sender<InputEvent>,
+
+    game_canvas: Canvas<Window>,
+    texture_creator: TextureCreator<WindowContext>,
 }
 
 impl Gpu {
@@ -144,8 +146,10 @@ impl Gpu {
             sprites_palettes: vec![vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255), 
             Color::RGBA(0, 0, 0, 255)]; 2],
 
+            oam_hash: 0,
+            sprites_dirty: false,
+
             tiles_dirty_flags: 0,
-            sprites_dirty_flags: 0,
             background_dirty_flags: 0,
 
             frames: 0,
@@ -162,7 +166,6 @@ impl Gpu {
     }
 
     pub fn execution_loop(&mut self) {
-
         let mut fps_timer = std::time::Instant::now();
         
         loop {
@@ -170,11 +173,6 @@ impl Gpu {
             self.update_gpu_values();
 
             if self.lcd_enabled {
-
-                self.tile_palette = self.make_palette(self.memory.read(0xFF47));
-                self.sprites_palettes[0] = self.make_palette(self.memory.read(0xFF48));
-                self.sprites_palettes[1] = self.make_palette(self.memory.read(0xFF49));
-
                 if self.gpu_mode == 0 && self.gpu_cycles >= 204 {
                     self.hblank_mode();
                 }
@@ -191,15 +189,14 @@ impl Gpu {
                 let lyc_value = self.memory.read(0xFF45);
 
                 if lyc_value == self.memory.read(0xFF44) {
-                    let stat_value = self.memory.read(0xFF41) | 2;
+                    let stat_value = self.memory.read(0xFF41);
                     let mut if_value = self.memory.read(0xFF0F);
-
-                    self.memory.write(0xFF41, stat_value, false);
 
                     if ((stat_value >> 6) & 1) == 1 {
                         if_value |= 2;
                         self.memory.write(0xFF0F, if_value, false);
                     }
+                    self.memory.write(0xFF41, stat_value | 2, false);
                 }
             }
 
@@ -213,7 +210,6 @@ impl Gpu {
     }
 
     fn hblank_mode(&mut self) {
-
         let stat_value = self.memory.read(0xFF41);
         self.memory.write(0xFF41, stat_value & 0xFC, false);
 
@@ -230,7 +226,6 @@ impl Gpu {
             self.frames += 1;
             self.game_canvas.present();
         }
-
         if ((stat_value >> 3) & 1) == 1 {
             let if_value = self.memory.read(0xFF0F);
             self.memory.write(0xFF0F, if_value | 2, false);
@@ -243,35 +238,31 @@ impl Gpu {
 
         self.gpu_cycles = 0;
         self.line += 1;
-
         self.memory.write(0xFF41, stat_value, false);
         self.memory.write(0xFF44, self.line, false);
-        self.memory.write(0xFF0F, if_value, false);
 
         if self.line == 154 {
             self.gpu_mode = 2;
             self.line = 0;
-
             self.game_canvas.clear();
             self.memory.write(0xFF44, 1, false);
+        }
+        if ((stat_value >> 4) & 1) == 1 {
+            self.memory.write(0xFF0F, if_value | 2, false);
         }
     }
 
     fn oam_scan_mode(&mut self) {
-        
         let stat_value = self.memory.read(0xFF41);
 
         self.gpu_cycles = 0;
         self.gpu_mode = 3;
-
         self.memory.write(0xFF41, (stat_value | 2) & 0xFE, false);
 
-        if self.sprites_dirty_flags > 0 {
+        if self.sprites_dirty {
             self.make_sprites();
-            self.sprites_dirty_flags -= 1;
-            self.memory.sprites_dirty_flags.fetch_sub(1, Ordering::Relaxed);
+            self.sprites_dirty = false;
         }
-
         if ((stat_value >> 5) & 1) == 1 {
             let if_value = self.memory.read(0xFF0F) | 2;
             self.memory.write(0xFF0F, if_value, false);
@@ -282,22 +273,20 @@ impl Gpu {
         let stat_value = self.memory.read(0xFF41) | 3;
 
         self.memory.write(0xFF41, stat_value, false);
-        
         self.gpu_cycles = 0;
         self.gpu_mode = 0;
 
         if self.tiles_dirty_flags > 0 {
             self.make_tiles(0);
             self.make_tiles(1);
-            self.tiles_dirty_flags -= 1;
-            self.memory.tiles_dirty_flags.fetch_sub(1, Ordering::Relaxed);
+            self.tiles_dirty_flags = 0;
+            self.memory.tiles_dirty_flags.store(0, Ordering::Relaxed);
         }
-
         if self.background_dirty_flags > 0 {
             self.make_background();
             self.make_window();
-            self.background_dirty_flags -= 1;
-            self.memory.background_dirty_flags.fetch_sub(1, Ordering::Relaxed);
+            self.background_dirty_flags = 0;
+            self.memory.background_dirty_flags.store(0, Ordering::Relaxed);
         }
     }
 
@@ -309,7 +298,6 @@ impl Gpu {
 
         // Draw a whole line from the background map.
         for point in 0..256 {
-        
             let target_x = (point as u8).overflowing_sub(self.scroll_x).0;
             let target_y = self.line.overflowing_sub(self.scroll_y).0;
             let color = self.tile_palette[self.background_points[point_idx as usize] as usize];
@@ -327,10 +315,9 @@ impl Gpu {
     
             // Index offset for the points array in case the current line is not 0.
             point_idx += 256 * self.line as u16;
-    
+
             // Draw a whole line from the window.
             for point in 0..255 as u8 {
-            
                 let target_x = point.wrapping_add(self.window_x.wrapping_sub(7));
                 let target_y = self.line.wrapping_add(self.window_y);
                 let color = self.tile_palette[self.window_points[point_idx as usize] as usize];
@@ -345,7 +332,6 @@ impl Gpu {
 
     fn draw_sprites(&mut self) {
         for sprite in self.sprites.iter() {
-
             let target_x = sprite.x.wrapping_sub(8) as i32;
             let target_y = sprite.y.wrapping_sub(16) as i32;
             let y_size = if self.big_sprites {16} else {8};
@@ -360,12 +346,10 @@ impl Gpu {
         let mut tiles_position = 0;
 
         while memory_position < end_position {
-
             let mut loaded_bytes = 0;
             let mut tile_bytes: Vec<u8> = vec![0; 16];
 
             while loaded_bytes < 16 {
-
                 tile_bytes[loaded_bytes] = self.memory.read(memory_position);
                 memory_position += 1;
                 loaded_bytes += 1;
@@ -388,13 +372,11 @@ impl Gpu {
         let mut generated_tile: Vec<u8> = vec![0; 64];
     
         while processed_bytes < 16 {
-    
             let mut current_bit = 8;
             let bytes_to_check = (bytes[processed_bytes], bytes[processed_bytes + 1]);
             processed_bytes += 2;
     
             while current_bit != 0 {
-    
                 current_bit -= 1;
                 let bits = (((bytes_to_check.0 >> current_bit) & 1), ((bytes_to_check.1 >> current_bit) & 1));
                 let color = (bits.0 << 1) | (bits.1);
@@ -402,7 +384,6 @@ impl Gpu {
                 tile_index += 1;
             }
         }
-    
         generated_tile
     }
 
@@ -654,47 +635,20 @@ impl Gpu {
     
     }
 
-    fn make_palette(&mut self, value: u8) -> Vec<Color> {
-        let mut result = vec![Color::RGB(255, 255, 255), Color::RGB(192, 192, 192), Color::RGB(96, 96, 96), Color::RGB(0, 0, 0)];
-        let color_0 = value & 3;
-        let color_1 = (value & 0x0C) >> 2;
-        let color_2 = (value & 0x30) >> 4;
-        let color_3 = (value & 0xC0) >> 6;
-    
-        match color_0 {
-            0 => result[0] = Color::RGBA(255, 255, 255, 0),
-            1 => result[0] = Color::RGBA(192, 192, 192, 255),
-            2 => result[0] = Color::RGBA(96, 96, 96, 255),
-            3 => result[0] = Color::RGBA(0, 0, 0, 255),
-            _ => result[0] = Color::RGBA(0, 0, 0, 255),
-        };
-    
-        match color_1 {
-            0 => result[1] = Color::RGBA(255, 255, 255, 0),
-            1 => result[1] = Color::RGBA(192, 192, 192, 255),
-            2 => result[1] = Color::RGBA(96, 96, 96, 255),
-            3 => result[1] = Color::RGBA(0, 0, 0, 255),
-            _ => result[1] = Color::RGBA(0, 0, 0, 255),
-        };
-    
-        match color_2 {
-            0 => result[2] = Color::RGBA(255, 255, 255, 0),
-            1 => result[2] = Color::RGBA(192, 192, 192, 255),
-            2 => result[2] = Color::RGBA(96, 96, 96, 255),
-            3 => result[2] = Color::RGBA(0, 0, 0, 255),
-            _ => result[2] = Color::RGBA(0, 0, 0, 255),
-        };
-    
-        match color_3 {
-            0 => result[3] = Color::RGBA(255, 255, 255, 0),
-            1 => result[3] = Color::RGBA(192, 192, 192, 255),
-            2 => result[3] = Color::RGBA(96, 96, 96, 255),
-            3 => result[3] = Color::RGBA(0, 0, 0, 255),
-            _ => result[3] = Color::RGBA(0, 0, 0, 255),
-        };
-    
-        result
-    
+    fn make_palette(&mut self, palette: u8) -> Vec<Color> {
+        let base = vec![
+            Color::RGBA(255, 255, 255, 0),
+            Color::RGBA(192, 192, 192, 255),
+            Color::RGBA(96, 96, 96, 255),
+            Color::RGBA(0, 0, 0, 255),
+        ];
+
+        let color_0 = base[(palette & 3) as usize];
+        let color_1 = base[((palette >> 2) & 3) as usize];
+        let color_2 = base[((palette >> 4) & 3) as usize];
+        let color_3 = base[(palette >> 6) as usize];
+
+        vec![color_0, color_1, color_2, color_3]
     }
 
     fn update_gpu_values(&mut self) {
@@ -720,9 +674,18 @@ impl Gpu {
         self.window_x = self.memory.read(0xFF4B);
 
         self.tiles_dirty_flags = self.memory.tiles_dirty_flags.load(Ordering::Relaxed);
-        self.sprites_dirty_flags = self.memory.sprites_dirty_flags.load(Ordering::Relaxed);
         self.background_dirty_flags = self.memory.background_dirty_flags.load(Ordering::Relaxed);
         self.gpu_cycles = self.total_cycles.load(Ordering::Relaxed);
+
+        self.tile_palette = self.make_palette(self.memory.read(0xFF47));
+        self.sprites_palettes[0] = self.make_palette(self.memory.read(0xFF48));
+        self.sprites_palettes[1] = self.make_palette(self.memory.read(0xFF49));
+
+        let oam_hash = self.memory.get_oam_hash();
+        if oam_hash != self.oam_hash {
+            self.oam_hash = oam_hash;
+            self.sprites_dirty = true;
+        }
     }
 
     fn update_inputs(&mut self) {
