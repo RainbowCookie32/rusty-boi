@@ -379,7 +379,7 @@ impl Gpu {
             while current_bit != 0 {
                 current_bit -= 1;
                 let bits = (((bytes_to_check.0 >> current_bit) & 1), ((bytes_to_check.1 >> current_bit) & 1));
-                let color = (bits.0 << 1) | (bits.1);
+                let color = (bits.1 << 1) | (bits.0);
                 generated_tile[tile_index] = color;
                 tile_index += 1;
             }
