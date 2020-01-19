@@ -1,8 +1,11 @@
 use std::io;
-use std::thread;
 use std::io::Read;
+
+use std::thread;
 use std::fs::File;
+use std::time::Instant;
 use std::path::PathBuf;
+
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::sync::atomic::AtomicU16;
@@ -16,21 +19,40 @@ use super::cart::CartData;
 use super::memory::Memory;
 
 
-#[derive(PartialEq)]
-pub enum InputEvent {
-    
-    // SDL Quit event.
-    Quit,
+#[derive(Clone, Copy, PartialEq)]
+pub enum KeyType {
+    A,
+    B,
+    Up,
+    Down,
+    Left,
+    Right,
+    Start,
+    Select,
+    QuitEvent,
+}
 
-    // Buttons being pressed.
-    APressed,
-    BPressed,
-    UpPressed,
-    DownPressed,
-    LeftPressed,
-    RightPressed,
-    StartPressed,
-    SelectPressed,
+#[derive(Clone, Copy)]
+pub struct InputEvent {
+    button: KeyType,
+    pressed_time: Instant,
+}
+
+impl InputEvent {
+    pub fn new(key: KeyType, time: Instant) -> InputEvent {
+        InputEvent {
+            button: key,
+            pressed_time: time,
+        }
+    }
+
+    pub fn should_keep(&self) -> bool {
+        self.pressed_time.elapsed() < std::time::Duration::from_millis(200)
+    }
+
+    pub fn get_event(&self) -> KeyType {
+        self.button
+    }
 }
 
 pub fn initialize() {

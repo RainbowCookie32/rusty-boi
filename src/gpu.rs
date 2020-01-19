@@ -24,7 +24,8 @@ use sdl2::render::Texture;
 use sdl2::render::TextureCreator;
 
 use super::memory::Memory;
-use super::emulator::InputEvent;
+use super::emulator::{KeyType, InputEvent};
+
 
 #[derive(Clone, Copy, PartialEq)]
 enum InterruptType {
@@ -693,95 +694,40 @@ impl Gpu {
         for event in self.event_pump.poll_iter() {
             match event {
                 Event::Quit{..} => {
-                    self.input_tx.send(InputEvent::Quit).unwrap();
+                    let event = InputEvent::new(KeyType::QuitEvent, std::time::Instant::now());
+                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
                 }
                 Event::KeyDown{keycode: Some(Keycode::A), ..} => {
-                    let mut count = 5;
-                    while count > 0 {
-                        let result = self.input_tx.send(InputEvent::APressed);
-                        match result {
-                            Ok(_) => {},
-                            Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
-                        }
-                        count -= 1;
-                    }
+                    let event = InputEvent::new(KeyType::A, std::time::Instant::now());
+                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
                 },
                 Event::KeyDown{keycode: Some(Keycode::S), ..} => {
-                    let mut count = 5;
-                    while count > 0 {
-                        let result = self.input_tx.send(InputEvent::BPressed);
-                        match result {
-                            Ok(_) => {},
-                            Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
-                        }
-                        count -= 1;
-                    }
+                    let event = InputEvent::new(KeyType::B, std::time::Instant::now());
+                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
                 },
                 Event::KeyDown{keycode: Some(Keycode::Return), ..} => {
-                    let mut count = 5;
-                    while count > 0 {
-                        let result = self.input_tx.send(InputEvent::StartPressed);
-                        match result {
-                            Ok(_) => {},
-                            Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
-                        }
-                        count -= 1;
-                    }
+                    let event = InputEvent::new(KeyType::Start, std::time::Instant::now());
+                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
                 },
                 Event::KeyDown{keycode: Some(Keycode::RShift), ..} => {
-                    let mut count = 5;
-                    while count > 0 {
-                        let result = self.input_tx.send(InputEvent::SelectPressed);
-                        match result {
-                            Ok(_) => {},
-                            Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
-                        }
-                        count -= 1;
-                    }
+                    let event = InputEvent::new(KeyType::Select, std::time::Instant::now());
+                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
                 },
                 Event::KeyDown{keycode: Some(Keycode::Up), ..} => {
-                    let mut count = 5;
-                    while count > 0 {
-                        let result = self.input_tx.send(InputEvent::UpPressed);
-                        match result {
-                            Ok(_) => {},
-                            Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
-                        }
-                        count -= 1;
-                    }
+                    let event = InputEvent::new(KeyType::Up, std::time::Instant::now());
+                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
                 },
                 Event::KeyDown{keycode: Some(Keycode::Down), ..} => {
-                    let mut count = 5;
-                    while count > 0 {
-                        let result = self.input_tx.send(InputEvent::DownPressed);
-                        match result {
-                            Ok(_) => {},
-                            Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
-                        }
-                        count -= 1;
-                    }
+                    let event = InputEvent::new(KeyType::Down, std::time::Instant::now());
+                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
                 },
                 Event::KeyDown{keycode: Some(Keycode::Left), ..} => {
-                    let mut count = 5;
-                    while count > 0 {
-                        let result = self.input_tx.send(InputEvent::LeftPressed);
-                        match result {
-                            Ok(_) => {},
-                            Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
-                        }
-                        count -= 1;
-                    }
+                    let event = InputEvent::new(KeyType::Left, std::time::Instant::now());
+                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
                 },
                 Event::KeyDown{keycode: Some(Keycode::Right), ..} => {
-                    let mut count = 5;
-                    while count > 0 {
-                        let result = self.input_tx.send(InputEvent::RightPressed);
-                        match result {
-                            Ok(_) => {},
-                            Err(error) => {error!("Input: Failed to send event to CPU, error {}", error); count = 0},
-                        }
-                        count -= 1;
-                    }
+                    let event = InputEvent::new(KeyType::Right, std::time::Instant::now());
+                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
                 },
                 _ => {}
             }

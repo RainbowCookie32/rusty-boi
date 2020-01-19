@@ -6,7 +6,7 @@ use log::error;
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::timer::TimerModule;
-use super::emulator::InputEvent;
+use super::emulator::{KeyType, InputEvent};
 use super::memory::Memory;
 
 const ZF_BIT: u8 = 7;
@@ -128,28 +128,31 @@ pub struct Cpu {
 
     // B, C, D, E, H, L, (HL), A.
     // (HL) is added to the Vec for now, but it's not used.
-    pub registers: Vec<Register>,
-    pub cpu_flags: FlagsRegister,
+    registers: Vec<Register>,
+    cpu_flags: FlagsRegister,
 
-    pub pc: u16,
-    pub sp: u16,
-    pub cycles: Arc<AtomicU16>,
+    pc: u16,
+    sp: u16,
+    cycles: Arc<AtomicU16>,
 
-    pub halted: bool,
-    pub stopped: bool,
-    pub interrupts_enabled: bool,
+    halted: bool,
+    stopped: bool,
+    interrupts_enabled: bool,
 
-    pub timer: TimerModule,
+    timer: TimerModule,
 
-    pub memory: Arc<Memory>,
+    memory: Arc<Memory>,
 
-    pub input_receiver: Receiver<InputEvent>,
+    input_queue: Vec<InputEvent>,
+    input_receiver: Receiver<InputEvent>,
 }
 
 impl Cpu {
     pub fn new(memory: Arc<Memory>, cycles: Arc<AtomicU16>, input: Receiver<InputEvent>, run_bootrom: bool) -> Cpu {
         
         let timer_cycles = Arc::clone(&cycles);
+
+        memory.write(0xFF00, 0xCF, true);
         
         Cpu {
             registers: vec![Register::new(); 8],
@@ -166,6 +169,8 @@ impl Cpu {
             timer: TimerModule::new(timer_cycles, Arc::clone(&memory)),
 
             memory: memory,
+
+            input_queue: Vec::new(),
             input_receiver: input,
         }
     }
@@ -295,77 +300,78 @@ impl Cpu {
     pub fn execution_loop(&mut self) {
 
         loop {
-            if self.update_input() {break}
+            if self.update_input_queue() {break}
             self.check_interrupts();
             if !self.halted {self.run_instruction()}
             self.timer.timer_cycle();
         }
     }
 
-    fn update_input(&mut self) -> bool {
-        let event_type: InputEvent;
-        let event_happened: bool;
-        let event_message = self.input_receiver.try_recv();
+    fn update_input_queue(&mut self) -> bool {
 
-        match event_message {
-            Ok(message) => {
-                event_type = message;
-                event_happened = true;
-            },
-            Err(_error) => {
-                event_type = InputEvent::APressed;
-                event_happened = false;
+        for event in self.input_receiver.try_iter() {
+            if event.get_event() == KeyType::QuitEvent {
+                return true;
             }
-        };
-
-        if event_type == InputEvent::Quit {
-            return true;
+            if event.should_keep() {
+                self.input_queue.push(event);
+            }
         }
 
-        let mut input_value = self.memory.read(0xFF00);
+        let input_reg = self.memory.read(0xFF00);
 
-        if event_happened && (input_value == 0x30 || input_value == 0x20 || input_value == 0x10) {
-
-            input_value |= 0xCF;
-            let if_value = self.memory.read(0xFF0F) | (1 << 4);
-
-            if input_value == 0xFF {
-                match event_type {
-                    InputEvent::RightPressed => { input_value = 0xFE },
-                    InputEvent::LeftPressed => { input_value = 0xFD },
-                    InputEvent::UpPressed => { input_value = 0xFB },
-                    InputEvent::DownPressed => { input_value = 0xF7 },
-                    InputEvent::APressed => { input_value = 0xFE },
-                    InputEvent::BPressed => { input_value = 0xFD },
-                    InputEvent::SelectPressed => { input_value = 0xFB },
-                    InputEvent::StartPressed => { input_value = 0xF7 },
-                    _ => {}
-                }
+        if self.input_queue.len() > 0 {
+            if ((input_reg >> 4) & 3) != 0 || input_reg == 0xCF {
+                self.process_input();
             }
-            else if input_value == 0xEF {
-                match event_type {
-                    InputEvent::RightPressed => { input_value = 0xEE },
-                    InputEvent::LeftPressed => { input_value = 0xED },
-                    InputEvent::UpPressed => { input_value = 0xEB },
-                    InputEvent::DownPressed => { input_value = 0xE7 },
-                    _ => {}
-                }    
-            }
-            else if input_value == 0xDF {
-                match event_type {
-                    InputEvent::APressed => { input_value = 0xDE },
-                    InputEvent::BPressed => { input_value = 0xDD },
-                    InputEvent::SelectPressed => { input_value = 0xDB },
-                    InputEvent::StartPressed => { input_value = 0xD7 },
-                    _ => {}
-                }
-    
-            }
-            self.memory.write(0xFF0F, if_value, true);
         }
 
-        self.memory.write(0xFF00, input_value, true);
         false
+    }
+
+    fn process_input(&mut self) {
+        let event = self.input_queue.remove(0);
+        let mut input_reg = self.memory.read(0xFF00) | 0xCF;
+
+        // Start, Select, A, and B.
+        if input_reg == 0xEF {
+            match event.get_event() {
+                KeyType::Start => input_reg &= 0xE7,
+                KeyType::Select => input_reg &= 0xEB,
+                KeyType::B => input_reg &= 0xED,
+                KeyType::A => input_reg &= 0xEE,
+                _ => {},
+            }
+        }
+        // Directional pad
+        else if input_reg == 0xDF {
+            match event.get_event() {
+                KeyType::Down => input_reg &= 0xD7,
+                KeyType::Up => input_reg &= 0xDB,
+                KeyType::Left => input_reg &= 0xDD,
+                KeyType::Right => input_reg &= 0xDE,
+                _ => {},
+            }
+        }
+        // Anything goes
+        else if input_reg == 0xFF {
+            match event.get_event() {
+                KeyType::Down => input_reg &= 0xD7,
+                KeyType::Up => input_reg &= 0xDB,
+                KeyType::Left => input_reg &= 0xDD,
+                KeyType::Right => input_reg &= 0xDE,
+                KeyType::Start => input_reg &= 0xE7,
+                KeyType::Select => input_reg &= 0xEB,
+                KeyType::B => input_reg &= 0xED,
+                KeyType::A => input_reg &= 0xEE,
+                _ => {},
+            }
+        }
+
+        let if_flag = self.memory.read(0xFF0F);
+
+        self.memory.write(0xFF00, input_reg, true);
+        self.memory.write(0xFF0F, if_flag | (1 << 4), true);
     }
 
     fn check_interrupts(&mut self) {
