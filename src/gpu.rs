@@ -55,6 +55,7 @@ pub struct Gpu {
     bg_enabled: bool,
 
     // Color paletttes.
+    base_palette: Vec<Color>,
     tile_palette: Vec<Color>,
     sprites_palettes: Vec<Vec<Color>>,
 
@@ -100,7 +101,9 @@ impl Gpu {
             sprites_enabled: false,
             bg_enabled: false,
 
-            tile_palette: vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255), 
+            base_palette: vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255),
+            Color::RGBA(0, 0, 0, 255)],
+            tile_palette: vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255),
             Color::RGBA(0, 0, 0, 255)],
             sprites_palettes: vec![vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255), 
             Color::RGBA(0, 0, 0, 255)]; 2],
@@ -287,17 +290,10 @@ impl Gpu {
     }
 
     fn make_palette(&mut self, palette: u8) -> Vec<Color> {
-        let base = vec![
-            Color::RGBA(255, 255, 255, 0),
-            Color::RGBA(192, 192, 192, 255),
-            Color::RGBA(96, 96, 96, 255),
-            Color::RGBA(0, 0, 0, 255),
-        ];
-
-        let color_0 = base[(palette & 3) as usize];
-        let color_1 = base[((palette >> 2) & 3) as usize];
-        let color_2 = base[((palette >> 4) & 3) as usize];
-        let color_3 = base[(palette >> 6) as usize];
+        let color_0 = self.base_palette[(palette & 3) as usize];
+        let color_1 = self.base_palette[((palette >> 2) & 3) as usize];
+        let color_2 = self.base_palette[((palette >> 4) & 3) as usize];
+        let color_3 = self.base_palette[(palette >> 6) as usize];
 
         vec![color_0, color_1, color_2, color_3]
     }
