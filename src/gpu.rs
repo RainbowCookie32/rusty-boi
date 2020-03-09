@@ -1,30 +1,18 @@
 use std::sync::Arc;
-use std::sync::mpsc::Sender;
-use std::sync::atomic::AtomicU16;
-use std::sync::atomic::Ordering;
 
-use log::error;
 
 use sdl2;
 
-use sdl2::rect::Rect;
 use sdl2::rect::Point;
+use sdl2::pixels::Color;
 
 use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
+use sdl2::keyboard::Scancode;
 
 use sdl2::video::Window;
-use sdl2::video::WindowContext;
-
-use sdl2::pixels::Color;
-use sdl2::pixels::PixelFormatEnum;
-
 use sdl2::render::Canvas;
-use sdl2::render::Texture;
-use sdl2::render::TextureCreator;
 
 use super::memory::Memory;
-use super::emulator::{KeyType, InputEvent};
 
 
 #[derive(Clone, Copy, PartialEq)]
@@ -42,87 +30,51 @@ enum GpuMode {
     Lcd = 3,
 }
 
-
-struct SpriteData {
-    pub x: u8,
-    pub y: u8,
-    pub data: Texture,
-    pub flip_x: bool,
-    pub flip_y: bool,
-}
-
-impl SpriteData {
-    pub fn new(coords: (u8, u8), flip: (bool, bool), data: Texture) -> SpriteData {
-        SpriteData {
-            x: coords.0,
-            y: coords.1,
-            data: data,
-            flip_x: flip.0,
-            flip_y: flip.1,
-        }
-    }
-}
-
 pub struct Gpu {
 
+    // Internal GPU values.
     gpu_mode: u8,
-    gpu_cycles: u16,
     line: u8,
 
-    lcd_enabled: bool,
-
+    // Background scrolling values.
     scroll_x: u8,
     scroll_y: u8,
 
-    background_tilemap: (u16, u16),
-    background_enabled: bool,
-    
-    window_tilemap: (u16, u16),
-    window_enabled: bool,
+    // The position of the window in X and Y.
     window_x: u8,
     window_y: u8,
 
-    tiles_area: (u16, u16),
-
-    big_sprites: bool,
+    // LCDC values.
+    lcd_enabled: bool,
+    window_tilemap: bool,
+    window_enabled: bool,
+    bg_win_tile_data: bool,
+    bg_tilemap: bool,
+    sprite_size: bool,
     sprites_enabled: bool,
+    bg_enabled: bool,
 
-    sprites: Vec<SpriteData>,
-    tile_bank0: Vec<Vec<u8>>,
-    tile_bank1: Vec<Vec<u8>>,
-    background_points: Vec<u8>,
-    window_points: Vec<u8>,
-
+    // Color paletttes.
     tile_palette: Vec<Color>,
     sprites_palettes: Vec<Vec<Color>>,
 
-    oam_hash: u64,
-    sprites_dirty: bool,
-
-    tiles_dirty_flags: u8,
-    background_dirty_flags: u8,
-
+    // Rendering related variables, sdl memes.
     frames: u16,
-    total_cycles: Arc<AtomicU16>,
+    game_canvas: Canvas<Window>,
 
     memory: Arc<Memory>,
 
     event_pump: sdl2::EventPump,
-    input_tx: Sender<InputEvent>,
-
-    game_canvas: Canvas<Window>,
-    texture_creator: TextureCreator<WindowContext>,
 }
 
 impl Gpu {
-    pub fn new(cycles: Arc<AtomicU16>, mem: Arc<Memory>, tx: Sender<InputEvent>) -> Gpu {
+    pub fn new(mem: Arc<Memory>) -> Gpu {
 
         let sdl_ctx = sdl2::init().unwrap();
         let sdl_video = sdl_ctx.video().unwrap();
 
         let game_window = sdl_video.window("Rusty Boi - Game - FPS: 0", 160 * 4, 144 * 4).position_centered().build().unwrap();
         let mut game_canvas = game_window.into_canvas().present_vsync().build().unwrap();
-        let texture_creator = game_canvas.texture_creator();
 
         game_canvas.set_scale(4.0, 4.0).unwrap();
         game_canvas.set_draw_color(Color::RGB(255, 255, 255));
@@ -131,53 +83,32 @@ impl Gpu {
         
         Gpu {
             gpu_mode: 0,
-            gpu_cycles: 0,
             line: 0,
 
-            lcd_enabled: false,
             scroll_x: 0,
             scroll_y: 0,
 
-            background_tilemap: (0x9800, 0x9BFF),
-            background_enabled: false,
-
-            window_tilemap: (0x9800, 0x9BFF),
-            window_enabled: false,
             window_x: 0,
             window_y: 0,
 
-            tiles_area: (0x8800, 0x97FF),
-
-            big_sprites: false,
+            lcd_enabled: false,
+            window_tilemap: false,
+            window_enabled: false,
+            bg_win_tile_data: false,
+            bg_tilemap: false,
+            sprite_size: false,
             sprites_enabled: false,
-
-            sprites: Vec::new(),
-            tile_bank0: vec![vec![0; 64]; 256],
-            tile_bank1: vec![vec![0; 64]; 256],
-            background_points: vec![0; 65536],
-            window_points: vec![0; 65536],
+            bg_enabled: false,
 
             tile_palette: vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255), 
             Color::RGBA(0, 0, 0, 255)],
             sprites_palettes: vec![vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255), 
             Color::RGBA(0, 0, 0, 255)]; 2],
 
-            oam_hash: 0,
-            sprites_dirty: false,
-
-            tiles_dirty_flags: 0,
-            background_dirty_flags: 0,
-
             frames: 0,
-            total_cycles: cycles,
-
             memory: mem,
-            
             event_pump: sdl_ctx.event_pump().unwrap(),
-            input_tx: tx,
-
             game_canvas: game_canvas,
-            texture_creator: texture_creator,
         }
     }
 
@@ -185,20 +116,23 @@ impl Gpu {
         let mut fps_timer = std::time::Instant::now();
         
         loop {
-            self.update_inputs();
+            if self.update_inputs() {
+                break;
+            }
+
             self.update_gpu_values();
 
             if self.lcd_enabled {
-                if self.gpu_mode == 0 && self.gpu_cycles >= 204 {
+                if self.gpu_mode == 0 {
                     self.hblank_mode();
                 }
-                else if self.gpu_mode == 1 && self.gpu_cycles >= 456 {
+                else if self.gpu_mode == 1 {
                     self.vblank_mode();
                 }
-                else if self.gpu_mode == 2 && self.gpu_cycles >= 80 {
+                else if self.gpu_mode == 2 {
                     self.oam_scan_mode();
                 }
-                else if self.gpu_mode == 3 && self.gpu_cycles >= 172 {
+                else if self.gpu_mode == 3 {
                     self.lcd_transfer_mode();
                 }
 
@@ -206,13 +140,13 @@ impl Gpu {
 
                 if lyc_value == self.memory.read(0xFF44) {
                     let stat_value = self.memory.read(0xFF41);
-                    self.memory.write(0xFF41, stat_value | 2, false);
+                    self.memory.write(0xFF41, stat_value | 4, false);
                     self.request_interrupt(InterruptType::Lyc);
                 }
             }
 
-            if fps_timer.elapsed() >= std::time::Duration::from_millis(1000) && self.frames > 0 {
-                let framerate = format!("Rusty Boi - Game - FPS: {:#?}", self.frames as u64 / fps_timer.elapsed().as_secs());
+            if fps_timer.elapsed() >= std::time::Duration::from_secs(1) {
+                let framerate = format!("Rusty Boi - Game - FPS: {:#?}", self.frames as f64 / fps_timer.elapsed().as_secs() as f64);
                 self.game_canvas.window_mut().set_title(&framerate).unwrap();
                 fps_timer = std::time::Instant::now();
                 self.frames = 0;
@@ -224,11 +158,9 @@ impl Gpu {
 
         self.set_gpu_mode(GpuMode::Hblank);
 
-        if self.background_enabled {self.draw_background()}
-        if self.sprites_enabled {self.draw_sprites()}
+        if self.bg_enabled {self.draw_background()}
         if self.window_enabled {self.draw_window()}
 
-        self.gpu_cycles = 0;
         self.line += 1;
         self.memory.write(0xFF44, self.line, false);
 
@@ -244,7 +176,6 @@ impl Gpu {
     fn vblank_mode(&mut self) {
 
         self.set_gpu_mode(GpuMode::Vblank);
-        self.gpu_cycles = 0;
         self.line += 1;
         self.memory.write(0xFF44, self.line, false);
 
@@ -261,13 +192,7 @@ impl Gpu {
     fn oam_scan_mode(&mut self) {
 
         self.set_gpu_mode(GpuMode::Oam);
-        self.gpu_cycles = 0;
         self.gpu_mode = 3;
-
-        if self.sprites_dirty {
-            self.make_sprites();
-            self.sprites_dirty = false;
-        }
         
         self.request_interrupt(InterruptType::Oam);
     }
@@ -275,366 +200,90 @@ impl Gpu {
     fn lcd_transfer_mode(&mut self) {
 
         self.set_gpu_mode(GpuMode::Lcd);
-        self.gpu_cycles = 0;
         self.gpu_mode = 0;
-
-        if self.tiles_dirty_flags > 0 {
-            self.make_tiles(0);
-            self.make_tiles(1);
-            self.tiles_dirty_flags = 0;
-            self.memory.tiles_dirty_flags.store(0, Ordering::Relaxed);
-        }
-        if self.background_dirty_flags > 0 {
-            self.make_background();
-            self.make_window();
-            self.background_dirty_flags = 0;
-            self.memory.background_dirty_flags.store(0, Ordering::Relaxed);
-        }
     }
 
     fn draw_background(&mut self) {
-        let mut point_idx: u16 = 0;
+        let tileset_addr = if self.bg_win_tile_data {0x8000} else {0x8800};
+        let tilemap_addr = if !self.bg_tilemap {0x9800} else {0x9C00};
 
-        // Index offset for the points array in case the current line is not 0.
-        point_idx += 256 * self.line as u16;
+        let final_y: u16 = self.line as u16;
 
-        // Draw a whole line from the background map.
-        for point in 0..256 {
-            let target_x = (point as u8).overflowing_sub(self.scroll_x).0;
-            let target_y = self.line.overflowing_sub(self.scroll_y).0;
-            let color = self.tile_palette[self.background_points[point_idx as usize] as usize];
-            let final_point = Point::new(target_x as i32, target_y as i32);
+        for position_x in 0..256 {
+            let final_x: u16 = position_x as u16;
 
+            let bg_x = final_x % 256;
+            let bg_y = final_y % 256;
+
+            let tile_pixel_x = bg_x % 8;
+            let tile_pixel_y = bg_y % 8;
+
+            let tile_idx =  (bg_y / 8) * 32 + (bg_x / 8);
+            let tile_addr = tilemap_addr + tile_idx;
+
+            let tile_id = self.memory.read(tile_addr);
+            
+            let tile_mem_offset = if self.bg_win_tile_data {tile_id as u16 * 16} else {(tile_id as i8 as i16 + 128) as u16 * 16};
+            let tile_start_addr = tileset_addr + tile_mem_offset as u16 + (tile_pixel_y * 2);
+
+            let pixel_1 = self.memory.read(tile_start_addr);
+            let pixel_2 = self.memory.read(tile_start_addr + 1);
+
+            let color_idx = {
+                let bit1 = (pixel_1 >> 7 - tile_pixel_x) & 1;
+                let bit2 = (pixel_2 >> 7 - tile_pixel_x) & 1;
+
+                (bit2 << 1) | (bit1)
+            };
+
+            let color = self.tile_palette[color_idx as usize];
             self.game_canvas.set_draw_color(color);
-            self.game_canvas.draw_point(final_point).unwrap();
-            point_idx += 1;
+            self.game_canvas.draw_point(Point::new(final_x.wrapping_sub(self.scroll_x as u16) as i32, final_y.wrapping_sub(self.scroll_y as u16) as i32)).unwrap();
         }
     }
 
     fn draw_window(&mut self) {
-        if self.window_x < 166 && self.window_y < 143 {
-            let mut point_idx: u16 = 0;
-    
-            // Index offset for the points array in case the current line is not 0.
-            point_idx += 256 * self.line as u16;
+        let tileset_addr = if self.bg_win_tile_data {0x8000} else {0x8800};
+        let tilemap_addr = if !self.window_tilemap {0x9800} else {0x9C00};
 
-            // Draw a whole line from the window.
-            for point in 0..255 as u8 {
-                let target_x = point.wrapping_add(self.window_x.wrapping_sub(7));
-                let target_y = self.line.wrapping_add(self.window_y);
-                let color = self.tile_palette[self.window_points[point_idx as usize] as usize];
-                let final_point = Point::new(target_x as i32, target_y as i32);
-    
-                self.game_canvas.set_draw_color(color);
-                self.game_canvas.draw_point(final_point).unwrap();
-                point_idx += 1;
-            }
-        }
-    }
+        let final_y: u16 = self.line as u16 + self.memory.read(0xFF4A) as u16;
 
-    fn draw_sprites(&mut self) {
-        for sprite in self.sprites.iter() {
-            let target_x = sprite.x.wrapping_sub(8) as i32;
-            let target_y = sprite.y.wrapping_sub(16) as i32;
-            let y_size = if self.big_sprites {16} else {8};
-            self.game_canvas.copy_ex(&sprite.data, None, Rect::new(target_x, target_y, 8, y_size), 0.0, None, sprite.flip_x, sprite.flip_y).unwrap();
-        }
-    }
+        for position_x in 0..256 {
+            let final_x: u16 = position_x as u16 + self.memory.read(0xFF4B).wrapping_sub(7) as u16;
 
-    fn make_tiles(&mut self, target_bank: u8) {
-        let start_position = if target_bank == 0 {0x8000} else {0x8800};
-        let end_position = if target_bank == 0 {0x8FFF} else {0x97FF};
-        let mut memory_position = start_position;
-        let mut tiles_position = 0;
+            let bg_x = final_x % 256;
+            let bg_y = final_y % 256;
 
-        while memory_position < end_position {
-            let mut loaded_bytes = 0;
-            let mut tile_bytes: Vec<u8> = vec![0; 16];
+            let tile_x = bg_x / 8;
+            let tile_y = bg_y / 8;
 
-            while loaded_bytes < 16 {
-                tile_bytes[loaded_bytes] = self.memory.read(memory_position);
-                memory_position += 1;
-                loaded_bytes += 1;
-            }
+            let tile_pixel_x = bg_x % 8;
+            let tile_pixel_y = bg_y % 8;
 
-            if target_bank == 0 {
-                self.tile_bank0[tiles_position as usize] = self.make_tile(&tile_bytes);
-            }
-            else {
-                self.tile_bank1[tiles_position as usize] = self.make_tile(&tile_bytes);
-            }
+            let tile_idx =  tile_y * 32 + tile_x;
+            let tile_addr = tilemap_addr + tile_idx;
 
-            tiles_position += 1;
-        }
-    }
-
-    fn make_tile(&mut self, bytes: &Vec<u8>) -> Vec<u8> {
-        let mut tile_index = 0;
-        let mut processed_bytes = 0;
-        let mut generated_tile: Vec<u8> = vec![0; 64];
-    
-        while processed_bytes < 16 {
-            let mut current_bit = 8;
-            let bytes_to_check = (bytes[processed_bytes], bytes[processed_bytes + 1]);
-            processed_bytes += 2;
-    
-            while current_bit != 0 {
-                current_bit -= 1;
-                let bits = (((bytes_to_check.0 >> current_bit) & 1), ((bytes_to_check.1 >> current_bit) & 1));
-                let color = (bits.1 << 1) | (bits.0);
-                generated_tile[tile_index] = color;
-                tile_index += 1;
-            }
-        }
-        generated_tile
-    }
-
-    fn make_sprites(&mut self) {
-        let mut current_address = 0xFE00;
-        let mut generated_sprites: usize = 0;
-        let mut sprites_idx = 0;
-        let mut sprites: Vec<SpriteData> = Vec::new();
-    
-        while generated_sprites < 40 {
-    
-            let mut sprite_bytes: Vec<u8> = vec![0; 4];
-            let mut loaded_bytes: usize = 0;
-    
-            while loaded_bytes < 4 {
-                sprite_bytes[loaded_bytes] = self.memory.read(current_address);
-                current_address += 1;
-                loaded_bytes += 1;
-            }
-    
-            // Ignore the sprite if it's outside of the screen.
-            if sprite_bytes[0] > 8 && sprite_bytes[1] > 0 {
-                let new_tile = self.make_sprite(&sprite_bytes);
-                sprites.insert(sprites_idx, new_tile);
-                sprites_idx += 1;
-            }
-    
-            generated_sprites += 1;
-        }
-    
-        self.sprites = sprites;
-    }
-
-    fn make_sprite(&mut self, bytes: &Vec<u8>) -> SpriteData {
-        let position_x = bytes[1];
-        let position_y = bytes[0];
-        let tile_id = bytes[2];
-        let _priority = ((bytes[3] >> 7) & 1) == 1;
-        let flip_y = ((bytes[3] >> 6) & 1) == 1;
-        let flip_x = ((bytes[3] >> 5) & 1) == 1;
-        let palette_id = if ((bytes[3] >> 4) & 1) == 1 {1} else {0};
-        let y_size = if self.big_sprites {16} else {8};
-    
-        let mut new_sprite: Texture = self.texture_creator.create_texture_streaming(PixelFormatEnum::RGBA32, 8, y_size).unwrap();
-        new_sprite.set_blend_mode(sdl2::render::BlendMode::Blend);
-    
-        if y_size == 16 {
-    
-            let mut tile = tile_id & 0xFE;
-            let mut color_idx: usize = 0;
-            let mut tile_data = &self.tile_bank0[tile as usize];
-            let mut sprite_colors: Vec<Color> = vec![Color::RGB(255, 255, 255); 128];
-    
-            for color in tile_data.iter() {
-    
-                // Get the color from the palette used by the sprite.
-                let sprite_color = self.sprites_palettes[palette_id][*color as usize];
-                sprite_colors[color_idx] = sprite_color;
-                color_idx += 1;
-            }
-    
-            tile = tile_id | 0x01;
-            tile_data = &self.tile_bank0[tile as usize];
-    
-            for color in tile_data.iter() {
-    
-                // Get the color from the palette used by the sprite.
-                let sprite_color = self.sprites_palettes[palette_id][*color as usize];
-                sprite_colors[color_idx] = sprite_color;
-                color_idx += 1;
-            }
-    
-            color_idx = 0;
-    
-            new_sprite.with_lock(None, |buffer: &mut [u8], pitch: usize| {
-                for y in 0..16 {
-                    for x in 0..8 {
-                        let offset = y*pitch + x*4;
-                        // Set each color channel for the sprite texture from the palette.
-                        buffer[offset] = sprite_colors[color_idx].r;
-                        buffer[offset + 1] = sprite_colors[color_idx].g;
-                        buffer[offset + 2] = sprite_colors[color_idx].b;
-                        buffer[offset + 3] = sprite_colors[color_idx].a;
-                        color_idx += 1;
-                    }
-                }
-            }).unwrap();
-        }
-        else {
+            let tile_id = self.memory.read(tile_addr);
             
-            let mut color_idx: usize = 0;
-            let tile_data = &self.tile_bank0[tile_id as usize];
-            let mut sprite_colors: Vec<Color> = vec![Color::RGB(255, 255, 255); 64];
-    
-            for color in tile_data.iter() {
-    
-                // Get the color from the palette used by the sprite.
-                let sprite_color = self.sprites_palettes[palette_id][*color as usize];
-                sprite_colors[color_idx] = sprite_color;
-                color_idx += 1;
-            }
-    
-            color_idx = 0;
-    
-            new_sprite.with_lock(None, |buffer: &mut [u8], pitch: usize| {
-                for y in 0..8 {
-                    for x in 0..8 {
-                        let offset = y*pitch + x*4;
-                        // Set each color channel for the sprite texture from the palette.
-                        buffer[offset] = sprite_colors[color_idx].r;
-                        buffer[offset + 1] = sprite_colors[color_idx].g;
-                        buffer[offset + 2] = sprite_colors[color_idx].b;
-                        buffer[offset + 3] = sprite_colors[color_idx].a;
-                        color_idx += 1;
-                    }
-                }
-            }).unwrap();
-        }
-    
-        SpriteData::new((position_x, position_y), (flip_x, flip_y), new_sprite)
-    
-    }
+            let tile_mem_offset = if self.bg_win_tile_data {tile_id as u16 * 16} else {(tile_id as i8 as i16 + 128) as u16 * 16};
+            let tile_line_offset = tile_pixel_y * 2;
 
-    fn make_window(&mut self) {
-        let mut generated_lines: u16 = 0;
-        let mut current_address = self.window_tilemap.0;
-    
-        let lcdc_value =  ((self.memory.read(0xFF40) >> 4) & 1) == 1;
-        let tile_bank = if lcdc_value {&self.tile_bank0} else {&self.tile_bank1};
-    
-        let mut window_index: usize = 0;
-            
-        while generated_lines < 256 {
-    
-            let mut tiles: Vec<&Vec<u8>> = Vec::new();
-            let mut tile_idx: usize = 0;
-    
-            // Loads tile indexes from memory, then gets the tile from GPU State and saves it to tiles.
-            // 32 tiles is the maximum amount of tiles per line.
-            while tile_idx < 32 {
-    
-                let tile_id = self.memory.read(current_address);
-                if lcdc_value {
-                    let target_tile = tile_id;
-                    tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
-                    tile_idx += 1;
-                    current_address += 1;
-                }
-                else {
-                    let target_tile = (tile_id as i8 as i16 + 128) as u16;
-                    tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
-                    tile_idx += 1;
-                    current_address += 1;
-                }
-            }
-    
-            let mut tile_line = 0;
-    
-            while tile_line < 8 {
-    
-                let line = Gpu::make_background_line(&tiles, tile_line);
-                for point in line.into_iter() {
-                    self.window_points[window_index] = point;
-                    window_index += 1;
-                }
-                tile_line += 1;
-                generated_lines += 1;
-            }
-        }
-    
-    }
+            let tile_start_addr = tileset_addr + tile_mem_offset as u16 + tile_line_offset;
 
-    fn make_background(&mut self) {
-        let mut generated_lines: u16 = 0;
-        
-        let mut current_background = if ((self.memory.read(0xFF40) >> 3) & 1) == 1 {0x9C00} else {0x9800};
-    
-        let lcdc_value =  ((self.memory.read(0xFF40) >> 4) & 1) == 1;
-        let tile_bank = if lcdc_value {&self.tile_bank0} else {&self.tile_bank1};
-    
-        let mut background_idx: usize = 0;
-            
-        while generated_lines < 256 {
-    
-            let mut tiles: Vec<&Vec<u8>> = Vec::new();
-            let mut tile_idx: usize = 0;
-    
-            // Loads tile indexes from memory, then gets the tile from GPU State and saves it to tiles.
-            // 32 tiles is the maximum amount of tiles per line in the background.
-            while tile_idx < 32 {
-    
-                let bg_value = self.memory.read(current_background);
-                if lcdc_value {
-                    let target_tile = bg_value;
-                    tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
-                    tile_idx += 1;
-                    current_background += 1;
-                }
-                else {
-                    let target_tile = (bg_value as i8 as i16 + 128) as u16;
-                    tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
-                    tile_idx += 1;
-                    current_background += 1;
-                }
-            }
-    
-            let mut tile_line = 0;
-    
-            while tile_line < 8 {
-    
-                let line = Gpu::make_background_line(&tiles, tile_line);
-                for point in line.into_iter() {
-                    self.background_points[background_idx] = point;
-                    background_idx += 1;
-                }
-                tile_line += 1;
-                generated_lines += 1;
-            }
-        }
-    
-    }
+            let pixel_1 = self.memory.read(tile_start_addr);
+            let pixel_2 = self.memory.read(tile_start_addr + 1);
 
-    fn make_background_line(tiles: &Vec<&Vec<u8>>, tile_line: u8) -> Vec<u8> {
-        let start_idx = vec![0, 8, 16, 24, 32, 40, 48, 56];
-        let mut generated_points = 0;
-        let mut processed_tiles = 0;
-        let mut final_line: Vec<u8> = vec![0; 256];
-    
-        while generated_points < 256 {
-    
-            while processed_tiles < 32 {
-    
-                let end_index = start_idx[tile_line as usize] + 8;
-                let mut color_index = start_idx[tile_line as usize];
-                let current_tile = tiles[processed_tiles as usize];
-    
-                while color_index < end_index {
-    
-                    final_line[generated_points] = current_tile[color_index];
-    
-                    color_index += 1;
-                    generated_points += 1;
-                }
-                processed_tiles += 1;
-            }
-        }  
-    
-        final_line
-    
+            let color_idx = {
+                let bit1 = (pixel_1 >> 7 - tile_pixel_x) & 1;
+                let bit2 = (pixel_2 >> 7 - tile_pixel_x) & 1;
+
+                (bit2 << 1) | (bit1)
+            };
+
+            let color = self.tile_palette[color_idx as usize];
+            self.game_canvas.set_draw_color(color);
+            self.game_canvas.draw_point(Point::new(final_x.wrapping_sub(self.scroll_x as u16) as i32, final_y.wrapping_sub(self.scroll_y as u16) as i32)).unwrap();
+        }
     }
 
     fn make_palette(&mut self, palette: u8) -> Vec<Color> {
@@ -657,17 +306,13 @@ impl Gpu {
         let lcdc_value = self.memory.read(0xFF40);
 
         self.lcd_enabled = ((lcdc_value >> 7) & 1) == 1;
-
-        self.window_tilemap = if ((lcdc_value >> 6) & 1) == 1 {(0x9C00, 0x9FFF)} else {(0x8800, 0x97FF)};
+        self.window_tilemap = ((lcdc_value >> 6) & 1) == 1;
         self.window_enabled = ((lcdc_value >> 5) & 1) == 1;
-        
-        self.tiles_area = if ((lcdc_value >> 4) & 1) == 1 {(0x8000, 0x8FFF)} else {(0x8800, 0x97FF)};
-        self.background_tilemap = if ((lcdc_value >> 3) & 1) == 1 {(0x9C00, 0x9FFF)} else {(0x9800, 0x9BFF)};
-
-        self.big_sprites = ((lcdc_value >> 2) & 1) == 1;
+        self.bg_win_tile_data = ((lcdc_value >> 4) & 1) == 1;
+        self.bg_tilemap = ((lcdc_value >> 3) & 1) == 1;
+        self.sprite_size = ((lcdc_value >> 2) & 1) == 1;
         self.sprites_enabled = ((lcdc_value >> 1) & 1) == 1;
-
-        self.background_enabled = (lcdc_value & 1) == 1;
+        self.bg_enabled = (lcdc_value & 1) == 1;
 
         self.scroll_y = self.memory.read(0xFF42);
         self.scroll_x = self.memory.read(0xFF43);
@@ -675,82 +320,82 @@ impl Gpu {
         self.window_y = self.memory.read(0xFF4A);
         self.window_x = self.memory.read(0xFF4B);
 
-        self.tiles_dirty_flags = self.memory.tiles_dirty_flags.load(Ordering::Relaxed);
-        self.background_dirty_flags = self.memory.background_dirty_flags.load(Ordering::Relaxed);
-        self.gpu_cycles = self.total_cycles.load(Ordering::Relaxed);
-
         self.tile_palette = self.make_palette(self.memory.read(0xFF47));
         self.sprites_palettes[0] = self.make_palette(self.memory.read(0xFF48));
         self.sprites_palettes[1] = self.make_palette(self.memory.read(0xFF49));
-
-        let oam_hash = self.memory.get_oam_hash();
-        if oam_hash != self.oam_hash {
-            self.oam_hash = oam_hash;
-            self.sprites_dirty = true;
-        }
     }
 
-    fn update_inputs(&mut self) {
-        for event in self.event_pump.poll_iter() {
-            match event {
-                Event::Quit{..} => {
-                    let event = InputEvent::new(KeyType::QuitEvent, std::time::Instant::now());
-                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
-                }
-                Event::KeyDown{keycode: Some(Keycode::A), ..} => {
-                    let event = InputEvent::new(KeyType::A, std::time::Instant::now());
-                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
-                },
-                Event::KeyDown{keycode: Some(Keycode::S), ..} => {
-                    let event = InputEvent::new(KeyType::B, std::time::Instant::now());
-                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
-                },
-                Event::KeyDown{keycode: Some(Keycode::Return), ..} => {
-                    let event = InputEvent::new(KeyType::Start, std::time::Instant::now());
-                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
-                },
-                Event::KeyDown{keycode: Some(Keycode::RShift), ..} => {
-                    let event = InputEvent::new(KeyType::Select, std::time::Instant::now());
-                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
-                },
-                Event::KeyDown{keycode: Some(Keycode::Up), ..} => {
-                    let event = InputEvent::new(KeyType::Up, std::time::Instant::now());
-                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
-                },
-                Event::KeyDown{keycode: Some(Keycode::Down), ..} => {
-                    let event = InputEvent::new(KeyType::Down, std::time::Instant::now());
-                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
-                },
-                Event::KeyDown{keycode: Some(Keycode::Left), ..} => {
-                    let event = InputEvent::new(KeyType::Left, std::time::Instant::now());
-                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
-                },
-                Event::KeyDown{keycode: Some(Keycode::Right), ..} => {
-                    let event = InputEvent::new(KeyType::Right, std::time::Instant::now());
-                    for _x in 0..5 {self.input_tx.send(event).unwrap()}
-                },
-                _ => {}
+    fn update_inputs(&mut self) -> bool {
+        let input_reg = self.memory.read(0xFF00);
+        let mut result = input_reg | 0xCF;
+
+        if (input_reg & 0x20) != 0 {
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Down) {
+                result &= 0xF7;
+            }
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Up) {
+                result &= 0xFB;
+            }
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Left) {
+                result &= 0xFD;
+            }
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Right) {
+                result &= 0xFE;
             }
         }
-    
+        else if (input_reg & 0x10) != 0 {
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Return) {
+                result &= 0xF7;
+            }
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::RShift) {
+                result &= 0xFB;
+            }
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::S) {
+                result &= 0xFD;
+            }
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::A) {
+                result &= 0xFE;
+            }
+        }
+        else {
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Down) || self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Return) {
+                result &= 0xF7;
+            }
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Up) || self.event_pump.keyboard_state().is_scancode_pressed(Scancode::RShift) {
+                result &= 0xFB;
+            }
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Left) || self.event_pump.keyboard_state().is_scancode_pressed(Scancode::S){
+                result &= 0xFD;
+            }
+            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Right) || self.event_pump.keyboard_state().is_scancode_pressed(Scancode::A) {
+                result &= 0xFE;
+            }
+        }
+
+        self.memory.write(0xFF00, result, false);
+
+        let mut should_quit = false;
+
+        for event in self.event_pump.poll_event() {
+            match event {
+                Event::Quit{..} => should_quit = true,
+                _ => should_quit = false,
+            }
+        }
+
+        should_quit
     }
 
     fn request_interrupt(&self, interrupt: InterruptType) {
         let mut if_value = self.memory.read(0xFF0F);
 
+        // Vblank gets its own interrupt flag.
         if interrupt == InterruptType::Vblank {
             if_value |= 1;
         }
-
+        // But it can also trigger a STAT interrupt, so also check that.
         if self.is_interrupt_enabled(&interrupt) {
-            match interrupt {
-                InterruptType::Vblank => {
-                    if_value |= 3;
-                }
-                _ => {
-                    if_value |= 2;
-                }
-            }
+            if_value |= 2;
         }
 
         self.memory.write(0xFF0F, if_value, false);
@@ -760,21 +405,11 @@ impl Gpu {
         let bit = *interrupt as u8;
         let stat = self.memory.read(0xFF41);
 
-        stat & (1 << bit) != 0
+        ((stat >> bit) & 1) != 0
     }
 
     fn set_gpu_mode(&self, mode: GpuMode) {
-        let mut stat = self.memory.read(0xFF41);
-
-        match mode {
-            GpuMode::Hblank => {
-                stat &= 0xFC;
-            }
-            _ => {
-                stat |= mode as u8;
-            }
-        }
-
-        self.memory.write(0xFF41, stat, false);
+        let stat = self.memory.read(0xFF41) & 0xFC;
+        self.memory.write(0xFF41, stat | mode as u8, false);
     }
 }

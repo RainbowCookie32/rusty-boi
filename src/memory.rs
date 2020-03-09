@@ -1,6 +1,4 @@
-use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
-use std::sync::atomic::{AtomicU8, AtomicU64, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicBool, Ordering};
 
 use log::warn;
 
@@ -22,10 +20,6 @@ pub struct Memory {
 
     using_bootrom: AtomicBool,
     interrupts_enabled: AtomicU8,
-
-    oam_hash: AtomicU64,
-    pub tiles_dirty_flags: AtomicU8,
-    pub background_dirty_flags: AtomicU8,
 }
 
 impl Memory {
@@ -43,9 +37,6 @@ impl Memory {
             hram: new_atomic_vec(128),
             using_bootrom: AtomicBool::from(use_bootrom),
             interrupts_enabled: AtomicU8::new(0),
-            oam_hash: AtomicU64::new(0),
-            tiles_dirty_flags: AtomicU8::new(0),
-            background_dirty_flags: AtomicU8::new(0),
         }
     }
 
@@ -55,23 +46,6 @@ impl Memory {
 
     pub fn bootrom_finished(&self) {
         self.using_bootrom.store(false, Ordering::Relaxed);
-    }
-
-    pub fn get_oam_hash(&self) -> u64 {
-        self.oam_hash.load(Ordering::Relaxed)
-    }
-
-    fn hash_oam(&self) {
-        let mut hasher = DefaultHasher::new();
-
-        // Atomic u8 doesn't get the privilege of being hashable directly, only primitives do.
-        let mut oam_hashable = Vec::with_capacity(160);
-        for item in self.oam_mem.iter() {
-            oam_hashable.push(item.load(Ordering::Relaxed));
-        }
-
-        oam_hashable.hash(&mut hasher);
-        self.oam_hash.store(hasher.finish(), Ordering::Relaxed);
     }
 
     pub fn read(&self, address: u16) -> u8 {
@@ -146,13 +120,10 @@ impl Memory {
 
         else if address >= 0x8000 && address <= 0x97FF {
             self.char_ram[address as usize - 0x8000].store(value, Ordering::Relaxed);
-            self.tiles_dirty_flags.fetch_add(1, Ordering::Relaxed);
-            self.background_dirty_flags.fetch_add(1, Ordering::Relaxed);
         }
 
         else if address >= 0x9800 && address <= 0x9FFF {
             self.background_memory[address as usize - 0x9800].store(value, Ordering::Relaxed);
-            self.background_dirty_flags.fetch_add(1, Ordering::Relaxed);
         }
 
         else if address >= 0xA000 && address <= 0xBFFF {
@@ -170,7 +141,6 @@ impl Memory {
 
         else if address >= 0xFE00 && address <= 0xFE9F {
             self.oam_mem[address as usize - 0xFE00].store(value, Ordering::Relaxed);
-            self.hash_oam();
         }
 
         else if address >= 0xFEA0 && address <= 0xFEFF {
@@ -178,6 +148,10 @@ impl Memory {
         }
 
         else if address >= 0xFF00 && address <= 0xFF7F {
+
+            if address == 0xFF01 {
+                println!("{}", value as char);
+            }
 
             if cpu {
                 if address == 0xFF04 || address == 0xFF44 {
