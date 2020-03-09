@@ -3,12 +3,8 @@ use std::io::Read;
 
 use std::thread;
 use std::fs::File;
-use std::time::Instant;
 use std::path::PathBuf;
-
 use std::sync::Arc;
-use std::sync::mpsc;
-use std::sync::atomic::AtomicU16;
 
 use log::info;
 use log::error;
@@ -18,42 +14,6 @@ use super::gpu::Gpu;
 use super::cart::CartData;
 use super::memory::Memory;
 
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum KeyType {
-    A,
-    B,
-    Up,
-    Down,
-    Left,
-    Right,
-    Start,
-    Select,
-    QuitEvent,
-}
-
-#[derive(Clone, Copy)]
-pub struct InputEvent {
-    button: KeyType,
-    pressed_time: Instant,
-}
-
-impl InputEvent {
-    pub fn new(key: KeyType, time: Instant) -> InputEvent {
-        InputEvent {
-            button: key,
-            pressed_time: time,
-        }
-    }
-
-    pub fn should_keep(&self) -> bool {
-        self.pressed_time.elapsed() < std::time::Duration::from_millis(200)
-    }
-
-    pub fn get_event(&self) -> KeyType {
-        self.button
-    }
-}
 
 pub fn initialize() {
 
@@ -68,27 +28,21 @@ pub fn initialize() {
 
 pub fn start_emulation(memory: (Arc<Memory>, Arc<Memory>)) {
         
-    let cpu_cycles = Arc::new(AtomicU16::new(0));
-    let gpu_cycles = Arc::clone(&cpu_cycles);
-
     let cpu_memory = memory.0;
     let gpu_memory = memory.1;
     
-    let (input_tx, input_rx) = mpsc::channel();
-
-    let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
+    let _cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
         let bootrom = cpu_memory.is_bootrom_loaded();
-        let mut current_cpu = Cpu::new(cpu_memory, cpu_cycles, input_rx, bootrom);
+        let mut current_cpu = Cpu::new(cpu_memory, bootrom);
         current_cpu.execution_loop();
     }).unwrap();
 
-    let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
-        let mut current_gpu = Gpu::new(gpu_cycles, gpu_memory, input_tx);
+    let gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
+        let mut current_gpu = Gpu::new(gpu_memory);
         current_gpu.execution_loop();
     }).unwrap();
 
-    cpu_thread.join().unwrap();
-
+    gpu_thread.join().unwrap();
     info!("Emu: CPU thread finished execution, stopping emulator...");
 }
 

@@ -1,18 +1,23 @@
 use std::sync::Arc;
-use std::sync::mpsc::Receiver;
-use std::sync::atomic::{AtomicU16, Ordering};
 
 use log::error;
 use byteorder::{ByteOrder, LittleEndian};
 
-use super::timer::TimerModule;
-use super::emulator::{KeyType, InputEvent};
+
 use super::memory::Memory;
 
 const ZF_BIT: u8 = 7;
 const NF_BIT: u8 = 6;
 const HF_BIT: u8 = 5;
 const CF_BIT: u8 = 4;
+
+enum InterruptType {
+    Vblank = 0,
+    Stat = 1,
+    Timer = 2,
+    Serial = 3,
+    Joypad = 4,
+}
 
 
 #[derive(Clone)]
@@ -133,45 +138,41 @@ pub struct Cpu {
 
     pc: u16,
     sp: u16,
-    cycles: Arc<AtomicU16>,
+    cycles: u32,
 
     halted: bool,
     stopped: bool,
     interrupts_enabled: bool,
 
+    halt_bug: bool,
+    will_enable_interrupts: (u8, bool),
+
     timer: TimerModule,
 
     memory: Arc<Memory>,
-
-    input_queue: Vec<InputEvent>,
-    input_receiver: Receiver<InputEvent>,
 }
 
 impl Cpu {
-    pub fn new(memory: Arc<Memory>, cycles: Arc<AtomicU16>, input: Receiver<InputEvent>, run_bootrom: bool) -> Cpu {
-        
-        let timer_cycles = Arc::clone(&cycles);
-
-        memory.write(0xFF00, 0xCF, true);
-        
+    pub fn new(memory: Arc<Memory>, run_bootrom: bool) -> Cpu {
+                
         Cpu {
             registers: vec![Register::new(); 8],
             cpu_flags: FlagsRegister::new(),
             
             pc: if run_bootrom {0x0} else {0x100},
             sp: 0,
-            cycles: cycles,
+            cycles: 0,
 
             halted: false,
             stopped: false,
             interrupts_enabled: false,
 
-            timer: TimerModule::new(timer_cycles, Arc::clone(&memory)),
+            halt_bug: false,
+            will_enable_interrupts: (0, false),
+
+            timer: TimerModule::new(Arc::clone(&memory)),
 
             memory: memory,
-
-            input_queue: Vec::new(),
-            input_receiver: input,
         }
     }
 
@@ -298,143 +299,108 @@ impl Cpu {
     }
 
     pub fn execution_loop(&mut self) {
+        let cycles_per_frame: i32 = 4194304 / 60;
 
         loop {
-            if self.update_input_queue() {break}
-            self.check_interrupts();
-            if !self.halted {self.run_instruction()}
-            self.timer.timer_cycle();
-        }
-    }
+            let start_time = std::time::Instant::now();
+            let frame_time = std::time::Duration::new(0, 16600000);
 
-    fn update_input_queue(&mut self) -> bool {
-
-        for event in self.input_receiver.try_iter() {
-            if event.get_event() == KeyType::QuitEvent {
-                return true;
+            while self.cycles < cycles_per_frame as u32 {
+                self.check_interrupts();
+                if !self.halted || !self.stopped {
+                    self.run_instruction();
+                }
+                self.timer.timer_cycle(self.cycles);
             }
-            if event.should_keep() {
-                self.input_queue.push(event);
+
+            if start_time.elapsed() < frame_time {
+                std::thread::sleep(frame_time - start_time.elapsed());
             }
+            self.cycles = 0;
         }
-
-        let input_reg = self.memory.read(0xFF00);
-
-        if self.input_queue.len() > 0 {
-            if ((input_reg >> 4) & 3) != 0 || input_reg == 0xCF {
-                self.process_input();
-            }
-        }
-
-        false
-    }
-
-    fn process_input(&mut self) {
-        let event = self.input_queue.remove(0);
-        let mut input_reg = self.memory.read(0xFF00) | 0xCF;
-
-        // Start, Select, A, and B.
-        if input_reg == 0xEF {
-            match event.get_event() {
-                KeyType::Start => input_reg &= 0xE7,
-                KeyType::Select => input_reg &= 0xEB,
-                KeyType::B => input_reg &= 0xED,
-                KeyType::A => input_reg &= 0xEE,
-                _ => {},
-            }
-        }
-        // Directional pad
-        else if input_reg == 0xDF {
-            match event.get_event() {
-                KeyType::Down => input_reg &= 0xD7,
-                KeyType::Up => input_reg &= 0xDB,
-                KeyType::Left => input_reg &= 0xDD,
-                KeyType::Right => input_reg &= 0xDE,
-                _ => {},
-            }
-        }
-        // Anything goes
-        else if input_reg == 0xFF {
-            match event.get_event() {
-                KeyType::Down => input_reg &= 0xD7,
-                KeyType::Up => input_reg &= 0xDB,
-                KeyType::Left => input_reg &= 0xDD,
-                KeyType::Right => input_reg &= 0xDE,
-                KeyType::Start => input_reg &= 0xE7,
-                KeyType::Select => input_reg &= 0xEB,
-                KeyType::B => input_reg &= 0xED,
-                KeyType::A => input_reg &= 0xEE,
-                _ => {},
-            }
-        }
-
-        let if_flag = self.memory.read(0xFF0F);
-
-        self.memory.write(0xFF00, input_reg, true);
-        self.memory.write(0xFF0F, if_flag | (1 << 4), true);
     }
 
     fn check_interrupts(&mut self) {
         let if_value = self.memory.read(0xFF0F);
         let ie_value = self.memory.read(0xFFFF);
 
-        let vblank_int = (if_value & 1) == 1;
-        let lcdc_int = ((if_value >> 1) & 1) == 1;
-        let timer_int = ((if_value >> 2) & 1) == 1;
-        let serial_int = ((if_value >> 3) & 1) == 1;
-        let input_int = ((if_value >> 4) & 1) == 1;
+        if self.will_enable_interrupts.1 {
+            if self.will_enable_interrupts.0 > 0 {
+                self.will_enable_interrupts.0 = 0;
+            }
+            else {
+                self.will_enable_interrupts = (0, false);
+                self.interrupts_enabled = true;
+            }
+        }
 
-        // Vblank interrupt.
-        if vblank_int {
-            if self.interrupts_enabled && (ie_value & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1), true);
-                self.stack_write(self.pc);
-                self.pc = 0x0040;
-                self.interrupts_enabled = false;
+        // Vblank interrupt requested.
+        if (if_value & 0x01) != 0 {
+            if (ie_value & 0x01) != 0 {
+                self.halted = false;
+                self.stopped = false;
+                if self.interrupts_enabled {
+                    self.trigger_interrupt(InterruptType::Vblank);
+                }
             }
-            self.halted = false;
         }
-        // LCDC interrupt.
-        else if lcdc_int {
-            if self.interrupts_enabled && ((ie_value >> 1) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 1), true);
-                self.stack_write(self.pc);
-                self.pc = 0x0048;
-                self.interrupts_enabled = false;
+        // LCD STAT interrupt requested.
+        if (if_value & 0x02) != 0 {
+            if (ie_value & 0x02) != 0 {
+                self.halted = false;
+                self.stopped = false;
+                if self.interrupts_enabled {
+                    self.trigger_interrupt(InterruptType::Stat);
+                }
+            }
+        }
+        // Timer interrupt requested.
+        if (if_value & 0x04) != 0 {
+            if (ie_value & 0x04) != 0 {
+                self.halted = false;
+                self.stopped = false;
+                if self.interrupts_enabled {
+                    self.trigger_interrupt(InterruptType::Timer);
+                }
+            }
+        }
+        // Serial interrupt requested.
+        if (if_value & 0x08) != 0 {
+            if (ie_value & 0x08) != 0 {
+                self.halted = false;
+                self.stopped = false;
+                if self.interrupts_enabled {
+                    self.trigger_interrupt(InterruptType::Serial);
+                }
+            }
+        }
+        // Joypad interrupt requested.
+        if (if_value & 0x10) != 0 {
+            if (ie_value & 0x10) != 0 {
+                self.halted = false;
+                self.stopped = false;
+                if self.interrupts_enabled {
+                    self.trigger_interrupt(InterruptType::Joypad);
+                }
+            }
+        }
+    }
 
-            }
-            self.halted = false;
-        }
-        // Timer interrupt.
-        else if timer_int {
-            if self.interrupts_enabled && ((ie_value >> 2) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 2), true);
-                self.stack_write(self.pc);
-                self.pc = 0x0050;
-                self.interrupts_enabled = false;
-            }
-            self.halted = false;
-        }
-        // Serial transfer interrupt.
-        else if serial_int {
-            if self.interrupts_enabled && ((ie_value >> 3) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 3), true);
-                self.stack_write(self.pc);
-                self.pc = 0x0058;
-                self.interrupts_enabled = false;
-            }
-            self.halted = false;
-        }
-        // Input interrupt.
-        else if input_int {
-            if self.interrupts_enabled && ((ie_value >> 4) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 4), true);
-                self.stack_write(self.pc);
-                self.pc = 0x0060;
-                self.interrupts_enabled = false;
-            }
-            self.halted = false;
-        }
+    fn trigger_interrupt(&mut self, interrupt: InterruptType) {
+        let if_value = self.memory.read(0xFF0F);
+        let new_pc = match interrupt {
+            InterruptType::Vblank => 0x40,
+            InterruptType::Stat => 0x48,
+            InterruptType::Timer => 0x50,
+            InterruptType::Serial => 0x58,
+            InterruptType::Joypad => 0x60,
+        };
+
+        self.stack_write(self.pc);
+        self.interrupts_enabled = false;
+        self.memory.write(0xFF0F, if_value & !(1 << interrupt as u8), true);
+
+        self.pc = new_pc;
     }
 
     fn run_instruction(&mut self) {
@@ -442,6 +408,10 @@ impl Cpu {
         if self.pc == 0x0100 {
             log::info!("CPU: Bootrom execution finished, executing loaded ROM.");
             self.memory.bootrom_finished();
+        }
+
+        if self.pc == 0x064B {
+            log::info!("CPU: Checkpoint.");
         }
         
         let opcode = self.memory.read(self.pc);
@@ -650,9 +620,14 @@ impl Cpu {
         }
     }
 
-    fn instruction_finished(&mut self, pc: u16, cycles: u16) {
+    fn instruction_finished(&mut self, pc: u16, cycles: u32) {
+        
+        if self.halt_bug && self.memory.read(self.pc) != 0x76 {
+            self.halt_bug = false;
+        }
+        
         self.pc += pc;
-        self.cycles.fetch_add(cycles, Ordering::Relaxed);
+        self.cycles += cycles;
     }
 
     fn nop(&mut self) {
@@ -902,7 +877,20 @@ impl Cpu {
     }
 
     fn halt(&mut self) {
-        self.halted = true;
+        if self.interrupts_enabled {
+            self.halted = true;
+        }
+        else {
+            let if_value = self.memory.read(0xFF0F);
+            let ie_value = self.memory.read(0xFFFF);
+
+            if ((if_value & ie_value) & 0x1F) == 0 {
+                self.halted = true;
+            }
+            else {
+                self.halt_bug = true;
+            }
+        }
         self.instruction_finished(1, 4);
     }
 
@@ -1152,7 +1140,7 @@ impl Cpu {
     }
 
     fn ei(&mut self) {
-        self.interrupts_enabled = true;
+        self.will_enable_interrupts = (1, true);
         self.instruction_finished(1, 4);
     }
 
@@ -1376,7 +1364,7 @@ impl Cpu {
 
     fn swap(&mut self, index: u8) {
         let value = self.get_register(index);
-        let result = ((value & 0xF0) >> 4) | ((value & 0xF) << 4);
+        let result = ((value & 0xF0) >> 4) | ((value & 0x0F) << 4);
 
         self.set_register(index, result);
         self.cpu_flags.set_zf(result == 0);
@@ -1419,5 +1407,68 @@ impl Cpu {
         let value = self.get_register(index);
         self.set_register(index, value | (1 << bit));
         self.instruction_finished(2, if index == 6 {16} else {8});
+    }
+}
+
+pub struct TimerModule {
+    div_cycles: u32,
+    timer_cycles: u32,
+    cycles_needed: u32,
+
+    shared_memory: Arc<Memory>,
+}
+
+impl TimerModule {
+    pub fn new(memory: Arc<Memory>) -> TimerModule {
+        TimerModule {
+            div_cycles: 0,
+            timer_cycles: 0,
+            cycles_needed: 0,
+
+            shared_memory: memory,
+        }
+    }
+
+    pub fn timer_cycle(&mut self, cycles: u32) {
+        let tac = self.shared_memory.read(0xFF07);
+        let timer_enabled = ((tac >> 2) & 1) == 1;
+        
+        self.div_cycles += cycles;
+
+        if self.div_cycles >= 256 {
+            let div_value = self.shared_memory.read(0xFF04);
+            self.shared_memory.write(0xFF04, div_value.wrapping_add(1), false);
+            self.div_cycles = 0;
+        }
+
+        if timer_enabled {
+            self.cycles_needed = TimerModule::get_timer_frequency(tac);
+            self.timer_cycles = cycles;
+
+            if self.timer_cycles >= self.cycles_needed {
+                let result = self.shared_memory.read(0xFF05).overflowing_add(1);
+                if result.1 {
+                    let if_value = self.shared_memory.read(0xFF0F) | (1 << 2);
+
+                    self.shared_memory.write(0xFF05, self.shared_memory.read(0xFF06), false);
+                    self.shared_memory.write(0xFF0F, if_value, false);
+                }
+                else {
+                    self.shared_memory.write(0xFF05, result.0, false);
+                }
+
+                self.timer_cycles = 0;
+            }
+        }
+    }
+
+    fn get_timer_frequency(tac_value: u8) -> u32 {
+        match tac_value & 3 {
+            0 => 1024,
+            1 => 16,
+            2 => 64,
+            3 => 256,
+            _ => 0,
+        }
     }
 }
