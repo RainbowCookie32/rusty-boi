@@ -409,10 +409,6 @@ impl Cpu {
             log::info!("CPU: Bootrom execution finished, executing loaded ROM.");
             self.memory.bootrom_finished();
         }
-
-        if self.pc == 0x064B {
-            log::info!("CPU: Checkpoint.");
-        }
         
         let opcode = self.memory.read(self.pc);
 
