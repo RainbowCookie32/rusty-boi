@@ -14,5 +14,3 @@ Cargo.lock
 *.o
 *.gb
 *.rr
-imgui.ini
-!input_test.gb
