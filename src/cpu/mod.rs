@@ -273,7 +273,7 @@ impl Cpu {
     pub fn set_register(&mut self, index: u8, value: u8) {
         if index == 6 {
             let address = self.get_rp(2);
-            self.memory.write(address, value, true);
+            self.memory.write(address, value);
             return;
         }
 
@@ -293,8 +293,8 @@ impl Cpu {
         let low = value as u8;
         let sp = self.get_rp(3);
 
-        self.memory.write(sp - 1, hi, true);
-        self.memory.write(sp - 2, low, true);
+        self.memory.write(sp - 1, hi);
+        self.memory.write(sp - 2, low);
         self.set_rp(3, sp - 2);
     }
 
@@ -317,6 +317,7 @@ impl Cpu {
                 std::thread::sleep(frame_time - start_time.elapsed());
             }
             self.cycles = 0;
+
         }
     }
 
@@ -398,7 +399,7 @@ impl Cpu {
 
         self.stack_write(self.pc);
         self.interrupts_enabled = false;
-        self.memory.write(0xFF0F, if_value & !(1 << interrupt as u8), true);
+        self.memory.write(0xFF0F, if_value & !(1 << interrupt as u8));
 
         self.pc = new_pc;
     }
@@ -637,8 +638,8 @@ impl Cpu {
         let low = value as u8;
         let address = LittleEndian::read_u16(&bytes);
 
-        self.memory.write(address, low, true);
-        self.memory.write(address + 1, hi, true);
+        self.memory.write(address, low);
+        self.memory.write(address + 1, hi);
         self.instruction_finished(3, 20);
     }
 
@@ -721,7 +722,7 @@ impl Cpu {
         let address = self.get_rp(index);
         let value = self.get_register(7);
 
-        self.memory.write(address, value, true);
+        self.memory.write(address, value);
         self.instruction_finished(1, 8);
     }
 
@@ -729,7 +730,7 @@ impl Cpu {
         let address = self.get_rp(2);
         let value = self.get_register(7);
 
-        self.memory.write(address, value, true);
+        self.memory.write(address, value);
         self.set_rp(2, address.wrapping_add(1));
         self.instruction_finished(1, 8);
     }
@@ -738,7 +739,7 @@ impl Cpu {
         let address = self.get_rp(2);
         let value = self.get_register(7);
 
-        self.memory.write(address, value, true);
+        self.memory.write(address, value);
         self.set_rp(2, address.wrapping_sub(1));
         self.instruction_finished(1, 8);
     }
@@ -1003,7 +1004,7 @@ impl Cpu {
         let address = 0xFF00 + self.memory.read(self.pc + 1) as u16;
         let value = self.get_register(7);
 
-        self.memory.write(address, value, true);
+        self.memory.write(address, value);
         self.instruction_finished(2, 12);
     }
 
@@ -1091,7 +1092,7 @@ impl Cpu {
         let address = 0xFF00 + self.get_register(1) as u16;
         let value = self.get_register(7);
 
-        self.memory.write(address, value, true);
+        self.memory.write(address, value);
         self.instruction_finished(1, 8);
     }
 
@@ -1100,7 +1101,7 @@ impl Cpu {
         let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
         let value = self.get_register(7);
 
-        self.memory.write(LittleEndian::read_u16(&bytes), value, true);
+        self.memory.write(LittleEndian::read_u16(&bytes), value);
         self.instruction_finished(3, 16);
     }
 
@@ -1433,7 +1434,7 @@ impl TimerModule {
 
         if self.div_cycles >= 256 {
             let div_value = self.shared_memory.read(0xFF04);
-            self.shared_memory.write(0xFF04, div_value.wrapping_add(1), false);
+            self.shared_memory.write(0xFF04, div_value.wrapping_add(1));
             self.div_cycles = 0;
         }
 
@@ -1446,11 +1447,11 @@ impl TimerModule {
                 if result.1 {
                     let if_value = self.shared_memory.read(0xFF0F) | (1 << 2);
 
-                    self.shared_memory.write(0xFF05, self.shared_memory.read(0xFF06), false);
-                    self.shared_memory.write(0xFF0F, if_value, false);
+                    self.shared_memory.write(0xFF05, self.shared_memory.read(0xFF06));
+                    self.shared_memory.write(0xFF0F, if_value);
                 }
                 else {
-                    self.shared_memory.write(0xFF05, result.0, false);
+                    self.shared_memory.write(0xFF05, result.0);
                 }
 
                 self.timer_cycles = 0;

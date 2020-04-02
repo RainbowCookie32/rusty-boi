@@ -1,6 +1,6 @@
 mod cpu;
-mod gpu;
 mod cart;
+mod video;
 mod memory;
 mod emulator;
 

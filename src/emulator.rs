@@ -10,9 +10,9 @@ use log::info;
 use log::error;
 
 use super::cpu::Cpu;
-use super::gpu::Gpu;
 use super::cart::CartData;
 use super::memory::Memory;
+use super::video::VideoChip;
 
 
 pub fn initialize() {
@@ -37,12 +37,12 @@ pub fn start_emulation(memory: (Arc<Memory>, Arc<Memory>)) {
         current_cpu.execution_loop();
     }).unwrap();
 
-    let gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
-        let mut current_gpu = Gpu::new(gpu_memory);
-        current_gpu.execution_loop();
+    let video_thread = thread::Builder::new().name("video_thread".to_string()).spawn(move || {
+        let mut current_video = VideoChip::new(gpu_memory);
+        current_video.execution_loop();
     }).unwrap();
 
-    gpu_thread.join().unwrap();
+    video_thread.join().unwrap();
     info!("Emu: CPU thread finished execution, stopping emulator...");
 }
 

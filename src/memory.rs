@@ -1,4 +1,6 @@
-use std::sync::atomic::{AtomicU8, AtomicBool, Ordering};
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
+use std::sync::atomic::{AtomicU8, AtomicU64, AtomicBool, Ordering};
 
 use log::warn;
 
@@ -20,6 +22,9 @@ pub struct Memory {
 
     using_bootrom: AtomicBool,
     interrupts_enabled: AtomicU8,
+
+    tiles_signed_hash: AtomicU64,
+    tiles_unsigned_hash: AtomicU64,
 }
 
 impl Memory {
@@ -29,14 +34,21 @@ impl Memory {
         Memory {
             bootrom: bootrom_data,
             loaded_cart: loaded_cart,
+
             char_ram: new_atomic_vec(6144),
             background_memory: new_atomic_vec(2048),
+
             ram: new_atomic_vec(8192),
             oam_mem: new_atomic_vec(160),
             io_registers: new_atomic_vec(128),
+
             hram: new_atomic_vec(128),
+
             using_bootrom: AtomicBool::from(use_bootrom),
             interrupts_enabled: AtomicU8::new(0),
+
+            tiles_signed_hash: AtomicU64::from(0),
+            tiles_unsigned_hash: AtomicU64::from(0),
         }
     }
 
@@ -46,6 +58,42 @@ impl Memory {
 
     pub fn bootrom_finished(&self) {
         self.using_bootrom.store(false, Ordering::Relaxed);
+    }
+
+    fn hash_signed_tiles(&self) {
+        let mut index: usize = 2047;
+        let mut hashable_vec: Vec<u8> = Vec::with_capacity(3072);
+
+        while index < 6144 {
+            hashable_vec.push(self.char_ram[index].load(Ordering::Relaxed));
+            index += 1;
+        }
+
+        let mut hasher = DefaultHasher::new();
+        hashable_vec.hash(&mut hasher);
+        self.tiles_signed_hash.store(hasher.finish(), Ordering::Relaxed);
+    }
+
+    fn hash_unsigned_tiles(&self) {
+        let mut index: usize = 0;
+        let mut hashable_vec: Vec<u8> = Vec::with_capacity(3072);
+
+        while index < 4096 {
+            hashable_vec.push(self.char_ram[index].load(Ordering::Relaxed));
+            index += 1;
+        }
+
+        let mut hasher = DefaultHasher::new();
+        hashable_vec.hash(&mut hasher);
+        self.tiles_unsigned_hash.store(hasher.finish(), Ordering::Relaxed);
+    }
+
+    pub fn get_signed_hash(&self) -> u64 {
+        self.tiles_signed_hash.load(Ordering::Relaxed)
+    }
+
+    pub fn get_unsigned_hash(&self) -> u64 {
+        self.tiles_unsigned_hash.load(Ordering::Relaxed)
     }
 
     pub fn read(&self, address: u16) -> u8 {
@@ -108,7 +156,25 @@ impl Memory {
         }
     }
 
-    pub fn write(&self, address: u16, value: u8, cpu: bool) {
+    pub fn video_read(&self, address: u16) -> u8 {
+        if address >= 0x8000 && address <= 0x97FF {
+            self.char_ram[address as usize - 0x8000].load(Ordering::Relaxed)
+        }
+
+        else if address >= 0x9800 && address <= 0x9FFF {
+            self.background_memory[address as usize - 0x9800].load(Ordering::Relaxed)
+        }
+
+        else if address >= 0xFF00 && address <= 0xFF7F {
+            self.io_registers[address as usize - 0xFF00].load(Ordering::Relaxed)
+        }
+
+        else {
+            unreachable!();
+        }
+    }
+
+    pub fn write(&self, address: u16, value: u8) {
 
         if address < 0x0100 && !self.using_bootrom.load(Ordering::Relaxed) {
             self.loaded_cart.write(address, value);
@@ -120,6 +186,13 @@ impl Memory {
 
         else if address >= 0x8000 && address <= 0x97FF {
             self.char_ram[address as usize - 0x8000].store(value, Ordering::Relaxed);
+            
+            if address >= 0x8000 && address <= 0x9000 {
+                self.hash_unsigned_tiles();
+            }
+            else if address >= 0x87FF && address <= 0x97FF {
+                self.hash_signed_tiles();
+            }
         }
 
         else if address >= 0x9800 && address <= 0x9FFF {
@@ -148,16 +221,14 @@ impl Memory {
         }
 
         else if address >= 0xFF00 && address <= 0xFF7F {
-
+            
             if address == 0xFF01 {
                 println!("{}", value as char);
             }
 
-            if cpu {
-                if address == 0xFF04 || address == 0xFF44 {
-                    self.io_registers[address as usize - 0xFF00].store(0, Ordering::Relaxed);
-                    return;
-                }
+            if address == 0xFF04 || address == 0xFF44 {
+                self.io_registers[address as usize - 0xFF00].store(0, Ordering::Relaxed);
+                return;
             }
 
             self.io_registers[address as usize - 0xFF00].store(value, Ordering::Relaxed);
@@ -176,6 +247,16 @@ impl Memory {
         }
     }
 
+    pub fn video_write(&self, address: u16, value: u8) {
+
+        if address >= 0xFF00 && address <= 0xFF7F {
+            self.io_registers[address as usize - 0xFF00].store(value, Ordering::Relaxed);
+        }
+        else {
+            unreachable!();
+        }
+    }
+
     fn dma_transfer(&self, value: u8) {
         let address = (value as u16) << 8;
         let end_address = address + 0x009F;
@@ -184,7 +265,7 @@ impl Memory {
 
         while transfer_progress.0 < end_address {
             let value = self.read(transfer_progress.0);
-            self.write(transfer_progress.1, value, true);
+            self.write(transfer_progress.1, value);
             transfer_progress.0 += 1;
             transfer_progress.1 += 1;
         }
