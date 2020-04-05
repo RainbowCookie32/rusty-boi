@@ -1,17 +1,69 @@
 name: Rust
 
-on: [push]
+on: [push, pull_request]
 
 jobs:
-  build:
-
+  linux-build-debug:
     runs-on: [ubuntu-latest]
-
     steps:
-    - uses: actions/checkout@v1
-    - name: Run apt update
-      run: sudo apt update
-    - name: Install SDL2 libs
-      run: sudo apt install libsdl2-dev
-    - name: Build
-      run: cargo build --verbose 
+    - uses: actions/checkout@v2
+    - name: Fetch dependencies
+      run: sudo apt update && sudo apt install libsdl2-dev
+    - name: Build rusty-boi (debug)
+      run: cargo build
+    - name: Move results
+      run: mkdir result && cp target/debug/rusty_boi result
+    - name: Upload artifact
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: linux_build_debug
+        path: result
+        
+        
+  linux-build-release:
+    runs-on: [ubuntu-latest]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Fetch dependencies
+      run: sudo apt update && sudo apt install libsdl2-dev
+    - name: Build rusty-boi (release)
+      run: cargo build --release
+    - name: Move results
+      run: mkdir result && cp target/release/rusty_boi result
+    - name: Upload artifact
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: linux_build_release
+        path: result
+        
+        
+  windows-build-debug:
+    runs-on: [windows-latest]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build rusty-boi (debug)
+      run: cargo build --verbose
+    - name: Move results
+      run: mkdir result
+    - run: copy target/debug/rusty_boi.exe result 
+    - run: copy target/debug/rusty_boi.pdb result 
+    - name: Upload artifact
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: windows_build_debug
+        path: result 
+        
+  windows-build-release:
+    runs-on: [windows-latest]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build rusty-boi (release)
+      run: cargo build --release --verbose
+    - name: Move results
+      run: mkdir result
+    - run: copy target/release/rusty_boi.exe result 
+    - name: Upload artifact
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: windows_build_release
+        path: result 
