@@ -20,7 +20,7 @@ pub struct Memory {
     
     hram: Vec<AtomicU8>,
 
-    using_bootrom: AtomicBool,
+    bootrom_enabled: AtomicBool,
     interrupts_enabled: AtomicU8,
 
     tiles_signed_hash: AtomicU64,
@@ -29,11 +29,12 @@ pub struct Memory {
 
 impl Memory {
 
-    pub fn new(bootrom_data: Vec<u8>, use_bootrom: bool, loaded_cart: CartData) -> Memory {
+    pub fn new(bootrom: Option<Vec<u8>>, cart: CartData) -> Memory {
+        let bootrom_enabled = bootrom.is_some();
 
         Memory {
-            bootrom: bootrom_data,
-            loaded_cart: loaded_cart,
+            bootrom: if bootrom.is_some() {bootrom.unwrap()} else {Vec::new()},
+            loaded_cart: cart,
 
             char_ram: new_atomic_vec(6144),
             background_memory: new_atomic_vec(2048),
@@ -44,7 +45,7 @@ impl Memory {
 
             hram: new_atomic_vec(128),
 
-            using_bootrom: AtomicBool::from(use_bootrom),
+            bootrom_enabled: AtomicBool::from(bootrom_enabled),
             interrupts_enabled: AtomicU8::new(0),
 
             tiles_signed_hash: AtomicU64::from(0),
@@ -52,12 +53,12 @@ impl Memory {
         }
     }
 
-    pub fn is_bootrom_loaded(&self) -> bool {
-        self.using_bootrom.load(Ordering::Relaxed)
+    pub fn is_bootrom_enabled(&self) -> bool {
+        self.bootrom_enabled.load(Ordering::Relaxed)
     }
 
     pub fn bootrom_finished(&self) {
-        self.using_bootrom.store(false, Ordering::Relaxed);
+        self.bootrom_enabled.store(false, Ordering::Relaxed);
     }
 
     fn hash_signed_tiles(&self) {
@@ -98,7 +99,7 @@ impl Memory {
 
     pub fn read(&self, address: u16) -> u8 {
         if address < 0x0100 {
-            if self.using_bootrom.load(Ordering::Relaxed) {
+            if self.bootrom_enabled.load(Ordering::Relaxed) {
                 self.bootrom[address as usize]
             }
             else {
@@ -176,7 +177,7 @@ impl Memory {
 
     pub fn write(&self, address: u16, value: u8) {
 
-        if address < 0x0100 && !self.using_bootrom.load(Ordering::Relaxed) {
+        if address < 0x0100 && !self.bootrom_enabled.load(Ordering::Relaxed) {
             self.loaded_cart.write(address, value);
         }
 

@@ -153,13 +153,12 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new(memory: Arc<Memory>, run_bootrom: bool) -> Cpu {
-                
+    pub fn new(memory: Arc<Memory>) -> Cpu {
         Cpu {
             registers: vec![Register::new(); 8],
             cpu_flags: FlagsRegister::new(),
             
-            pc: if run_bootrom {0x0} else {0x100},
+            pc: if memory.is_bootrom_enabled() {0x0} else {0x100},
             sp: 0,
             cycles: 0,
 
