@@ -28,6 +28,15 @@ use super::memory;
 use super::memory::GeneralMemory;
 use super::emulator::InputEvent;
 
+const LCD_CONTROL: u16 = 0xFF40;
+const LCD_STATUS: u16 = 0xFF41;
+const SCROLL_Y: u16 = 0xFF42;
+const SCROLL_X: u16 = 0xFF43;
+const LY: u16 = 0xFF44;
+const LYC: u16 = 0xFF45;
+const WY: u16 = 0xFF4A;
+const WX: u16 = 0xFF4B;
+
 
 pub struct SpriteData {
     pub x: u8,
@@ -76,8 +85,6 @@ pub struct GpuState {
     pub sprites: Vec<SpriteData>,
     pub tile_bank0: Vec<Vec<u8>>,
     pub tile_bank1: Vec<Vec<u8>>,
-    pub background_points: Vec<u8>,
-    pub window_points: Vec<u8>,
 
     pub tile_palette: Vec<Color>,
     pub sprites_palettes: Vec<Vec<Color>>,
@@ -119,8 +126,6 @@ impl GpuState {
             sprites: Vec::new(),
             tile_bank0: vec![vec![0; 64]; 256],
             tile_bank1: vec![vec![0; 64]; 256],
-            background_points: vec![0; 65536],
-            window_points: vec![0; 65536],
 
             tile_palette: vec![Color::RGBA(255, 255, 255, 0), Color::RGBA(192, 192, 192, 255), Color::RGBA(96, 96, 96, 255), 
             Color::RGBA(0, 0, 0, 255)],
@@ -166,12 +171,12 @@ pub fn start_gpu(cycles: Arc<AtomicU16>, memory: Arc<GeneralMemory>, input_tx: S
         if gpu_state.lcd_enabled {
 
             if gpu_state.tile_palette_dirty {
-                gpu_state.tile_palette = make_palette(memory::gpu_read(0xFF47, &memory));
+                gpu_state.tile_palette = make_palette(memory::video_read(0xFF47, &memory));
                 gpu_state.tile_palette_dirty = false;
             }
             if gpu_state.sprite_palettes_dirty {
-                gpu_state.sprites_palettes[0] = make_palette(memory::gpu_read(0xFF48, &memory));
-                gpu_state.sprites_palettes[1] = make_palette(memory::gpu_read(0xFF49, &memory));
+                gpu_state.sprites_palettes[0] = make_palette(memory::video_read(0xFF48, &memory));
+                gpu_state.sprites_palettes[1] = make_palette(memory::video_read(0xFF49, &memory));
                 // Regenerate the sprites cache after modifying the palettes.
                 gpu_state.sprites_dirty_flags = gpu_state.sprites_dirty_flags.wrapping_add(1);
                 gpu_state.sprite_palettes_dirty = false;
@@ -190,11 +195,11 @@ pub fn start_gpu(cycles: Arc<AtomicU16>, memory: Arc<GeneralMemory>, input_tx: S
                 lcd_transfer_mode(&mut gpu_state, &memory);
             }
 
-            let lyc = memory::gpu_read(0xFF45, &memory);
+            let lyc = memory::video_read(0xFF45, &memory);
             
             if lyc == gpu_state.line {
-                let mut stat = memory::gpu_read(0xFF41, &memory);
-                let mut if_value = memory::gpu_read(0xFF0F, &memory);
+                let mut stat = memory::video_read(0xFF41, &memory);
+                let mut if_value = memory::video_read(0xFF0F, &memory);
 
                 if utils::check_bit(stat, 6) {
                     if_value = utils::set_bit(if_value, 1);
@@ -218,7 +223,7 @@ pub fn start_gpu(cycles: Arc<AtomicU16>, memory: Arc<GeneralMemory>, input_tx: S
 
 fn update_gpu_values(state: &mut GpuState, memory: &Arc<GeneralMemory>) {
 
-    let lcdc = memory::gpu_read(0xFF40, memory);
+    let lcdc = memory::video_read(0xFF40, memory);
     state.lcd_enabled = utils::check_bit(lcdc, 7);
     state.window_tilemap = if utils::check_bit(lcdc, 6) {(0x9C00, 0x9FFF)} else {(0x9800, 0x9BFF)};
     state.window_enabled = utils::check_bit(lcdc, 5);
@@ -228,10 +233,10 @@ fn update_gpu_values(state: &mut GpuState, memory: &Arc<GeneralMemory>) {
     state.sprites_enabled = utils::check_bit(lcdc, 1);
     state.background_enabled = utils::check_bit(lcdc, 0);
 
-    state.scroll_y = memory::gpu_read(0xFF42, memory);
-    state.scroll_x = memory::gpu_read(0xFF43, memory);
-    state.window_y = memory::gpu_read(0xFF4A, memory);
-    state.window_x = memory::gpu_read(0xFF4B, memory);
+    state.scroll_y = memory::video_read(0xFF42, memory);
+    state.scroll_x = memory::video_read(0xFF43, memory);
+    state.window_y = memory::video_read(0xFF4A, memory);
+    state.window_x = memory::video_read(0xFF4B, memory);
 
     state.tiles_dirty_flags = memory.tiles_dirty_flags.load(Ordering::Relaxed);
     state.sprites_dirty_flags = memory.sprites_dirty_flags.load(Ordering::Relaxed);
@@ -247,36 +252,36 @@ fn update_gpu_values(state: &mut GpuState, memory: &Arc<GeneralMemory>) {
 
 fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<GeneralMemory>) {
 
-    let mut stat_value = memory::gpu_read(0xFF41, &memory);
+    let mut stat_value = memory::video_read(0xFF41, &memory);
 
     stat_value = utils::reset_bit(stat_value, 1);
     stat_value = utils::reset_bit(stat_value, 0);
     memory::gpu_write(0xFF41, stat_value, &memory);
 
-    if state.background_enabled {draw_background(state, canvas)}
-    if state.sprites_enabled {draw_sprites(state, canvas)}
-    if state.window_enabled {draw_window(state, canvas)};
+    if state.background_enabled {draw_background(state, canvas, memory)}
+    if state.window_enabled {draw_window(state, canvas, memory)};
 
     state.gpu_cycles = 0;
     state.line += 1;
     memory::gpu_write(0xFF44, state.line, &memory);
     
     if state.line == 144 {
+        if state.sprites_enabled {draw_sprites(state, canvas)}
         state.gpu_mode = 1;
         state.frames += 1;
         canvas.present();
     }
 
     if utils::check_bit(stat_value, 3) {
-        let if_value = utils::set_bit(memory::gpu_read(0xFF0F, memory), 1);
+        let if_value = utils::set_bit(memory::video_read(0xFF0F, memory), 1);
         memory::gpu_write(0xFF0F, if_value, &memory);
     }
 }
 
 fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<GeneralMemory>) {
     
-    let mut if_value = memory::gpu_read(0xFF0F, memory);
-    let mut stat_value = memory::gpu_read(0xFF41, memory);
+    let mut if_value = memory::video_read(0xFF0F, memory);
+    let mut stat_value = memory::video_read(0xFF41, memory);
 
     state.gpu_cycles = 0;
     state.line += 1;
@@ -301,7 +306,7 @@ fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<G
 
 fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &Arc<GeneralMemory>) {
 
-    let mut stat_value = memory::gpu_read(0xFF41, memory);
+    let mut stat_value = memory::video_read(0xFF41, memory);
 
     state.gpu_cycles = 0;
     state.gpu_mode = 3;
@@ -317,14 +322,14 @@ fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, 
 
     if utils::check_bit(stat_value, 5) {
 
-        let if_value = utils::set_bit(memory::gpu_read(0xFF0F, memory), 1);
+        let if_value = utils::set_bit(memory::video_read(0xFF0F, memory), 1);
         memory::gpu_write(0xFF0F, if_value, &memory);
     }
 }
 
 fn lcd_transfer_mode(state: &mut GpuState, memory: &Arc<GeneralMemory>) {
 
-    let mut stat_value = memory::gpu_read(0xFF41, memory);
+    let mut stat_value = memory::video_read(0xFF41, memory);
 
     stat_value = utils::set_bit(stat_value, 1);
     stat_value = utils::set_bit(stat_value, 0);
@@ -339,57 +344,109 @@ fn lcd_transfer_mode(state: &mut GpuState, memory: &Arc<GeneralMemory>) {
         state.tiles_dirty_flags -= 1;
         memory.tiles_dirty_flags.fetch_sub(1, Ordering::Relaxed);
     }
-
-    if state.background_dirty_flags > 1 {
-        make_background(state, memory);
-        make_window(state, memory);
-        state.background_dirty_flags -= 1;
-        memory.background_dirty_flags.fetch_sub(1, Ordering::Relaxed);
-    }
 }
 
 // Drawing to screen.
-fn draw_background(state: &mut GpuState, canvas: &mut Canvas<Window>) {
+fn draw_background(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<GeneralMemory>) {
 
-    let mut point_idx: u16 = 0;
+    let lcd_control = memory::video_read(LCD_CONTROL, memory);
+    let use_signed_tiles = (lcd_control & 0x10) == 0;
+    let background_address = (if (lcd_control & 0x08) == 0 {0x9800} else {0x9C00}) + (32 * (state.line / 8) as u16);
 
-    // Index offset for the points array in case the current line is not 0.
-    point_idx += 256 * state.line as u16;
+    let tile_y_offset = state.line % 8;
 
-    // Draw a whole line from the background map.
-    for point in 0..256 {
-        
-        let target_x = (point as u8).overflowing_sub(state.scroll_x).0;
-        let target_y = state.line.overflowing_sub(state.scroll_y).0;
-        let color = state.tile_palette[state.background_points[point_idx as usize] as usize];
-        let final_point = Point::new(target_x as i32, target_y as i32);
+    let mut drawn_tiles = 0;
+    let mut color_idx: u8 = 0;
 
+    let target_y = state.line.wrapping_sub(memory::video_read(SCROLL_Y, memory));
+
+    // One draw pass for each color, avoids moving values around too frequently and the draw color switches.
+    while color_idx < 4 {
+        let mut target_x: i32 = 0;
+        target_x = target_x.wrapping_sub(memory::video_read(SCROLL_X, memory) as i32);
+
+        let color = state.tile_palette[color_idx as usize];
         canvas.set_draw_color(color);
-        canvas.draw_point(final_point).unwrap();
-        point_idx += 1;
+
+        while drawn_tiles < 32 {
+            let tile: &Vec<u8>;
+            let tile_idx = memory::video_read(background_address + drawn_tiles, memory);
+            let mut draw_idx = 8 * tile_y_offset;
+            let mut drawn_pixels = 0;
+
+            if use_signed_tiles {
+                tile = &state.tile_bank1[(tile_idx  as i8 as i16 + 128) as usize];
+            }
+            else {
+                tile = &state.tile_bank0[tile_idx as usize];
+            }
+                
+            while drawn_pixels < 8 {
+                if tile[draw_idx as usize] == color_idx {
+                    canvas.draw_point(Point::new(target_x, target_y as i32)).unwrap();
+                }
+
+                target_x = target_x.wrapping_add(1);
+                draw_idx += 1;
+                drawn_pixels += 1;
+            }
+
+            drawn_tiles += 1;
+        }
+
+        color_idx += 1;
+        drawn_tiles = 0;
     }
 }
 
-fn draw_window(state: &mut GpuState, canvas: &mut Canvas<Window>) {
+fn draw_window(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<GeneralMemory>) {
 
-    if state.window_x < 166 && state.window_y < 143 {
-        let mut point_idx: u16 = 0;
+    let lcd_control = memory::video_read(LCD_CONTROL, memory);
+    let use_signed_tiles = (lcd_control & 0x10) == 0;
+    let background_address = (if (lcd_control & 0x40) == 0 {0x9800} else {0x9C00}) + (32 * (state.line / 8) as u16);
 
-        // Index offset for the points array in case the current line is not 0.
-        point_idx += 256 * state.line as u16;
+    let tile_y_offset = state.line % 8;
 
-        // Draw a whole line from the window.
-        for point in 0..255 as u8 {
-        
-            let target_x = point.wrapping_add(state.window_x.wrapping_sub(7));
-            let target_y = state.line.wrapping_add(state.window_y);
-            let color = state.tile_palette[state.window_points[point_idx as usize] as usize];
-            let final_point = Point::new(target_x as i32, target_y as i32);
+    let mut drawn_tiles = 0;
+    let mut color_idx: u8 = 0;
 
-            canvas.set_draw_color(color);
-            canvas.draw_point(final_point).unwrap();
-            point_idx += 1;
+    let target_y = state.line.wrapping_sub(memory::video_read(WY, memory));
+
+    // One draw pass for each color, avoids moving values around too frequently and the draw color switches.
+    while color_idx < 4 {
+        let mut target_x = memory::video_read(WX, memory).wrapping_sub(7);
+
+        let color = state.tile_palette[color_idx as usize];
+        canvas.set_draw_color(color);
+
+        while drawn_tiles < 32 {
+            let tile: &Vec<u8>;
+            let tile_idx = memory::video_read(background_address + drawn_tiles, memory);
+            let mut draw_idx = 8 * tile_y_offset;
+            let mut drawn_pixels = 0;
+
+            if use_signed_tiles {
+                tile = &state.tile_bank1[(tile_idx  as i8 as i16 + 128) as usize];
+            }
+            else {
+                tile = &state.tile_bank0[tile_idx as usize];
+            }
+                
+            while drawn_pixels < 8 {
+                if tile[draw_idx as usize] == color_idx {
+                    canvas.draw_point(Point::new(target_x as i32, target_y as i32)).unwrap();
+                }
+
+                target_x = target_x.wrapping_add(1);
+                draw_idx += 1;
+                drawn_pixels += 1;
+            }
+
+            drawn_tiles += 1;
         }
+
+        color_idx += 1;
+        drawn_tiles = 0;
     }
 }
 
@@ -420,7 +477,7 @@ fn make_tiles(state: &mut GpuState, target_bank: u8, memory: &Arc<GeneralMemory>
 
         while loaded_bytes < 16 {
 
-            tile_bytes[loaded_bytes] = memory::gpu_read(memory_position, memory);
+            tile_bytes[loaded_bytes] = memory::video_read(memory_position, memory);
             memory_position += 1;
             loaded_bytes += 1;
         }
@@ -476,7 +533,7 @@ fn make_sprites(state: &mut GpuState, creator: &TextureCreator<WindowContext>, m
         let mut loaded_bytes: usize = 0;
 
         while loaded_bytes < 4 {
-            sprite_bytes[loaded_bytes] = memory::gpu_read(current_address, memory);
+            sprite_bytes[loaded_bytes] = memory::video_read(current_address, memory);
             current_address += 1;
             loaded_bytes += 1;
         }
@@ -582,133 +639,6 @@ fn make_sprite(state: &mut GpuState, creator: &TextureCreator<WindowContext>, by
     }
 
     SpriteData::new((position_x, position_y), (flip_x, flip_y), new_sprite)
-}
-
-fn make_window(state: &mut GpuState, memory: &Arc<GeneralMemory>) {
-
-    let mut generated_lines: u16 = 0;
-    let mut current_address = state.window_tilemap.0;
-
-    let lcdc_value =  utils::check_bit(memory::gpu_read(0xFF40, memory), 4);
-    let tile_bank = if lcdc_value {&state.tile_bank0} else {&state.tile_bank1};
-
-    let mut window_index: usize = 0;
-        
-    while generated_lines < 256 {
-
-        let mut tiles: Vec<&Vec<u8>> = Vec::new();
-        let mut tile_idx: usize = 0;
-
-        // Loads tile indexes from memory, then gets the tile from GPU State and saves it to tiles.
-        // 32 tiles is the maximum amount of tiles per line.
-        while tile_idx < 32 {
-
-            let tile_id = memory::gpu_read(current_address, memory);
-            if lcdc_value {
-                let target_tile = tile_id;
-                tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
-                tile_idx += 1;
-                current_address += 1;
-            }
-            else {
-                let target_tile = (tile_id as i8 as i16 + 128) as u16;
-                tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
-                tile_idx += 1;
-                current_address += 1;
-            }
-        }
-
-        let mut tile_line = 0;
-
-        while tile_line < 8 {
-
-            let line = make_background_line(&tiles, tile_line);
-            for point in line.into_iter() {
-                state.window_points[window_index] = point;
-                window_index += 1;
-            }
-            tile_line += 1;
-            generated_lines += 1;
-        }
-    }
-}
-
-fn make_background(state: &mut GpuState, memory: &Arc<GeneralMemory>) {
-
-    let mut generated_lines: u16 = 0;
-    let mut current_background = if utils::check_bit(memory::gpu_read(0xFF40, memory), 3) {0x9C00} else {0x9800};
-
-    let lcdc_value =  utils::check_bit(memory::gpu_read(0xFF40, memory), 4);
-    let tile_bank = if lcdc_value {&state.tile_bank0} else {&state.tile_bank1};
-
-    let mut background_idx: usize = 0;
-        
-    while generated_lines < 256 {
-
-        let mut tiles: Vec<&Vec<u8>> = Vec::new();
-        let mut tile_idx: usize = 0;
-
-        // Loads tile indexes from memory, then gets the tile from GPU State and saves it to tiles.
-        // 32 tiles is the maximum amount of tiles per line in the background.
-        while tile_idx < 32 {
-
-            let bg_value = memory::gpu_read(current_background, memory);
-            if lcdc_value {
-                let target_tile = bg_value;
-                tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
-                tile_idx += 1;
-                current_background += 1;
-            }
-            else {
-                let target_tile = (bg_value as i8 as i16 + 128) as u16;
-                tiles.insert(tile_idx, &tile_bank[target_tile as usize]);
-                tile_idx += 1;
-                current_background += 1;
-            }
-        }
-
-        let mut tile_line = 0;
-
-        while tile_line < 8 {
-
-            let line = make_background_line(&tiles, tile_line);
-            for point in line.into_iter() {
-                state.background_points[background_idx] = point;
-                background_idx += 1;
-            }
-            tile_line += 1;
-            generated_lines += 1;
-        }
-    }
-}
-
-fn make_background_line(tiles: &Vec<&Vec<u8>>, tile_line: u8) -> Vec<u8> {
-
-    let start_idx = vec![0, 8, 16, 24, 32, 40, 48, 56];
-    let mut generated_points = 0;
-    let mut processed_tiles = 0;
-    let mut final_line: Vec<u8> = vec![0; 256];
-
-    while generated_points < 256 {
-
-        while processed_tiles < 32 {
-
-            let end_index = start_idx[tile_line as usize] + 8;
-            let mut color_index = start_idx[tile_line as usize];
-            let current_tile = tiles[processed_tiles as usize];
-
-            while color_index < end_index {
-
-                final_line[generated_points] = current_tile[color_index];
-
-                color_index += 1;
-                generated_points += 1;
-            }
-            processed_tiles += 1;
-        }
-    }  
-
-    final_line
 }
 
 fn make_palette(value: u8) -> Vec<Color> {

@@ -269,7 +269,7 @@ pub fn timer_write(address: u16, value: u8, memory: &Arc<GeneralMemory>) {
     }
 }
 
-pub fn gpu_read(address: u16, memory: &Arc<GeneralMemory>) -> u8 {
+pub fn video_read(address: u16, memory: &Arc<GeneralMemory>) -> u8 {
 
     if address >= 0x8000 && address <= 0x97FF
     {
