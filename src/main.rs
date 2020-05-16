@@ -4,11 +4,7 @@ mod cart;
 mod timer;
 mod utils;
 mod memory;
-mod register;
 mod emulator;
-
-mod opcodes;
-mod opcodes_prefixed;
 
 use log::info;
 

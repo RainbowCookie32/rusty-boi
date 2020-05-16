@@ -24,8 +24,7 @@ use sdl2::render::Texture;
 use sdl2::render::TextureCreator;
 
 use super::utils;
-use super::memory;
-use super::memory::GeneralMemory;
+use super::memory::SharedMemory;
 use super::emulator::InputEvent;
 
 const LCD_CONTROL: u16 = 0xFF40;
@@ -37,6 +36,14 @@ const LYC: u16 = 0xFF45;
 const WY: u16 = 0xFF4A;
 const WX: u16 = 0xFF4B;
 
+
+pub enum VideoMode {
+    Hblank,
+    Vblank,
+    OamSearch,
+    LcdTransfer,
+    LyCoincidence,
+}
 
 pub struct SpriteData {
     pub x: u8,
@@ -91,9 +98,14 @@ pub struct GpuState {
     pub tile_palette_dirty: bool,
     pub sprite_palettes_dirty: bool,
 
-    pub tiles_dirty_flags: u8,
-    pub sprites_dirty_flags: u8,
-    pub background_dirty_flags: u8,
+    pub oam_hash: u64,
+    pub oam_dirty: bool,
+
+    pub t0_hash: u64,
+    pub t1_hash: u64,
+
+    pub t0_dirty: bool,
+    pub t1_dirty: bool,
 
     pub frames: u16,
 }
@@ -134,16 +146,21 @@ impl GpuState {
             tile_palette_dirty: false,
             sprite_palettes_dirty: false,
 
-            tiles_dirty_flags: 0,
-            sprites_dirty_flags: 0,
-            background_dirty_flags: 0,
+            oam_hash: 0,
+            oam_dirty: false,
+
+            t0_hash: 0,
+            t1_hash: 0,
+
+            t0_dirty: true,
+            t1_dirty: true,
 
             frames: 0,
         }
     }
 }
 
-pub fn start_gpu(cycles: Arc<AtomicU16>, memory: Arc<GeneralMemory>, input_tx: Sender<InputEvent>) {
+pub fn start_gpu(cycles: Arc<AtomicU16>, memory: Arc<SharedMemory>, input_tx: Sender<InputEvent>) {
 
     let mut gpu_state = GpuState::new();
 
@@ -171,15 +188,25 @@ pub fn start_gpu(cycles: Arc<AtomicU16>, memory: Arc<GeneralMemory>, input_tx: S
         if gpu_state.lcd_enabled {
 
             if gpu_state.tile_palette_dirty {
-                gpu_state.tile_palette = make_palette(memory::video_read(0xFF47, &memory));
+                gpu_state.tile_palette = make_palette(memory.read(0xFF47));
                 gpu_state.tile_palette_dirty = false;
             }
             if gpu_state.sprite_palettes_dirty {
-                gpu_state.sprites_palettes[0] = make_palette(memory::video_read(0xFF48, &memory));
-                gpu_state.sprites_palettes[1] = make_palette(memory::video_read(0xFF49, &memory));
+                gpu_state.sprites_palettes[0] = make_palette(memory.read(0xFF48));
+                gpu_state.sprites_palettes[1] = make_palette(memory.read(0xFF49));
                 // Regenerate the sprites cache after modifying the palettes.
-                gpu_state.sprites_dirty_flags = gpu_state.sprites_dirty_flags.wrapping_add(1);
+                gpu_state.oam_dirty = true;
                 gpu_state.sprite_palettes_dirty = false;
+            }
+
+            if gpu_state.t0_dirty {
+                make_tiles(&mut gpu_state, 0, &memory);
+                gpu_state.t0_dirty = false;
+            }
+        
+            if gpu_state.t1_dirty {
+                make_tiles(&mut gpu_state, 1, &memory);
+                gpu_state.t1_dirty = false;
             }
 
             if gpu_state.gpu_mode == 0 && gpu_state.gpu_cycles >= 204 {
@@ -195,25 +222,16 @@ pub fn start_gpu(cycles: Arc<AtomicU16>, memory: Arc<GeneralMemory>, input_tx: S
                 lcd_transfer_mode(&mut gpu_state, &memory);
             }
 
-            let lyc = memory::video_read(0xFF45, &memory);
+            let lyc = memory.read(0xFF45);
             
             if lyc == gpu_state.line {
-                let mut stat = memory::video_read(0xFF41, &memory);
-                let mut if_value = memory::video_read(0xFF0F, &memory);
-
-                if utils::check_bit(stat, 6) {
-                    if_value = utils::set_bit(if_value, 1);
-                    memory::gpu_write(0xFF0F, if_value, &memory);
-                }
-
-                stat = utils::set_bit(stat, 2);
-                memory::gpu_write(0xFF41, stat, &memory);
+                update_video_mode(VideoMode::LyCoincidence, &memory);
             }
         }
 
-        if fps_timer.elapsed() >= std::time::Duration::from_millis(1000) && gpu_state.frames > 0 {
+        if fps_timer.elapsed() >= std::time::Duration::from_millis(1000) {
 
-            let framerate = format!("Rusty Boi - Game - FPS: {:#?}", gpu_state.frames as u64 / fps_timer.elapsed().as_secs());
+            let framerate = format!("Rusty Boi - Game - FPS: {:#?}", gpu_state.frames as f32 / fps_timer.elapsed().as_secs() as f32);
             game_canvas.window_mut().set_title(&framerate).unwrap();
             fps_timer = std::time::Instant::now();
             gpu_state.frames = 0;
@@ -221,9 +239,9 @@ pub fn start_gpu(cycles: Arc<AtomicU16>, memory: Arc<GeneralMemory>, input_tx: S
     }
 }
 
-fn update_gpu_values(state: &mut GpuState, memory: &Arc<GeneralMemory>) {
+fn update_gpu_values(state: &mut GpuState, memory: &Arc<SharedMemory>) {
 
-    let lcdc = memory::video_read(0xFF40, memory);
+    let lcdc = memory.read(0xFF40);
     state.lcd_enabled = utils::check_bit(lcdc, 7);
     state.window_tilemap = if utils::check_bit(lcdc, 6) {(0x9C00, 0x9FFF)} else {(0x9800, 0x9BFF)};
     state.window_enabled = utils::check_bit(lcdc, 5);
@@ -233,66 +251,102 @@ fn update_gpu_values(state: &mut GpuState, memory: &Arc<GeneralMemory>) {
     state.sprites_enabled = utils::check_bit(lcdc, 1);
     state.background_enabled = utils::check_bit(lcdc, 0);
 
-    state.scroll_y = memory::video_read(0xFF42, memory);
-    state.scroll_x = memory::video_read(0xFF43, memory);
-    state.window_y = memory::video_read(0xFF4A, memory);
-    state.window_x = memory::video_read(0xFF4B, memory);
+    state.scroll_y = memory.read(0xFF42);
+    state.scroll_x = memory.read(0xFF43);
+    state.window_y = memory.read(0xFF4A);
+    state.window_x = memory.read(0xFF4B);
 
-    state.tiles_dirty_flags = memory.tiles_dirty_flags.load(Ordering::Relaxed);
-    state.sprites_dirty_flags = memory.sprites_dirty_flags.load(Ordering::Relaxed);
-    state.background_dirty_flags = memory.background_dirty_flags.load(Ordering::Relaxed);
-    state.tile_palette_dirty = memory.tile_palette_dirty.load(Ordering::Relaxed);
-    state.sprite_palettes_dirty = memory.sprite_palettes_dirty.load(Ordering::Relaxed);
+    let mem_t0 = memory.get_t0_hash();
+    let mem_t1 = memory.get_t1_hash();
+    let mem_oam = memory.get_oam_hash();
 
-    memory.tile_palette_dirty.store(false, Ordering::Relaxed);
-    memory.sprite_palettes_dirty.store(false, Ordering::Relaxed);
+    if state.t0_hash != mem_t0 {
+        state.t0_dirty = true;
+        state.t0_hash = mem_t0;
+    }
+
+    if state.t1_hash != mem_t1 {
+        state.t1_dirty = true;
+        state.t1_hash = mem_t1;
+    }
+    
+    if state.oam_hash != mem_oam {
+        state.oam_dirty = true;
+        state.oam_hash = mem_oam;
+    }
+}
+
+fn update_video_mode(new_mode: VideoMode, memory: &Arc<SharedMemory>) {
+    let mut stat_value = memory.read(0xFF41);
+    let mut if_value = memory.read(0xFF0F);
+
+    match new_mode {
+        VideoMode::LcdTransfer => {
+            stat_value &= 0xFE;
+            stat_value |= 3;
+        },
+        VideoMode::Hblank => {
+            stat_value &= 0xFE;
+            if ((stat_value >> 3) & 1) != 0 {
+                if_value |= 2;
+            }
+        },
+        VideoMode::Vblank => {
+            stat_value &= 0xFE;
+            stat_value |= 1;
+            if ((stat_value >> 4) & 1) != 0 {
+                if_value |= 2;
+            }
+        },
+        VideoMode::OamSearch => {
+            stat_value &= 0xFE;
+            stat_value |= 2;
+            if ((stat_value >> 5) & 1) != 0 {
+                if_value |= 2;
+            }
+
+            if_value |= 1;
+        },
+        VideoMode::LyCoincidence => {
+            stat_value |= 4;
+            if ((stat_value >> 6) & 1) != 0 {
+                if_value |= 2;
+            }
+        }
+    }
+
+    memory.write(0xFF41, stat_value, false);
+    memory.write(0xFF0F, if_value, false);
 }
 
 // GPU Modes
 
-fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<GeneralMemory>) {
-
-    let mut stat_value = memory::video_read(0xFF41, &memory);
-
-    stat_value = utils::reset_bit(stat_value, 1);
-    stat_value = utils::reset_bit(stat_value, 0);
-    memory::gpu_write(0xFF41, stat_value, &memory);
-
+fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<SharedMemory>) {
     if state.background_enabled {draw_background(state, canvas, memory)}
     if state.window_enabled {draw_window(state, canvas, memory)};
 
     state.gpu_cycles = 0;
     state.line += 1;
-    memory::gpu_write(0xFF44, state.line, &memory);
+    memory.write(0xFF44, state.line, false);
+
+    update_video_mode(VideoMode::Hblank, memory);
     
     if state.line == 144 {
         if state.sprites_enabled {draw_sprites(state, canvas)}
+        canvas.set_draw_color(Color::WHITE);
         state.gpu_mode = 1;
         state.frames += 1;
         canvas.present();
     }
-
-    if utils::check_bit(stat_value, 3) {
-        let if_value = utils::set_bit(memory::video_read(0xFF0F, memory), 1);
-        memory::gpu_write(0xFF0F, if_value, &memory);
-    }
 }
 
-fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<GeneralMemory>) {
-    
-    let mut if_value = memory::video_read(0xFF0F, memory);
-    let mut stat_value = memory::video_read(0xFF41, memory);
+fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<SharedMemory>) {
 
     state.gpu_cycles = 0;
     state.line += 1;
-    memory::gpu_write(0xFF44, state.line, &memory);
-    
-    if_value = utils::set_bit(if_value, 0);
-    memory::gpu_write(0xFF0F, if_value, &memory);
+    memory.write(0xFF44, state.line, false);
 
-    stat_value = utils::reset_bit(stat_value, 1);
-    stat_value = utils::set_bit(stat_value, 0);
-    memory::gpu_write(0xFF41, stat_value, &memory);
+    update_video_mode(VideoMode::Vblank, memory);
 
     if state.line == 154 {
 
@@ -300,56 +354,34 @@ fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<G
         state.line = 0;
 
         canvas.clear();
-        memory::gpu_write(0xFF44, 1, &memory);
+        memory.write(0xFF44, 1, false);
     }
 }
 
-fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &Arc<GeneralMemory>) {
-
-    let mut stat_value = memory::video_read(0xFF41, memory);
+fn oam_scan_mode(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &Arc<SharedMemory>) {
 
     state.gpu_cycles = 0;
     state.gpu_mode = 3;
-    stat_value = utils::set_bit(stat_value, 1);
-    stat_value = utils::reset_bit(stat_value, 0);
-    memory::gpu_write(0xFF41, stat_value, &memory);
     
-    if state.sprites_dirty_flags > 0 {
+    update_video_mode(VideoMode::OamSearch, memory);
+    
+    if state.oam_dirty {
         make_sprites(state, creator, memory);
-        state.sprites_dirty_flags -= 1;
-        memory.sprites_dirty_flags.fetch_sub(1, Ordering::Relaxed);
-    }
-
-    if utils::check_bit(stat_value, 5) {
-
-        let if_value = utils::set_bit(memory::video_read(0xFF0F, memory), 1);
-        memory::gpu_write(0xFF0F, if_value, &memory);
     }
 }
 
-fn lcd_transfer_mode(state: &mut GpuState, memory: &Arc<GeneralMemory>) {
-
-    let mut stat_value = memory::video_read(0xFF41, memory);
-
-    stat_value = utils::set_bit(stat_value, 1);
-    stat_value = utils::set_bit(stat_value, 0);
-    memory::gpu_write(0xFF41, stat_value, &memory);
+fn lcd_transfer_mode(state: &mut GpuState, memory: &Arc<SharedMemory>) {
 
     state.gpu_cycles = 0;
     state.gpu_mode = 0;
 
-    if state.tiles_dirty_flags > 0 {
-        make_tiles(state, 0, memory);
-        make_tiles(state, 1, memory);
-        state.tiles_dirty_flags -= 1;
-        memory.tiles_dirty_flags.fetch_sub(1, Ordering::Relaxed);
-    }
+    update_video_mode(VideoMode::LcdTransfer, memory);
 }
 
 // Drawing to screen.
-fn draw_background(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<GeneralMemory>) {
+fn draw_background(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<SharedMemory>) {
 
-    let lcd_control = memory::video_read(LCD_CONTROL, memory);
+    let lcd_control = memory.read(LCD_CONTROL);
     let use_signed_tiles = (lcd_control & 0x10) == 0;
     let background_address = (if (lcd_control & 0x08) == 0 {0x9800} else {0x9C00}) + (32 * (state.line / 8) as u16);
 
@@ -358,19 +390,19 @@ fn draw_background(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &A
     let mut drawn_tiles = 0;
     let mut color_idx: u8 = 0;
 
-    let target_y = state.line.wrapping_sub(memory::video_read(SCROLL_Y, memory));
+    let target_y = state.line.wrapping_sub(memory.read(SCROLL_Y));
 
     // One draw pass for each color, avoids moving values around too frequently and the draw color switches.
     while color_idx < 4 {
         let mut target_x: i32 = 0;
-        target_x = target_x.wrapping_sub(memory::video_read(SCROLL_X, memory) as i32);
+        target_x = target_x.wrapping_sub(memory.read(SCROLL_X) as i32);
 
         let color = state.tile_palette[color_idx as usize];
         canvas.set_draw_color(color);
 
         while drawn_tiles < 32 {
             let tile: &Vec<u8>;
-            let tile_idx = memory::video_read(background_address + drawn_tiles, memory);
+            let tile_idx = memory.read(background_address + drawn_tiles);
             let mut draw_idx = 8 * tile_y_offset;
             let mut drawn_pixels = 0;
 
@@ -399,9 +431,9 @@ fn draw_background(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &A
     }
 }
 
-fn draw_window(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<GeneralMemory>) {
+fn draw_window(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<SharedMemory>) {
 
-    let lcd_control = memory::video_read(LCD_CONTROL, memory);
+    let lcd_control = memory.read(LCD_CONTROL);
     let use_signed_tiles = (lcd_control & 0x10) == 0;
     let background_address = (if (lcd_control & 0x40) == 0 {0x9800} else {0x9C00}) + (32 * (state.line / 8) as u16);
 
@@ -410,18 +442,18 @@ fn draw_window(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<G
     let mut drawn_tiles = 0;
     let mut color_idx: u8 = 0;
 
-    let target_y = state.line.wrapping_sub(memory::video_read(WY, memory));
+    let target_y = state.line.wrapping_sub(memory.read(WY));
 
     // One draw pass for each color, avoids moving values around too frequently and the draw color switches.
     while color_idx < 4 {
-        let mut target_x = memory::video_read(WX, memory).wrapping_sub(7);
+        let mut target_x = memory.read(WX).wrapping_sub(7);
 
         let color = state.tile_palette[color_idx as usize];
         canvas.set_draw_color(color);
 
         while drawn_tiles < 32 {
             let tile: &Vec<u8>;
-            let tile_idx = memory::video_read(background_address + drawn_tiles, memory);
+            let tile_idx = memory.read(background_address + drawn_tiles);
             let mut draw_idx = 8 * tile_y_offset;
             let mut drawn_pixels = 0;
 
@@ -463,7 +495,7 @@ fn draw_sprites(state: &mut GpuState, canvas: &mut Canvas<Window>) {
 
 // Tile, Sprites, and Background cache generation.
 
-fn make_tiles(state: &mut GpuState, target_bank: u8, memory: &Arc<GeneralMemory>) {
+fn make_tiles(state: &mut GpuState, target_bank: u8, memory: &Arc<SharedMemory>) {
 
     let start_position = if target_bank == 0 {0x8000} else {0x8800};
     let end_position = if target_bank == 0 {0x8FFF} else {0x97FF};
@@ -477,7 +509,7 @@ fn make_tiles(state: &mut GpuState, target_bank: u8, memory: &Arc<GeneralMemory>
 
         while loaded_bytes < 16 {
 
-            tile_bytes[loaded_bytes] = memory::video_read(memory_position, memory);
+            tile_bytes[loaded_bytes] = memory.read(memory_position);
             memory_position += 1;
             loaded_bytes += 1;
         }
@@ -520,7 +552,7 @@ fn make_tile(bytes: &Vec<u8>) -> Vec<u8> {
     generated_tile
 }
 
-fn make_sprites(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &Arc<GeneralMemory>) {
+fn make_sprites(state: &mut GpuState, creator: &TextureCreator<WindowContext>, memory: &Arc<SharedMemory>) {
 
     let mut current_address = 0xFE00;
     let mut generated_sprites: usize = 0;
@@ -533,7 +565,7 @@ fn make_sprites(state: &mut GpuState, creator: &TextureCreator<WindowContext>, m
         let mut loaded_bytes: usize = 0;
 
         while loaded_bytes < 4 {
-            sprite_bytes[loaded_bytes] = memory::video_read(current_address, memory);
+            sprite_bytes[loaded_bytes] = memory.read(current_address);
             current_address += 1;
             loaded_bytes += 1;
         }
