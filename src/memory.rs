@@ -268,10 +268,6 @@ impl SharedMemory {
                     self.io_registers[(address - 0xFF00) as usize].store(0, Ordering::Relaxed);
                     return;
                 }
-
-                if address == 0xFF42 && value == 0xE0 {
-                    println!("xd");
-                }
             }
 
             self.io_registers[(address - 0xFF00) as usize].store(value, Ordering::Relaxed);
