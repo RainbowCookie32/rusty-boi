@@ -333,7 +333,6 @@ fn hblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<S
     
     if state.line == 144 {
         if state.sprites_enabled {draw_sprites(state, canvas)}
-        canvas.set_draw_color(Color::WHITE);
         state.gpu_mode = 1;
         state.frames += 1;
         canvas.present();
@@ -353,6 +352,7 @@ fn vblank_mode(state: &mut GpuState, canvas: &mut Canvas<Window>, memory: &Arc<S
         state.gpu_mode = 2;
         state.line = 0;
 
+        canvas.set_draw_color(Color::WHITE);
         canvas.clear();
         memory.write(0xFF44, 1, false);
     }
