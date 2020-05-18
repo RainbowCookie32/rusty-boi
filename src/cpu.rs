@@ -1,6 +1,5 @@
-use std::sync::Arc;
 use std::sync::mpsc::Receiver;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::Ordering;
 
 use log::{info};
 use byteorder::{ByteOrder, LittleEndian};
@@ -90,7 +89,6 @@ pub struct Cpu {
     registers: Vec<CpuRegister>,
 
     pc: u16,
-    cycles: Arc<AtomicU16>,
 
     halted: bool,
     stopped: bool,
@@ -104,12 +102,11 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new(rx: Receiver<InputEvent>, cycles: Arc<AtomicU16>, memory: Memory) -> Cpu {
+    pub fn new(rx: Receiver<InputEvent>, memory: Memory) -> Cpu {
         Cpu {
             registers: vec![CpuRegister::new(); 5],
 
             pc: 0,
-            cycles: cycles,
 
             halted: false,
             stopped: false,
@@ -144,7 +141,7 @@ impl Cpu {
                 self.run_instruction();
             }
 
-            timer.cycle(self.cycles.load(Ordering::Relaxed), &mut self.memory);
+            timer.cycle(super::emulator::GLOBAL_CYCLE_COUNTER.load(Ordering::Relaxed), &mut self.memory);
         }
     }
 
@@ -837,7 +834,7 @@ impl Cpu {
 
     fn instruction_finished(&mut self, pc: u16, cycles: u16) {
         self.pc += pc;
-        self.cycles.fetch_add(cycles, Ordering::Relaxed);
+        super::emulator::GLOBAL_CYCLE_COUNTER.fetch_add(cycles, Ordering::Relaxed);
     }
 
     fn update_flags(&mut self, z: Option<bool>, n: Option<bool>, h: Option<bool>, c: Option<bool>) {

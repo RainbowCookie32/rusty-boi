@@ -11,9 +11,11 @@ use log::info;
 use log::error;
 
 use super::cpu;
-use super::gpu;
+use super::video;
 use super::cart::CartData;
 use super::memory::{Memory, SharedMemory};
+
+pub static GLOBAL_CYCLE_COUNTER: AtomicU16 = AtomicU16::new(0);
 
 
 #[derive(PartialEq)]
@@ -41,19 +43,17 @@ pub fn initialize() {
 }
 
 pub fn start_emulation(cpu_mem: Memory, shared_mem: Arc<SharedMemory>) {
-        
-    let cpu_cycles = Arc::new(AtomicU16::new(0));
-    let gpu_cycles = Arc::clone(&cpu_cycles);
     
     let (input_tx, input_rx) = mpsc::channel();
 
     let cpu_thread = thread::Builder::new().name("cpu_thread".to_string()).spawn(move || {
-        let mut emulated_cpu = cpu::Cpu::new(input_rx, cpu_cycles, cpu_mem);
+        let mut emulated_cpu = cpu::Cpu::new(input_rx, cpu_mem);
         emulated_cpu.execution_loop();
     }).unwrap();
 
-    let _gpu_thread = thread::Builder::new().name("gpu_thread".to_string()).spawn(move || {
-        gpu::start_gpu(gpu_cycles, shared_mem, input_tx);
+    let _video_thread = thread::Builder::new().name("video_thread".to_string()).spawn(move || {
+        let mut emulated_video = video::VideoChip::new(shared_mem, input_tx);
+        emulated_video.execution_loop();
     }).unwrap();
 
     cpu_thread.join().unwrap();

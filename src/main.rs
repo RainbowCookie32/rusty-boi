@@ -1,8 +1,7 @@
 mod cpu;
-mod gpu;
 mod cart;
 mod timer;
-mod utils;
+mod video;
 mod memory;
 mod emulator;
 
