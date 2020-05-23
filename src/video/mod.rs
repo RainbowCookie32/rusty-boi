@@ -357,12 +357,11 @@ impl VideoChip {
         let mut drawn_tiles = 0;
         let mut color_idx: u8 = 0;
 
-        let target_y = line.wrapping_sub(self.memory.read(SCROLL_Y));
-
         // One draw pass for each color, avoids moving values around too frequently and the draw color switches.
         while color_idx < 4 {
-            let mut target_x: i32 = 0;
-            target_x = target_x.wrapping_sub(self.memory.read(SCROLL_X) as i32);
+            let mut target_x: u8 = 0;
+            let target_y = line.wrapping_sub(self.memory.read(SCROLL_Y));
+            target_x = target_x.wrapping_sub(self.memory.read(SCROLL_X));
 
             let color = self.tile_palette.get_color(color_idx);
             self.sdl_canvas.set_draw_color(color);
@@ -382,7 +381,7 @@ impl VideoChip {
                 
                 while drawn_pixels < 8 {
                     if tile[draw_idx as usize] == color_idx {
-                        self.sdl_canvas.draw_point(Point::new(target_x, target_y as i32)).unwrap();
+                        self.sdl_canvas.draw_point(Point::new(target_x as i32, target_y as i32)).unwrap();
                     }
 
                     target_x = target_x.wrapping_add(1);

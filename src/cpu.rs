@@ -92,7 +92,6 @@ pub struct Cpu {
 
     halted: bool,
     stopped: bool,
-    halt_bug: bool,
     
     execute: bool,
 
@@ -110,7 +109,6 @@ impl Cpu {
 
             halted: false,
             stopped: false,
-            halt_bug: false,
             
             execute: true,
 
