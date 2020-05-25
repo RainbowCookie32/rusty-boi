@@ -94,6 +94,7 @@ pub struct Cpu {
     execute: bool,
 
     memory: Memory,
+    timer: TimerModule,
     interrupts: InterruptState,
     input: Receiver<InputEvent>,
 }
@@ -111,14 +112,13 @@ impl Cpu {
             execute: true,
 
             memory: memory,
+            timer: TimerModule::new(),
             interrupts: InterruptState::default(),
             input: rx,
         }
     }
 
     pub fn execution_loop(&mut self) {
-        let mut timer = TimerState::new();
-
         while self.execute {
             let input_value = self.memory.read(0xFF00);
 
@@ -137,7 +137,7 @@ impl Cpu {
                 self.run_instruction();
             }
 
-            timer.cycle(super::emulator::GLOBAL_CYCLE_COUNTER.load(Ordering::Relaxed), &mut self.memory);
+            self.timer.cycle(super::emulator::GLOBAL_CYCLE_COUNTER.load(Ordering::Relaxed), &mut self.memory);
         }
     }
 
@@ -1937,15 +1937,15 @@ impl Cpu {
     }
 }
 
-pub struct TimerState {
+struct TimerModule {
     div_cycles: u16,
     timer_cycles: u16,
     needed_cycles: u16,
 }
 
-impl TimerState {
-    pub fn new() -> TimerState {
-        TimerState {
+impl TimerModule {
+    pub fn new() -> TimerModule {
+        TimerModule {
             div_cycles: 0,
             timer_cycles: 0,
             needed_cycles: 0,
@@ -1978,7 +1978,7 @@ impl TimerState {
         }
 
         if timer_enabled {
-            self.needed_cycles = TimerState::get_frequency(tac_value);
+            self.needed_cycles = TimerModule::get_frequency(tac_value);
             self.timer_cycles += cycles;
 
             if self.timer_cycles >= self.needed_cycles {
