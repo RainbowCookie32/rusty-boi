@@ -1,6 +1,5 @@
 mod cpu;
 mod cart;
-mod timer;
 mod video;
 mod memory;
 mod emulator;
