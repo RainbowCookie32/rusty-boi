@@ -8,7 +8,7 @@ use std::io::Read;
 use std::io::Write;
 use std::iter::FromIterator;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CartType {
 
     None,
@@ -23,12 +23,12 @@ pub enum CartType {
     Other,
 }
 
+#[derive(Clone)]
 pub struct CartData {
-    
     rom_banks: Vec<Vec<u8>>,
     ram_banks: Vec<Vec<u8>>,
 
-    rom_title: String,
+    pub rom_title: String,
     
     has_ram: bool,
     has_battery: bool,
@@ -43,6 +43,21 @@ pub struct CartData {
 }
 
 impl CartData {
+
+    pub fn empty() -> CartData {
+        CartData {
+            rom_banks: Vec::new(),
+            ram_banks: Vec::new(),
+            rom_title: String::new(),
+            has_ram: false,
+            has_battery: false,
+            ram_enabled: false,
+            selected_rom_bank: 0,
+            selected_ram_bank: 0,
+            rom_banking_mode: false,
+            mbc: CartType::None,
+        }
+    }
 
     pub fn new(data: Vec<u8>) -> CartData {
 
@@ -121,7 +136,7 @@ impl CartData {
         CartData {
             rom_banks: rom_banks,
             ram_banks: ram_banks,
-            rom_title: title.to_lowercase(),
+            rom_title: title,
             has_ram: ram_size > 0,
             has_battery: battery,
             ram_enabled: false,

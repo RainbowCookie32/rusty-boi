@@ -1,12 +1,13 @@
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
 
 use log::{info};
 use byteorder::{ByteOrder, LittleEndian};
 
+use super::timer::Timer;
+use super::InputEvent;
 use super::memory::Memory;
-use super::emulator::InputEvent;
-
 
 const Z_FLAG: u8 = 7;
 const N_FLAG: u8 = 6;
@@ -23,7 +24,6 @@ pub enum Condition {
 
 #[derive(Copy, Clone)]
 pub struct InterruptState {
-
     pub can_interrupt: bool,
     pub vblank_enabled: bool, 
     pub lcdc_enabled: bool,
@@ -88,108 +88,109 @@ pub struct Cpu {
 
     pc: u16,
 
-    halted: bool,
+    pub halted: bool,
     stopped: bool,
     
-    execute: bool,
+    pub ui: Arc<Mutex<UiObject>>,
+    pub cpu_paused: bool,
+    pub cpu_ready: bool,
+    pub cpu_step: bool,
+
+    input_rx: mpsc::Receiver<InputEvent>,
 
     memory: Memory,
-    timer: TimerModule,
+    timer: Timer,
     interrupts: InterruptState,
-    input: Receiver<InputEvent>,
 }
 
 impl Cpu {
-    pub fn new(rx: Receiver<InputEvent>, memory: Memory) -> Cpu {
+    pub fn new(ui: Arc<Mutex<UiObject>>, rx: mpsc::Receiver<InputEvent>, memory: Memory) -> Cpu {
         Cpu {
             registers: vec![CpuRegister::new(); 5],
 
-            pc: 0,
+            pc: if memory.get_bootrom_state() {0} else {0x100},
 
             halted: false,
             stopped: false,
             
-            execute: true,
+            ui: ui,
+            cpu_paused: true,
+            cpu_ready: false,
+            cpu_step: false,
+
+            input_rx: rx,
 
             memory: memory,
-            timer: TimerModule::new(),
+            timer: Timer::new(),
             interrupts: InterruptState::default(),
-            input: rx,
         }
     }
 
-    pub fn execution_loop(&mut self) {
-        while self.execute {
-            let input_value = self.memory.read(0xFF00);
-
-            if input_value == 0x30 || input_value == 0x20 || input_value == 0x10 {
-                self.check_sdl_events();
+    pub fn step(&mut self) {
+        if !self.cpu_ready {
+            let mut lock = self.ui.lock().unwrap();
+            if lock.update_cart {
+                self.memory.set_cart_data(lock.new_cart_data.clone());
+                lock.update_cart = false;
+                self.cpu_ready = true;
             }
-
-            self.handle_interrupts();
-
-            if !self.halted {
-                if self.pc == 0x100 && self.memory.get_bootrom_state() {
-                    self.memory.disable_bootrom();
-                    info!("CPU: Bootrom finished, running loaded ROM.");
-                }
-
-                self.run_instruction();
-            }
-
-            self.timer.cycle(super::emulator::GLOBAL_CYCLE_COUNTER.load(Ordering::Relaxed), &mut self.memory);
         }
+
+        self.update_input();
+        self.handle_interrupts();
+
+        if !self.halted {
+            if self.pc == 0x100 && self.memory.get_bootrom_state() {
+                self.memory.disable_bootrom();
+                info!("CPU: Bootrom finished, running loaded ROM.");
+            }
+
+            self.run_instruction();
+        }
+
+        self.update_ui_object();
+        self.timer.step(super::GLOBAL_CYCLE_COUNTER.load(Ordering::Relaxed), &mut self.memory);
     }
 
-    fn check_sdl_events(&mut self) {
-        let input_event = self.input.try_recv();
-        let received_event = input_event.is_ok();
+    pub fn update_ui_object(&mut self) {
+        let lock = self.ui.try_lock();
 
-        let mut input_value = self.memory.read(0xFF00) | 0xCF;
-
-        if received_event {
-            let event = input_event.unwrap();
-
-            if event == InputEvent::Quit {
-                self.execute = false;
-            }
-            else if input_value == 0xFF {
-                match event {
-                    InputEvent::RightPressed => { input_value = 0xFE },
-                    InputEvent::LeftPressed => { input_value = 0xFD },
-                    InputEvent::UpPressed => { input_value = 0xFB },
-                    InputEvent::DownPressed => { input_value = 0xF7 },
-                    InputEvent::APressed => { input_value = 0xFE },
-                    InputEvent::BPressed => { input_value = 0xFD },
-                    InputEvent::SelectPressed => { input_value = 0xFB },
-                    InputEvent::StartPressed => { input_value = 0xF7 },
-                    _ => {},
-                }
-            }
-            else if input_value == 0xEF {
-                match event {
-                    InputEvent::RightPressed => { input_value = 0xEE },
-                    InputEvent::LeftPressed => { input_value = 0xED },
-                    InputEvent::UpPressed => { input_value = 0xEB },
-                    InputEvent::DownPressed => { input_value = 0xE7 },
-                    _ => {}
-                }
-            }
-            else if input_value == 0xDF {
-                match event {
-                    InputEvent::APressed => { input_value = 0xDE },
-                    InputEvent::BPressed => { input_value = 0xDD },
-                    InputEvent::SelectPressed => { input_value = 0xDB },
-                    InputEvent::StartPressed => { input_value = 0xD7 },
-                    _ => {}
-                }
-            }
-
-            let if_value = self.memory.read(0xFF0F);
-            self.memory.write(0xFF0F, if_value | (1 << 4), true);
+        if lock.is_err() {
+            return;
         }
 
-        self.memory.write(0xFF00, input_value, true);
+        let mut lock = lock.unwrap();
+        lock.registers[0] = self.registers[0].get();
+        lock.registers[1] = self.registers[1].get();
+        lock.registers[2] = self.registers[2].get();
+        lock.registers[3] = self.registers[3].get();
+        lock.registers[4] = self.registers[4].get();
+        lock.pc = self.pc;
+        lock.opcode = self.memory.read(self.pc);
+
+        for address in &lock.breakpoints {
+            if *address == self.pc {
+                lock.breakpoint_hit = true;
+                break;
+            }
+        }
+
+        lock.halted = self.halted;
+        lock.if_value = self.memory.read(0xFF0F);
+        lock.ie_value = self.memory.read(0xFFFF);
+        lock.int_enabled = self.interrupts.can_interrupt;
+
+        lock.ly = self.memory.read(0xFF44);
+        lock.lyc = self.memory.read(0xFF45);
+        lock.lcd_stat = self.memory.read(0xFF41);
+        lock.lcd_control = self.memory.read(0xFF40);
+
+        self.cpu_paused = lock.cpu_paused;
+        self.cpu_step = lock.cpu_should_step;
+
+        if lock.cpu_should_step {
+            lock.cpu_should_step = false;
+        }
     }
 
     fn handle_interrupts(&mut self) {
@@ -265,6 +266,76 @@ impl Cpu {
         self.interrupts.timer_enabled = (ie_value & (1 << 2)) != 0;
         self.interrupts.serial_enabled = (ie_value & (1 << 3)) != 0;
         self.interrupts.input_enabled = (ie_value & (1 << 4)) != 0;
+    }
+
+    fn update_input(&mut self) {
+        let input_reg = self.memory.read(0xFF00);
+        if (input_reg & 0x30) == 0 {
+            return;
+        }
+
+        let mut result = 0b1111;
+        let mut input_received = false;
+
+        let dpad = (input_reg & 0x10) == 0;
+        let buttons = (input_reg & 0x20) == 0;
+
+        let received_events = self.input_rx.try_iter();
+        let if_value = self.memory.read(0xFF0F);
+
+        for event in received_events {
+            input_received = true;
+            match event {
+                // Direction keys.
+                InputEvent::Right => {
+                    if dpad {
+                        result &= 0x0E;
+                    }
+                },
+                InputEvent::Left => {
+                    if dpad {
+                        result &= 0x0D;
+                    }
+                },
+                InputEvent::Up => {
+                    if dpad {
+                        result &= 0x0B;
+                    }
+                },
+                InputEvent::Down => {
+                    if dpad {
+                        result &= 0x07;
+                    }
+                },
+
+                // Button keys.
+                InputEvent::A => {
+                    if buttons {
+                        result &= 0x0E;
+                    }
+                },
+                InputEvent::B => {
+                    if buttons {
+                        result &= 0x0D;
+                    }
+                },
+                InputEvent::Select => {
+                    if buttons {
+                        result &= 0x0B;
+                    }
+                },
+                InputEvent::Start => {
+                    if buttons {
+                        result &= 0x07;
+                    }
+                }
+            }
+        }
+
+        self.memory.write(0xFF00, result | 0xC0, true);
+        if input_received {
+            self.memory.write(0xFF0F, if_value | (1 << 4), true);
+        }
     }
 
     fn run_instruction(&mut self) {
@@ -490,7 +561,7 @@ impl Cpu {
                 0xC8 => self.return_conditional(Condition::ZSet),
                 0xC9 => self.ret(),
                 0xCA => self.jump_conditional(Condition::ZSet),
-                0xCB => unreachable!(),
+                0xCB => self.invalid_opcode(),
                 0xCC => self.call_conditional(Condition::ZSet),
                 0xCD => self.call(),
                 0xCE => self.adc_immediate(),
@@ -499,7 +570,7 @@ impl Cpu {
                 0xD0 => self.return_conditional(Condition::CNotSet),
                 0xD1 => self.pop_register(2),
                 0xD2 => self.jump_conditional(Condition::CNotSet),
-                0xD3 => unreachable!(),
+                0xD3 => self.invalid_opcode(),
                 0xD4 => self.call_conditional(Condition::CNotSet),
                 0xD5 => self.push_register(2),
                 0xD6 => self.sub_immediate(),
@@ -507,26 +578,26 @@ impl Cpu {
                 0xD8 => self.return_conditional(Condition::CSet),
                 0xD9 => self.reti(),
                 0xDA => self.jump_conditional(Condition::CSet),
-                0xDB => unreachable!(),
+                0xDB => self.invalid_opcode(),
                 0xDC => self.call_conditional(Condition::CSet),
-                0xDD => unreachable!(),
+                0xDD => self.invalid_opcode(),
                 0xDE => self.sbc_immediate(),
                 0xDF => self.rst(0x0018),
 
                 0xE0 => self.save_a_to_ff_immediate(),
                 0xE1 => self.pop_register(3),
                 0xE2 => self.save_a_to_ff_c(),
-                0xE3 => unreachable!(),
-                0xE4 => unreachable!(),
+                0xE3 => self.invalid_opcode(),
+                0xE4 => self.invalid_opcode(),
                 0xE5 => self.push_register(3),
                 0xE6 => self.and_immediate(),
                 0xE7 => self.rst(0x0020),
                 0xE8 => self.add_signed_immediate_to_sp(),
                 0xE9 => self.jump_hl(),
                 0xEA => self.save_a_to_immediate(),
-                0xEB => unreachable!(),
-                0xEC => unreachable!(),
-                0xED => unreachable!(),
+                0xEB => self.invalid_opcode(),
+                0xEC => self.invalid_opcode(),
+                0xED => self.invalid_opcode(),
                 0xEE => self.xor_immediate(),
                 0xEF => self.rst(0x0028),
 
@@ -534,7 +605,7 @@ impl Cpu {
                 0xF1 => self.pop_register(0),
                 0xF2 => self.load_a_from_ff_c(),
                 0xF3 => self.di(),
-                0xF4 => unreachable!(),
+                0xF4 => self.invalid_opcode(),
                 0xF5 => self.push_register(0),
                 0xF6 => self.or_immediate(),
                 0xF7 => self.rst(0x0030),
@@ -542,12 +613,17 @@ impl Cpu {
                 0xF9 => self.load_hl_to_sp(),
                 0xFA => self.load_a_from_immediate(),
                 0xFB => self.ei(),
-                0xFC => unreachable!(),
-                0xFD => unreachable!(),
+                0xFC => self.invalid_opcode(),
+                0xFD => self.invalid_opcode(),
                 0xFE => self.cp_immediate(),
                 0xFF => self.rst(0x0038),
             }
         }
+    }
+
+    fn invalid_opcode(&mut self) {
+        self.ui.lock().unwrap().cpu_paused = true;
+        log::error!("Tried to execute invalid opcode 0x{:02X}", self.memory.read(self.pc));
     }
 
     fn run_instruction_prefixed(&mut self) {
@@ -830,7 +906,7 @@ impl Cpu {
 
     fn instruction_finished(&mut self, pc: u16, cycles: u16) {
         self.pc += pc;
-        super::emulator::GLOBAL_CYCLE_COUNTER.fetch_add(cycles, Ordering::Relaxed);
+        super::GLOBAL_CYCLE_COUNTER.fetch_add(cycles, Ordering::Relaxed);
     }
 
     fn update_flags(&mut self, z: Option<bool>, n: Option<bool>, h: Option<bool>, c: Option<bool>) {
@@ -1937,65 +2013,54 @@ impl Cpu {
     }
 }
 
-struct TimerModule {
-    div_cycles: u16,
-    timer_cycles: u16,
-    needed_cycles: u16,
+pub struct UiObject {
+    pub registers: Vec<u16>,
+    pub pc: u16,
+    pub opcode: u8,
+
+    pub halted: bool,
+    pub if_value: u8,
+    pub ie_value: u8,
+    pub int_enabled: bool,
+
+    pub ly: u8,
+    pub lyc: u8,
+    pub lcd_stat: u8,
+    pub lcd_control: u8,
+
+    pub breakpoints: Vec<u16>,
+    pub breakpoint_hit: bool,
+    pub cpu_paused: bool,
+    pub cpu_should_step: bool,
+
+    pub update_cart: bool,
+    pub new_cart_data: super::cart::CartData,
 }
 
-impl TimerModule {
-    pub fn new() -> TimerModule {
-        TimerModule {
-            div_cycles: 0,
-            timer_cycles: 0,
-            needed_cycles: 0,
-        }
-    }
+impl UiObject {
+    pub fn new() -> UiObject {
+        UiObject {
+            registers: vec![0; 5],
+            pc: 0,
+            opcode: 0,
 
-    fn get_frequency(tac: u8) -> u16 {
+            halted: false,
+            if_value: 0,
+            ie_value: 0,
+            int_enabled: false,
 
-        let value = tac & 3;
-        
-        match value {
-            0 => 1024,
-            1 => 16,
-            2 => 64,
-            3 => 256,
-            _ => 0,
-        }
-    }
+            ly: 0,
+            lyc: 0,
+            lcd_stat: 0,
+            lcd_control: 0,
 
-    pub fn cycle(&mut self, cycles: u16, memory: &mut Memory) {
-        let tac_value = memory.read(0xFF07);
-        let timer_enabled = ((tac_value >> 2) & 1) == 1;
+            breakpoints: Vec::new(),
+            breakpoint_hit: false,
+            cpu_paused: true,
+            cpu_should_step: false,
 
-        self.div_cycles += cycles;
-
-        if self.div_cycles >= 256 {
-            let div_value = memory.read(0xFF04).wrapping_add(1);
-            memory.write(0xFF04, div_value, false);
-            self.div_cycles = 0;
-        }
-
-        if timer_enabled {
-            self.needed_cycles = TimerModule::get_frequency(tac_value);
-            self.timer_cycles += cycles;
-
-            if self.timer_cycles >= self.needed_cycles {
-                let tima = memory.read(0xFF05).overflowing_add(1);
-                self.timer_cycles = 0;
-
-                if tima.1 {
-                    let if_value = memory.read(0xFF0F);
-                    let modulo_value = memory.read(0xFF06);
-
-                    memory.write(0xFF05, modulo_value, false);
-                    memory.write(0xFF0F, if_value | (1 << 2), false);
-                }
-                else {
-                    memory.write(0xFF05, tima.0, false);
-                }
-            }
+            update_cart: false,
+            new_cart_data: super::cart::CartData::empty(),
         }
     }
 }

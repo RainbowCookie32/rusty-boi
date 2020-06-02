@@ -21,19 +21,21 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn new(bootrom: Option<Vec<u8>>, cart: CartData, shared: Arc<SharedMemory>) -> Memory {
-        let use_brom = bootrom.is_some();
-        let brom_data = if use_brom {bootrom.unwrap()} else {Vec::new()};
+    pub fn new(bootrom: Option<Vec<u8>>, cart: Option<CartData>, shared: Arc<SharedMemory>) -> Memory {
+        let use_bootrom = bootrom.is_some();
+        let bootrom_data = if use_bootrom { bootrom.unwrap() } else { Vec::new() };
+
+        let cart = if cart.is_some() { cart.unwrap() } else { CartData::empty() };
 
         Memory {
-            bootrom: brom_data,
+            bootrom: bootrom_data,
             cartridge: cart,
 
             ram: vec![0; 8192],
             hram: vec![0; 128],
 
             serial_data: String::new(),
-            bootrom_enabled: use_brom,
+            bootrom_enabled: use_bootrom,
 
             shared_memory: shared,
         }
@@ -45,6 +47,10 @@ impl Memory {
 
     pub fn disable_bootrom(&mut self) {
         self.bootrom_enabled = false;
+    }
+
+    pub fn set_cart_data(&mut self, data: CartData) {
+        self.cartridge = data;
     }
 
     pub fn read(&self, address: u16) -> u8 {
