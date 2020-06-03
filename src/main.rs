@@ -65,15 +65,8 @@ impl ImguiSystem {
         let (fb_tx, fb_rx) = mpsc::channel();
         let (input_tx, input_rx) = mpsc::channel();
 
-        // Emulated GB memory. CPU memory is a placeholder until a ROM is loaded.
-        let shared_memory = Arc::new(memory::SharedMemory::new());
-        let cpu_memory = memory::Memory::new(load_bootrom(), None, shared_memory.clone());
-
         let ui_object = Arc::new(Mutex::new(UiObject::new()));
-
-        // Emulated components.
-        let emulated_cpu = cpu::Cpu::new(ui_object.clone(), input_rx, cpu_memory);
-        let emulated_video = video::VideoChip::new(fb_tx, shared_memory);
+        let cpu_object = ui_object.clone();
 
         // Debugging.
         let mut show_debugger = false;
@@ -82,7 +75,7 @@ impl ImguiSystem {
 
         let mut scale_factor = 3;
         let mut emu_started = false;
-        let mut selected_rom: Option<cart::CartData> = None;
+        let mut selected_rom: Option<Vec<u8>> = None;
         let mut selected_rom_title = String::from("None");
 
         let mut framebuffer_id: Option<TextureId> = None;
@@ -90,8 +83,13 @@ impl ImguiSystem {
         let mut window_id: Option<TextureId> = None;
 
         let _emulator_thread = std::thread::Builder::new().name("emulator_thread".to_string()).spawn(move || {
-            let mut cpu = emulated_cpu;
-            let mut video = emulated_video;
+            // Emulated GB memory. CPU memory is a placeholder until a ROM is loaded.
+            let shared_memory = Arc::new(memory::SharedMemory::new());
+            let cpu_memory = memory::Memory::new(load_bootrom(), None, shared_memory.clone());
+
+            // Emulated components.
+            let mut cpu = cpu::Cpu::new(cpu_object, input_rx, cpu_memory);
+            let mut video = video::VideoChip::new(fb_tx, shared_memory);
 
             loop {
                 if !cpu.cpu_paused {
@@ -129,14 +127,24 @@ impl ImguiSystem {
                     if let Some(menu) = ui.begin_menu(im_str!("Detected ROMs"), all_roms.len() > 0 && !emu_started) {
                         for file in all_roms {
                             let filename = ImString::from(file.file_name().into_string().unwrap());
+
                             if MenuItem::new(&filename).build_with_ref(&ui, &mut false) {
                                 let mut lock = ui_object.lock().unwrap();
-                                let file = fs::read(file.path()).unwrap();
-                                let cart = cart::CartData::new(file);
-                                selected_rom_title = cart.rom_title.clone();
-                                selected_rom = Some(cart);
+                                let read_data = fs::read(file.path()).unwrap();
+                                
+                                selected_rom_title.clear();
+
+                                for idx in 0x0134..0x143 {
+                                    let value = read_data[idx];
+
+                                    if value != 0 {
+                                        selected_rom_title.push(value as char);
+                                    }
+                                }
+
+                                selected_rom = Some(read_data.clone());
                                 lock.update_cart = true;
-                                lock.new_cart_data = selected_rom.clone().unwrap();
+                                lock.new_cart_data = read_data;
                             }
                         }
 

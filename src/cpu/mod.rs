@@ -2034,7 +2034,7 @@ pub struct UiObject {
     pub cpu_should_step: bool,
 
     pub update_cart: bool,
-    pub new_cart_data: super::cart::CartData,
+    pub new_cart_data: Vec<u8>,
 }
 
 impl UiObject {
@@ -2060,7 +2060,7 @@ impl UiObject {
             cpu_should_step: false,
 
             update_cart: false,
-            new_cart_data: super::cart::CartData::empty(),
+            new_cart_data: Vec::new(),
         }
     }
 }

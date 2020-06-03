@@ -5,11 +5,12 @@ use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use log::warn;
 
-use super::cart::CartData;
+use super::cart;
+use super::cart::GameboyCart;
 
 pub struct Memory {
     bootrom: Vec<u8>,
-    cartridge: CartData,
+    cartridge: Box<dyn GameboyCart>,
 
     ram: Vec<u8>,
     hram: Vec<u8>,
@@ -21,11 +22,11 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn new(bootrom: Option<Vec<u8>>, cart: Option<CartData>, shared: Arc<SharedMemory>) -> Memory {
+    pub fn new(bootrom: Option<Vec<u8>>, cart: Option<Box<dyn GameboyCart>>, shared: Arc<SharedMemory>) -> Memory {
         let use_bootrom = bootrom.is_some();
         let bootrom_data = if use_bootrom { bootrom.unwrap() } else { Vec::new() };
 
-        let cart = if cart.is_some() { cart.unwrap() } else { CartData::empty() };
+        let cart = if cart.is_some() { cart.unwrap() } else { cart::dummy_cart() };
 
         Memory {
             bootrom: bootrom_data,
@@ -49,8 +50,8 @@ impl Memory {
         self.bootrom_enabled = false;
     }
 
-    pub fn set_cart_data(&mut self, data: CartData) {
-        self.cartridge = data;
+    pub fn set_cart_data(&mut self, data: Vec<u8>) {
+        self.cartridge = cart::new_cart(data);
     }
 
     pub fn read(&self, address: u16) -> u8 {

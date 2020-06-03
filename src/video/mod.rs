@@ -4,7 +4,6 @@ use std::sync::atomic::Ordering;
 
 use super::memory::SharedMemory;
 
-
 const LCD_CONTROL: u16 = 0xFF40;
 const LCD_STATUS: u16 = 0xFF41;
 const SCROLL_Y: u16 = 0xFF42;
