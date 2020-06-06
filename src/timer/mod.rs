@@ -1,4 +1,4 @@
-use super::memory::Memory;
+use super::memory::EmulatedMemory;
 
 pub struct Timer {
     div_cycles: u16,
@@ -26,7 +26,7 @@ impl Timer {
         }
     }
 
-    pub fn step(&mut self, cycles: u16, memory: &mut Memory) {
+    pub fn step(&mut self, cycles: u16, memory: &mut EmulatedMemory) {
         let tac_value = memory.read(0xFF07);
         let timer_enabled = ((tac_value >> 2) & 1) == 1;
 

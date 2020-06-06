@@ -7,7 +7,7 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use super::timer::Timer;
 use super::InputEvent;
-use super::memory::Memory;
+use super::memory::EmulatedMemory;
 
 const Z_FLAG: u8 = 7;
 const N_FLAG: u8 = 6;
@@ -98,17 +98,16 @@ pub struct Cpu {
 
     input_rx: mpsc::Receiver<InputEvent>,
 
-    memory: Memory,
     timer: Timer,
     interrupts: InterruptState,
 }
 
 impl Cpu {
-    pub fn new(ui: Arc<Mutex<UiObject>>, rx: mpsc::Receiver<InputEvent>, memory: Memory) -> Cpu {
+    pub fn new(ui: Arc<Mutex<UiObject>>, rx: mpsc::Receiver<InputEvent>) -> Cpu {
         Cpu {
             registers: vec![CpuRegister::new(); 5],
 
-            pc: if memory.get_bootrom_state() {0} else {0x100},
+            pc: 0,
 
             halted: false,
             stopped: false,
@@ -120,39 +119,41 @@ impl Cpu {
 
             input_rx: rx,
 
-            memory: memory,
             timer: Timer::new(),
             interrupts: InterruptState::default(),
         }
     }
 
-    pub fn step(&mut self) {
+    pub fn step(&mut self, memory: &mut EmulatedMemory) {
         if !self.cpu_ready {
             let mut lock = self.ui.lock().unwrap();
             if lock.update_cart {
-                self.memory.set_cart_data(lock.new_cart_data.clone());
+                memory.set_cart_data(lock.new_cart_data.clone());
                 lock.update_cart = false;
                 self.cpu_ready = true;
             }
         }
 
-        self.update_input();
-        self.handle_interrupts();
+        self.update_input(memory);
+        self.handle_interrupts(memory);
 
         if !self.halted {
-            if self.pc == 0x100 && self.memory.get_bootrom_state() {
-                self.memory.disable_bootrom();
+            if self.pc == 0x100 && memory.get_bootrom_state() {
+                memory.disable_bootrom();
                 info!("CPU: Bootrom finished, running loaded ROM.");
             }
 
-            self.run_instruction();
+            self.run_instruction(memory);
+        }
+        else {
+            self.instruction_finished(0, 4);
         }
 
-        self.update_ui_object();
-        self.timer.step(super::GLOBAL_CYCLE_COUNTER.load(Ordering::Relaxed), &mut self.memory);
+        self.update_ui_object(memory);
+        self.timer.step(super::GLOBAL_CYCLE_COUNTER.load(Ordering::Relaxed), memory);
     }
 
-    pub fn update_ui_object(&mut self) {
+    pub fn update_ui_object(&mut self, memory: &mut EmulatedMemory) {
         let lock = self.ui.try_lock();
 
         if lock.is_err() {
@@ -166,7 +167,7 @@ impl Cpu {
         lock.registers[3] = self.registers[3].get();
         lock.registers[4] = self.registers[4].get();
         lock.pc = self.pc;
-        lock.opcode = self.memory.read(self.pc);
+        lock.opcode = memory.read(self.pc);
 
         for address in &lock.breakpoints {
             if *address == self.pc {
@@ -176,14 +177,14 @@ impl Cpu {
         }
 
         lock.halted = self.halted;
-        lock.if_value = self.memory.read(0xFF0F);
-        lock.ie_value = self.memory.read(0xFFFF);
+        lock.if_value = memory.read(0xFF0F);
+        lock.ie_value = memory.read(0xFFFF);
         lock.int_enabled = self.interrupts.can_interrupt;
 
-        lock.ly = self.memory.read(0xFF44);
-        lock.lyc = self.memory.read(0xFF45);
-        lock.lcd_stat = self.memory.read(0xFF41);
-        lock.lcd_control = self.memory.read(0xFF40);
+        lock.ly = memory.read(0xFF44);
+        lock.lyc = memory.read(0xFF45);
+        lock.lcd_stat = memory.read(0xFF41);
+        lock.lcd_control = memory.read(0xFF40);
 
         self.cpu_paused = lock.cpu_paused;
         self.cpu_step = lock.cpu_should_step;
@@ -193,10 +194,10 @@ impl Cpu {
         }
     }
 
-    fn handle_interrupts(&mut self) {
-        self.update_interrupts();
+    fn handle_interrupts(&mut self, memory: &mut EmulatedMemory) {
+        self.update_interrupts(memory);
 
-        let mut if_value = self.memory.read(0xFF0F);
+        let mut if_value = memory.read(0xFF0F);
 
         let vblank_requested = (if_value & 1) != 0;
         let lcdc_requested = (if_value & (1 << 1)) != 0;
@@ -207,7 +208,7 @@ impl Cpu {
         if vblank_requested && self.interrupts.vblank_enabled {
             if self.interrupts.can_interrupt {
                 if_value &= !1;
-                self.stack_write(self.pc);
+                self.stack_write(self.pc, memory);
                 self.pc = 0x0040;
                 self.interrupts.can_interrupt = false;
             }
@@ -217,7 +218,7 @@ impl Cpu {
         else if lcdc_requested && self.interrupts.lcdc_enabled {
             if self.interrupts.can_interrupt {
                 if_value &= !(1 << 1);
-                self.stack_write(self.pc);
+                self.stack_write(self.pc, memory);
                 self.pc = 0x0048;
                 self.interrupts.can_interrupt = false;
             }
@@ -227,7 +228,7 @@ impl Cpu {
         else if timer_requested && self.interrupts.timer_enabled {
             if self.interrupts.can_interrupt {
                 if_value &= !(1 << 2);
-                self.stack_write(self.pc);
+                self.stack_write(self.pc, memory);
                 self.pc = 0x0050;
                 self.interrupts.can_interrupt = false;
             }
@@ -237,7 +238,7 @@ impl Cpu {
         else if serial_requested && self.interrupts.serial_enabled {
             if self.interrupts.can_interrupt {
                 if_value &= !(1 << 3);
-                self.stack_write(self.pc);
+                self.stack_write(self.pc, memory);
                 self.pc = 0x0058;
                 self.interrupts.can_interrupt = false;
             }
@@ -247,7 +248,7 @@ impl Cpu {
         else if input_requested && self.interrupts.input_enabled {
             if self.interrupts.can_interrupt {
                 if_value &= !(1 << 4);
-                self.stack_write(self.pc);
+                self.stack_write(self.pc, memory);
                 self.pc = 0x0060;
                 self.interrupts.can_interrupt = false;
             }
@@ -255,11 +256,11 @@ impl Cpu {
             self.halted = false;
         }
 
-        self.memory.write(0xFF0F, if_value, true);
+        memory.write(0xFF0F, if_value, true);
     }
 
-    fn update_interrupts(&mut self) {
-        let ie_value = self.memory.read(0xFFFF);
+    fn update_interrupts(&mut self, memory: &mut EmulatedMemory) {
+        let ie_value = memory.read(0xFFFF);
 
         self.interrupts.vblank_enabled = (ie_value & 1) != 0;
         self.interrupts.lcdc_enabled = (ie_value & (1 << 1)) != 0;
@@ -268,8 +269,8 @@ impl Cpu {
         self.interrupts.input_enabled = (ie_value & (1 << 4)) != 0;
     }
 
-    fn update_input(&mut self) {
-        let input_reg = self.memory.read(0xFF00);
+    fn update_input(&mut self, memory: &mut EmulatedMemory) {
+        let input_reg = memory.read(0xFF00);
         if (input_reg & 0x30) == 0 {
             return;
         }
@@ -281,7 +282,7 @@ impl Cpu {
         let buttons = (input_reg & 0x20) == 0;
 
         let received_events = self.input_rx.try_iter();
-        let if_value = self.memory.read(0xFF0F);
+        let if_value = memory.read(0xFF0F);
 
         for event in received_events {
             input_received = true;
@@ -332,86 +333,86 @@ impl Cpu {
             }
         }
 
-        self.memory.write(0xFF00, result | 0xC0, true);
+        memory.write(0xFF00, result | 0xC0, true);
         if input_received {
-            self.memory.write(0xFF0F, if_value | (1 << 4), true);
+            memory.write(0xFF0F, if_value | (1 << 4), true);
         }
     }
 
-    fn run_instruction(&mut self) {
-        let opcode = self.memory.read(self.pc);
+    fn run_instruction(&mut self, memory: &mut EmulatedMemory) {
+        let opcode = memory.read(self.pc);
 
         if opcode == 0xCB {
-            self.run_instruction_prefixed();
+            self.run_instruction_prefixed(memory);
         }
         else {
             match opcode {
                 0x00 => self.nop(),
-                0x01 => self.load_immediate_to_full(1),
-                0x02 => self.save_a_to_full(1),
+                0x01 => self.load_immediate_to_full(1, memory),
+                0x02 => self.save_a_to_full(1, memory),
                 0x03 => self.increment_full(1),
                 0x04 => self.increment_hi(1),
                 0x05 => self.decrement_hi(1),
-                0x06 => self.load_immediate_to_hi(1),
+                0x06 => self.load_immediate_to_hi(1, memory),
                 0x07 => self.rlca(),
-                0x08 => self.save_sp_to_immediate(),
+                0x08 => self.save_sp_to_immediate(memory),
                 0x09 => self.add_full_to_hl(1),
-                0x0A => self.load_a_from_full(1),
+                0x0A => self.load_a_from_full(1, memory),
                 0x0B => self.decrement_full(1),
                 0x0C => self.increment_low(1),
                 0x0D => self.decrement_low(1),
-                0x0E => self.load_immediate_to_low(1),
+                0x0E => self.load_immediate_to_low(1, memory),
                 0x0F => self.rrca(),
 
                 0x10 => self.stop(),
-                0x11 => self.load_immediate_to_full(2),
-                0x12 => self.save_a_to_full(2),
+                0x11 => self.load_immediate_to_full(2, memory),
+                0x12 => self.save_a_to_full(2, memory),
                 0x13 => self.increment_full(2),
                 0x14 => self.increment_hi(2),
                 0x15 => self.decrement_hi(2),
-                0x16 => self.load_immediate_to_hi(2),
+                0x16 => self.load_immediate_to_hi(2, memory),
                 0x17 => self.rla(),
-                0x18 => self.jump_relative(),
+                0x18 => self.jump_relative(memory),
                 0x19 => self.add_full_to_hl(2),
-                0x1A => self.load_a_from_full(2),
+                0x1A => self.load_a_from_full(2, memory),
                 0x1B => self.decrement_full(2),
                 0x1C => self.increment_low(2),
                 0x1D => self.decrement_low(2),
-                0x1E => self.load_immediate_to_low(2),
+                0x1E => self.load_immediate_to_low(2, memory),
                 0x1F => self.rra(),
 
-                0x20 => self.jump_relative_conditional(Condition::ZNotSet),
-                0x21 => self.load_immediate_to_full(3),
-                0x22 => self.save_a_to_hl_inc(),
+                0x20 => self.jump_relative_conditional(Condition::ZNotSet, memory),
+                0x21 => self.load_immediate_to_full(3, memory),
+                0x22 => self.save_a_to_hl_inc(memory),
                 0x23 => self.increment_full(3),
                 0x24 => self.increment_hi(3),
                 0x25 => self.decrement_hi(3),
-                0x26 => self.load_immediate_to_hi(3),
+                0x26 => self.load_immediate_to_hi(3, memory),
                 0x27 => self.daa(),
-                0x28 => self.jump_relative_conditional(Condition::ZSet),
+                0x28 => self.jump_relative_conditional(Condition::ZSet, memory),
                 0x29 => self.add_full_to_hl(3),
-                0x2A => self.load_a_from_hl_inc(),
+                0x2A => self.load_a_from_hl_inc(memory),
                 0x2B => self.decrement_full(3),
                 0x2C => self.increment_low(3),
                 0x2D => self.decrement_low(3),
-                0x2E => self.load_immediate_to_low(3),
+                0x2E => self.load_immediate_to_low(3, memory),
                 0x2F => self.cpl(),
 
-                0x30 => self.jump_relative_conditional(Condition::CNotSet),
-                0x31 => self.load_immediate_to_full(4),
-                0x32 => self.save_a_to_hl_dec(),
+                0x30 => self.jump_relative_conditional(Condition::CNotSet, memory),
+                0x31 => self.load_immediate_to_full(4, memory),
+                0x32 => self.save_a_to_hl_dec(memory),
                 0x33 => self.increment_full(4),
-                0x34 => self.increment_at_hl(),
-                0x35 => self.decrement_at_hl(),
-                0x36 => self.save_immediate_to_hl(),
+                0x34 => self.increment_at_hl(memory),
+                0x35 => self.decrement_at_hl(memory),
+                0x36 => self.save_immediate_to_hl(memory),
                 0x37 => self.scf(),
-                0x38 => self.jump_relative_conditional(Condition::CSet),
+                0x38 => self.jump_relative_conditional(Condition::CSet, memory),
                 0x39 => self.add_full_to_hl(4),
-                0x3A => self.load_a_from_hl_dec(),
+                0x3A => self.load_a_from_hl_dec(memory),
                 0x3B => self.decrement_full(4),
                 0x3C => self.increment_hi(0),
                 0x3D => self.decrement_hi(0),
-                0x3E => self.load_immediate_to_hi(0),
+                0x3E => self.load_immediate_to_hi(0, memory),
                 0x3F => self.ccf(),
 
                 0x40 => self.load_hi_to_hi(1, 1),
@@ -420,7 +421,7 @@ impl Cpu {
                 0x43 => self.load_low_to_hi(1, 2),
                 0x44 => self.load_hi_to_hi(1, 3),
                 0x45 => self.load_low_to_hi(1, 3),
-                0x46 => self.load_hl_to_hi(1),
+                0x46 => self.load_hl_to_hi(1, memory),
                 0x47 => self.load_hi_to_hi(1, 0),
                 0x48 => self.load_hi_to_low(1, 1),
                 0x49 => self.load_low_to_low(1, 1),
@@ -428,7 +429,7 @@ impl Cpu {
                 0x4B => self.load_low_to_low(1, 2),
                 0x4C => self.load_hi_to_low(1, 3),
                 0x4D => self.load_low_to_low(1, 3),
-                0x4E => self.load_hl_to_low(1),
+                0x4E => self.load_hl_to_low(1, memory),
                 0x4F => self.load_hi_to_low(1, 0),
 
                 0x50 => self.load_hi_to_hi(2, 1),
@@ -437,7 +438,7 @@ impl Cpu {
                 0x53 => self.load_low_to_hi(2, 2),
                 0x54 => self.load_hi_to_hi(2, 3),
                 0x55 => self.load_low_to_hi(2, 3),
-                0x56 => self.load_hl_to_hi(2),
+                0x56 => self.load_hl_to_hi(2, memory),
                 0x57 => self.load_hi_to_hi(2, 0),
                 0x58 => self.load_hi_to_low(2, 1),
                 0x59 => self.load_low_to_low(2, 1),
@@ -445,7 +446,7 @@ impl Cpu {
                 0x5B => self.load_low_to_low(2, 2),
                 0x5C => self.load_hi_to_low(2, 3),
                 0x5D => self.load_low_to_low(2, 3),
-                0x5E => self.load_hl_to_low(2),
+                0x5E => self.load_hl_to_low(2, memory),
                 0x5F => self.load_hi_to_low(2, 0),
 
                 0x60 => self.load_hi_to_hi(3, 1),
@@ -454,7 +455,7 @@ impl Cpu {
                 0x63 => self.load_low_to_hi(3, 2),
                 0x64 => self.load_hi_to_hi(3, 3),
                 0x65 => self.load_low_to_hi(3, 3),
-                0x66 => self.load_hl_to_hi(3),
+                0x66 => self.load_hl_to_hi(3, memory),
                 0x67 => self.load_hi_to_hi(3, 0),
                 0x68 => self.load_hi_to_low(3, 1),
                 0x69 => self.load_low_to_low(3, 1),
@@ -462,24 +463,24 @@ impl Cpu {
                 0x6B => self.load_low_to_low(3, 2),
                 0x6C => self.load_hi_to_low(3, 3),
                 0x6D => self.load_low_to_low(3, 3),
-                0x6E => self.load_hl_to_low(3),
+                0x6E => self.load_hl_to_low(3, memory),
                 0x6F => self.load_hi_to_low(3, 0),
 
-                0x70 => self.load_hi_to_hl(1),
-                0x71 => self.load_low_to_hl(1),
-                0x72 => self.load_hi_to_hl(2),
-                0x73 => self.load_low_to_hl(2),
-                0x74 => self.load_hi_to_hl(3),
-                0x75 => self.load_low_to_hl(3),
+                0x70 => self.load_hi_to_hl(1, memory),
+                0x71 => self.load_low_to_hl(1, memory),
+                0x72 => self.load_hi_to_hl(2, memory),
+                0x73 => self.load_low_to_hl(2, memory),
+                0x74 => self.load_hi_to_hl(3, memory),
+                0x75 => self.load_low_to_hl(3, memory),
                 0x76 => self.halt(),
-                0x77 => self.load_hi_to_hl(0),
+                0x77 => self.load_hi_to_hl(0, memory),
                 0x78 => self.load_hi_to_hi(0, 1),
                 0x79 => self.load_low_to_hi(0, 1),
                 0x7A => self.load_hi_to_hi(0, 2),
                 0x7B => self.load_low_to_hi(0, 2),
                 0x7C => self.load_hi_to_hi(0, 3),
                 0x7D => self.load_low_to_hi(0, 3),
-                0x7E => self.load_hl_to_hi(0),
+                0x7E => self.load_hl_to_hi(0, memory),
                 0x7F => self.load_hi_to_hi(0, 0),
 
                 0x80 => self.add_hi(1),
@@ -488,7 +489,7 @@ impl Cpu {
                 0x83 => self.add_low(2),
                 0x84 => self.add_hi(3),
                 0x85 => self.add_low(3),
-                0x86 => self.add_hl(),
+                0x86 => self.add_hl(memory),
                 0x87 => self.add_hi(0),
                 0x88 => self.adc_hi(1),
                 0x89 => self.adc_low(1),
@@ -496,7 +497,7 @@ impl Cpu {
                 0x8B => self.adc_low(2),
                 0x8C => self.adc_hi(3),
                 0x8D => self.adc_low(3),
-                0x8E => self.adc_hl(),
+                0x8E => self.adc_hl(memory),
                 0x8F => self.adc_hi(0),
 
                 0x90 => self.sub_hi(1),
@@ -505,7 +506,7 @@ impl Cpu {
                 0x93 => self.sub_low(2),
                 0x94 => self.sub_hi(3),
                 0x95 => self.sub_low(3),
-                0x96 => self.sub_hl(),
+                0x96 => self.sub_hl(memory),
                 0x97 => self.sub_hi(0),
                 0x98 => self.sbc_hi(1),
                 0x99 => self.sbc_low(1),
@@ -513,7 +514,7 @@ impl Cpu {
                 0x9B => self.sbc_low(2),
                 0x9C => self.sbc_hi(3),
                 0x9D => self.sbc_low(3),
-                0x9E => self.sbc_hl(),
+                0x9E => self.sbc_hl(memory),
                 0x9F => self.sbc_hi(0),
 
                 0xA0 => self.and_hi(1),
@@ -522,7 +523,7 @@ impl Cpu {
                 0xA3 => self.and_low(2),
                 0xA4 => self.and_hi(3),
                 0xA5 => self.and_low(3),
-                0xA6 => self.and_hl(),
+                0xA6 => self.and_hl(memory),
                 0xA7 => self.and_hi(0),
                 0xA8 => self.xor_hi(1),
                 0xA9 => self.xor_low(1),
@@ -530,7 +531,7 @@ impl Cpu {
                 0xAB => self.xor_low(2),
                 0xAC => self.xor_hi(3),
                 0xAD => self.xor_low(3),
-                0xAE => self.xor_hl(),
+                0xAE => self.xor_hl(memory),
                 0xAF => self.xor_hi(0),
 
                 0xB0 => self.or_hi(1),
@@ -539,7 +540,7 @@ impl Cpu {
                 0xB3 => self.or_low(2),
                 0xB4 => self.or_hi(3),
                 0xB5 => self.or_low(3),
-                0xB6 => self.or_hl(),
+                0xB6 => self.or_hl(memory),
                 0xB7 => self.or_hi(0),
                 0xB8 => self.cp_hi(1),
                 0xB9 => self.cp_low(1),
@@ -547,87 +548,82 @@ impl Cpu {
                 0xBB => self.cp_low(2),
                 0xBC => self.cp_hi(3),
                 0xBD => self.cp_low(3),
-                0xBE => self.cp_hl(),
+                0xBE => self.cp_hl(memory),
                 0xBF => self.cp_hi(0),
 
-                0xC0 => self.return_conditional(Condition::ZNotSet),
-                0xC1 => self.pop_register(1),
-                0xC2 => self.jump_conditional(Condition::ZNotSet),
-                0xC3 => self.jump(),
-                0xC4 => self.call_conditional(Condition::ZNotSet),
-                0xC5 => self.push_register(1),
-                0xC6 => self.add_immediate(),
-                0xC7 => self.rst(0),
-                0xC8 => self.return_conditional(Condition::ZSet),
-                0xC9 => self.ret(),
-                0xCA => self.jump_conditional(Condition::ZSet),
-                0xCB => self.invalid_opcode(),
-                0xCC => self.call_conditional(Condition::ZSet),
-                0xCD => self.call(),
-                0xCE => self.adc_immediate(),
-                0xCF => self.rst(0x0008),
+                0xC0 => self.return_conditional(Condition::ZNotSet, memory),
+                0xC1 => self.pop_register(1, memory),
+                0xC2 => self.jump_conditional(Condition::ZNotSet, memory),
+                0xC3 => self.jump(memory),
+                0xC4 => self.call_conditional(Condition::ZNotSet, memory),
+                0xC5 => self.push_register(1, memory),
+                0xC6 => self.add_immediate(memory),
+                0xC7 => self.rst(0, memory),
+                0xC8 => self.return_conditional(Condition::ZSet, memory),
+                0xC9 => self.ret(memory),
+                0xCA => self.jump_conditional(Condition::ZSet, memory),
+                0xCB => self.invalid_opcode(opcode),
+                0xCC => self.call_conditional(Condition::ZSet, memory),
+                0xCD => self.call(memory),
+                0xCE => self.adc_immediate(memory),
+                0xCF => self.rst(0x0008, memory),
 
-                0xD0 => self.return_conditional(Condition::CNotSet),
-                0xD1 => self.pop_register(2),
-                0xD2 => self.jump_conditional(Condition::CNotSet),
-                0xD3 => self.invalid_opcode(),
-                0xD4 => self.call_conditional(Condition::CNotSet),
-                0xD5 => self.push_register(2),
-                0xD6 => self.sub_immediate(),
-                0xD7 => self.rst(0x0010),
-                0xD8 => self.return_conditional(Condition::CSet),
-                0xD9 => self.reti(),
-                0xDA => self.jump_conditional(Condition::CSet),
-                0xDB => self.invalid_opcode(),
-                0xDC => self.call_conditional(Condition::CSet),
-                0xDD => self.invalid_opcode(),
-                0xDE => self.sbc_immediate(),
-                0xDF => self.rst(0x0018),
+                0xD0 => self.return_conditional(Condition::CNotSet, memory),
+                0xD1 => self.pop_register(2, memory),
+                0xD2 => self.jump_conditional(Condition::CNotSet, memory),
+                0xD3 => self.invalid_opcode(opcode),
+                0xD4 => self.call_conditional(Condition::CNotSet, memory),
+                0xD5 => self.push_register(2, memory),
+                0xD6 => self.sub_immediate(memory),
+                0xD7 => self.rst(0x0010, memory),
+                0xD8 => self.return_conditional(Condition::CSet, memory),
+                0xD9 => self.reti(memory),
+                0xDA => self.jump_conditional(Condition::CSet, memory),
+                0xDB => self.invalid_opcode(opcode),
+                0xDC => self.call_conditional(Condition::CSet, memory),
+                0xDD => self.invalid_opcode(opcode),
+                0xDE => self.sbc_immediate(memory),
+                0xDF => self.rst(0x0018, memory),
 
-                0xE0 => self.save_a_to_ff_immediate(),
-                0xE1 => self.pop_register(3),
-                0xE2 => self.save_a_to_ff_c(),
-                0xE3 => self.invalid_opcode(),
-                0xE4 => self.invalid_opcode(),
-                0xE5 => self.push_register(3),
-                0xE6 => self.and_immediate(),
-                0xE7 => self.rst(0x0020),
-                0xE8 => self.add_signed_immediate_to_sp(),
+                0xE0 => self.save_a_to_ff_immediate(memory),
+                0xE1 => self.pop_register(3, memory),
+                0xE2 => self.save_a_to_ff_c(memory),
+                0xE3 => self.invalid_opcode(opcode),
+                0xE4 => self.invalid_opcode(opcode),
+                0xE5 => self.push_register(3, memory),
+                0xE6 => self.and_immediate(memory),
+                0xE7 => self.rst(0x0020, memory),
+                0xE8 => self.add_signed_immediate_to_sp(memory),
                 0xE9 => self.jump_hl(),
-                0xEA => self.save_a_to_immediate(),
-                0xEB => self.invalid_opcode(),
-                0xEC => self.invalid_opcode(),
-                0xED => self.invalid_opcode(),
-                0xEE => self.xor_immediate(),
-                0xEF => self.rst(0x0028),
+                0xEA => self.save_a_to_immediate(memory),
+                0xEB => self.invalid_opcode(opcode),
+                0xEC => self.invalid_opcode(opcode),
+                0xED => self.invalid_opcode(opcode),
+                0xEE => self.xor_immediate(memory),
+                0xEF => self.rst(0x0028, memory),
 
-                0xF0 => self.load_a_from_ff_immediate(),
-                0xF1 => self.pop_register(0),
-                0xF2 => self.load_a_from_ff_c(),
+                0xF0 => self.load_a_from_ff_immediate(memory),
+                0xF1 => self.pop_register(0, memory),
+                0xF2 => self.load_a_from_ff_c(memory),
                 0xF3 => self.di(),
-                0xF4 => self.invalid_opcode(),
-                0xF5 => self.push_register(0),
-                0xF6 => self.or_immediate(),
-                0xF7 => self.rst(0x0030),
-                0xF8 => self.load_sp_plus_signed_to_hl(),
+                0xF4 => self.invalid_opcode(opcode),
+                0xF5 => self.push_register(0, memory),
+                0xF6 => self.or_immediate(memory),
+                0xF7 => self.rst(0x0030, memory),
+                0xF8 => self.load_sp_plus_signed_to_hl(memory),
                 0xF9 => self.load_hl_to_sp(),
-                0xFA => self.load_a_from_immediate(),
+                0xFA => self.load_a_from_immediate(memory),
                 0xFB => self.ei(),
-                0xFC => self.invalid_opcode(),
-                0xFD => self.invalid_opcode(),
-                0xFE => self.cp_immediate(),
-                0xFF => self.rst(0x0038),
+                0xFC => self.invalid_opcode(opcode),
+                0xFD => self.invalid_opcode(opcode),
+                0xFE => self.cp_immediate(memory),
+                0xFF => self.rst(0x0038, memory),
             }
         }
-    }
+    } 
 
-    fn invalid_opcode(&mut self) {
-        self.ui.lock().unwrap().cpu_paused = true;
-        log::error!("Tried to execute invalid opcode 0x{:02X}", self.memory.read(self.pc));
-    }
-
-    fn run_instruction_prefixed(&mut self) {
-        let opcode = self.memory.read(self.pc + 1);
+    fn run_instruction_prefixed(&mut self, memory: &mut EmulatedMemory) {
+        let opcode = memory.read(self.pc + 1);
 
         match opcode {
             0x00 => self.rlc_hi(1),
@@ -636,7 +632,7 @@ impl Cpu {
             0x03 => self.rlc_low(2),
             0x04 => self.rlc_hi(3),
             0x05 => self.rlc_low(3),
-            0x06 => self.rlc_hl(),
+            0x06 => self.rlc_hl(memory),
             0x07 => self.rlc_hi(0),
             0x08 => self.rrc_hi(1),
             0x09 => self.rrc_low(1),
@@ -644,7 +640,7 @@ impl Cpu {
             0x0B => self.rrc_low(2),
             0x0C => self.rrc_hi(3),
             0x0D => self.rrc_low(3),
-            0x0E => self.rrc_hl(),
+            0x0E => self.rrc_hl(memory),
             0x0F => self.rrc_hi(0),
 
             0x10 => self.rl_hi(1),
@@ -653,7 +649,7 @@ impl Cpu {
             0x13 => self.rl_low(2),
             0x14 => self.rl_hi(3),
             0x15 => self.rl_low(3),
-            0x16 => self.rl_hl(),
+            0x16 => self.rl_hl(memory),
             0x17 => self.rl_hi(0),
             0x18 => self.rr_hi(1),
             0x19 => self.rr_low(1),
@@ -661,7 +657,7 @@ impl Cpu {
             0x1B => self.rr_low(2),
             0x1C => self.rr_hi(3),
             0x1D => self.rr_low(3),
-            0x1E => self.rr_hl(),
+            0x1E => self.rr_hl(memory),
             0x1F => self.rr_hi(0),
 
             0x20 => self.sla_hi(1),
@@ -670,7 +666,7 @@ impl Cpu {
             0x23 => self.sla_low(2),
             0x24 => self.sla_hi(3),
             0x25 => self.sla_low(3),
-            0x26 => self.sla_hl(),
+            0x26 => self.sla_hl(memory),
             0x27 => self.sla_hi(0),
             0x28 => self.sra_hi(1),
             0x29 => self.sra_low(1),
@@ -678,7 +674,7 @@ impl Cpu {
             0x2B => self.sra_low(2),
             0x2C => self.sra_hi(3),
             0x2D => self.sra_low(3),
-            0x2E => self.sra_hl(),
+            0x2E => self.sra_hl(memory),
             0x2F => self.sra_hi(0),
 
             0x30 => self.swap_hi(1),
@@ -687,7 +683,7 @@ impl Cpu {
             0x33 => self.swap_low(2),
             0x34 => self.swap_hi(3),
             0x35 => self.swap_low(3),
-            0x36 => self.swap_hl(),
+            0x36 => self.swap_hl(memory),
             0x37 => self.swap_hi(0),
             0x38 => self.srl_hi(1),
             0x39 => self.srl_low(1),
@@ -695,7 +691,7 @@ impl Cpu {
             0x3B => self.srl_low(2),
             0x3C => self.srl_hi(3),
             0x3D => self.srl_low(3),
-            0x3E => self.srl_hl(),
+            0x3E => self.srl_hl(memory),
             0x3F => self.srl_hi(0),
 
             0x40 => self.bit_hi(1, 0),
@@ -704,7 +700,7 @@ impl Cpu {
             0x43 => self.bit_low(2, 0),
             0x44 => self.bit_hi(3, 0),
             0x45 => self.bit_low(3, 0),
-            0x46 => self.bit_hl(0),
+            0x46 => self.bit_hl(0, memory),
             0x47 => self.bit_hi(0, 0),
             0x48 => self.bit_hi(1, 1),
             0x49 => self.bit_low(1, 1),
@@ -712,7 +708,7 @@ impl Cpu {
             0x4B => self.bit_low(2, 1),
             0x4C => self.bit_hi(3, 1),
             0x4D => self.bit_low(3, 1),
-            0x4E => self.bit_hl(1),
+            0x4E => self.bit_hl(1, memory),
             0x4F => self.bit_hi(0, 1),
 
             0x50 => self.bit_hi(1, 2),
@@ -721,7 +717,7 @@ impl Cpu {
             0x53 => self.bit_low(2, 2),
             0x54 => self.bit_hi(3, 2),
             0x55 => self.bit_low(3, 2),
-            0x56 => self.bit_hl(2),
+            0x56 => self.bit_hl(2, memory),
             0x57 => self.bit_hi(0, 2),
             0x58 => self.bit_hi(1, 3),
             0x59 => self.bit_low(1, 3),
@@ -729,7 +725,7 @@ impl Cpu {
             0x5B => self.bit_low(2, 3),
             0x5C => self.bit_hi(3, 3),
             0x5D => self.bit_low(3, 3),
-            0x5E => self.bit_hl(3),
+            0x5E => self.bit_hl(3, memory),
             0x5F => self.bit_hi(0, 3),
 
             0x60 => self.bit_hi(1, 4),
@@ -738,7 +734,7 @@ impl Cpu {
             0x63 => self.bit_low(2, 4),
             0x64 => self.bit_hi(3, 4),
             0x65 => self.bit_low(3, 4),
-            0x66 => self.bit_hl(4),
+            0x66 => self.bit_hl(4, memory),
             0x67 => self.bit_hi(0, 4),
             0x68 => self.bit_hi(1, 5),
             0x69 => self.bit_low(1, 5),
@@ -746,7 +742,7 @@ impl Cpu {
             0x6B => self.bit_low(2, 5),
             0x6C => self.bit_hi(3, 5),
             0x6D => self.bit_low(3, 5),
-            0x6E => self.bit_hl(5),
+            0x6E => self.bit_hl(5, memory),
             0x6F => self.bit_hi(0, 5),
 
             0x70 => self.bit_hi(1, 6),
@@ -755,7 +751,7 @@ impl Cpu {
             0x73 => self.bit_low(2, 6),
             0x74 => self.bit_hi(3, 6),
             0x75 => self.bit_low(3, 6),
-            0x76 => self.bit_hl(6),
+            0x76 => self.bit_hl(6, memory),
             0x77 => self.bit_hi(0, 6),
             0x78 => self.bit_hi(1, 7),
             0x79 => self.bit_low(1, 7),
@@ -763,7 +759,7 @@ impl Cpu {
             0x7B => self.bit_low(2, 7),
             0x7C => self.bit_hi(3, 7),
             0x7D => self.bit_low(3, 7),
-            0x7E => self.bit_hl(7),
+            0x7E => self.bit_hl(7, memory),
             0x7F => self.bit_hi(0, 7),
 
             0x80 => self.res_hi(1, 0),
@@ -772,7 +768,7 @@ impl Cpu {
             0x83 => self.res_low(2, 0),
             0x84 => self.res_hi(3, 0),
             0x85 => self.res_low(3, 0),
-            0x86 => self.res_hl(0),
+            0x86 => self.res_hl(0, memory),
             0x87 => self.res_hi(0, 0),
             0x88 => self.res_hi(1, 1),
             0x89 => self.res_low(1, 1),
@@ -780,7 +776,7 @@ impl Cpu {
             0x8B => self.res_low(2, 1),
             0x8C => self.res_hi(3, 1),
             0x8D => self.res_low(3, 1),
-            0x8E => self.res_hl(1),
+            0x8E => self.res_hl(1, memory),
             0x8F => self.res_hi(0, 1),
 
             0x90 => self.res_hi(1, 2),
@@ -789,7 +785,7 @@ impl Cpu {
             0x93 => self.res_low(2, 2),
             0x94 => self.res_hi(3, 2),
             0x95 => self.res_low(3, 2),
-            0x96 => self.res_hl(2),
+            0x96 => self.res_hl(2, memory),
             0x97 => self.res_hi(0, 2),
             0x98 => self.res_hi(1, 3),
             0x99 => self.res_low(1, 3),
@@ -797,7 +793,7 @@ impl Cpu {
             0x9B => self.res_low(2, 3),
             0x9C => self.res_hi(3, 3),
             0x9D => self.res_low(3, 3),
-            0x9E => self.res_hl(3),
+            0x9E => self.res_hl(3, memory),
             0x9F => self.res_hi(0, 3),
 
             0xA0 => self.res_hi(1, 4),
@@ -806,7 +802,7 @@ impl Cpu {
             0xA3 => self.res_low(2, 4),
             0xA4 => self.res_hi(3, 4),
             0xA5 => self.res_low(3, 4),
-            0xA6 => self.res_hl(4),
+            0xA6 => self.res_hl(4, memory),
             0xA7 => self.res_hi(0, 4),
             0xA8 => self.res_hi(1, 5),
             0xA9 => self.res_low(1, 5),
@@ -814,7 +810,7 @@ impl Cpu {
             0xAB => self.res_low(2, 5),
             0xAC => self.res_hi(3, 5),
             0xAD => self.res_low(3, 5),
-            0xAE => self.res_hl(5),
+            0xAE => self.res_hl(5, memory),
             0xAF => self.res_hi(0, 5),
 
             0xB0 => self.res_hi(1, 6),
@@ -823,7 +819,7 @@ impl Cpu {
             0xB3 => self.res_low(2, 6),
             0xB4 => self.res_hi(3, 6),
             0xB5 => self.res_low(3, 6),
-            0xB6 => self.res_hl(6),
+            0xB6 => self.res_hl(6, memory),
             0xB7 => self.res_hi(0, 6),
             0xB8 => self.res_hi(1, 7),
             0xB9 => self.res_low(1, 7),
@@ -831,7 +827,7 @@ impl Cpu {
             0xBB => self.res_low(2, 7),
             0xBC => self.res_hi(3, 7),
             0xBD => self.res_low(3, 7),
-            0xBE => self.res_hl(7),
+            0xBE => self.res_hl(7, memory),
             0xBF => self.res_hi(0, 7),
 
             0xC0 => self.set_hi(1, 0),
@@ -840,7 +836,7 @@ impl Cpu {
             0xC3 => self.set_low(2, 0),
             0xC4 => self.set_hi(3, 0),
             0xC5 => self.set_low(3, 0),
-            0xC6 => self.set_hl(0),
+            0xC6 => self.set_hl(0, memory),
             0xC7 => self.set_hi(0, 0),
             0xC8 => self.set_hi(1, 1),
             0xC9 => self.set_low(1, 1),
@@ -848,7 +844,7 @@ impl Cpu {
             0xCB => self.set_low(2, 1),
             0xCC => self.set_hi(3, 1),
             0xCD => self.set_low(3, 1),
-            0xCE => self.set_hl(1),
+            0xCE => self.set_hl(1, memory),
             0xCF => self.set_hi(0, 1),
 
             0xD0 => self.set_hi(1, 2),
@@ -857,7 +853,7 @@ impl Cpu {
             0xD3 => self.set_low(2, 2),
             0xD4 => self.set_hi(3, 2),
             0xD5 => self.set_low(3, 2),
-            0xD6 => self.set_hl(2),
+            0xD6 => self.set_hl(2, memory),
             0xD7 => self.set_hi(0, 2),
             0xD8 => self.set_hi(1, 3),
             0xD9 => self.set_low(1, 3),
@@ -865,7 +861,7 @@ impl Cpu {
             0xDB => self.set_low(2, 3),
             0xDC => self.set_hi(3, 3),
             0xDD => self.set_low(3, 3),
-            0xDE => self.set_hl(3),
+            0xDE => self.set_hl(3, memory),
             0xDF => self.set_hi(0, 3),
 
             0xE0 => self.set_hi(1, 4),
@@ -874,7 +870,7 @@ impl Cpu {
             0xE3 => self.set_low(2, 4),
             0xE4 => self.set_hi(3, 4),
             0xE5 => self.set_low(3, 4),
-            0xE6 => self.set_hl(4),
+            0xE6 => self.set_hl(4, memory),
             0xE7 => self.set_hi(0, 4),
             0xE8 => self.set_hi(1, 5),
             0xE9 => self.set_low(1, 5),
@@ -882,7 +878,7 @@ impl Cpu {
             0xEB => self.set_low(2, 5),
             0xEC => self.set_hi(3, 5),
             0xED => self.set_low(3, 5),
-            0xEE => self.set_hl(5),
+            0xEE => self.set_hl(5, memory),
             0xEF => self.set_hi(0, 5),
 
             0xF0 => self.set_hi(1, 6),
@@ -891,7 +887,7 @@ impl Cpu {
             0xF3 => self.set_low(2, 6),
             0xF4 => self.set_hi(3, 6),
             0xF5 => self.set_low(3, 6),
-            0xF6 => self.set_hl(6),
+            0xF6 => self.set_hl(6, memory),
             0xF7 => self.set_hi(0, 6),
             0xF8 => self.set_hi(1, 7),
             0xF9 => self.set_low(1, 7),
@@ -899,9 +895,14 @@ impl Cpu {
             0xFB => self.set_low(2, 7),
             0xFC => self.set_hi(3, 7),
             0xFD => self.set_low(3, 7),
-            0xFE => self.set_hl(7),
+            0xFE => self.set_hl(7, memory),
             0xFF => self.set_hi(0, 7),
         }
+    }
+
+    fn invalid_opcode(&mut self, opcode: u8) {
+        self.ui.lock().unwrap().cpu_paused = true;
+        log::error!("Tried to execute invalid opcode 0x{:02X}", opcode);
     }
 
     fn instruction_finished(&mut self, pc: u16, cycles: u16) {
@@ -931,26 +932,26 @@ impl Cpu {
         }
     }
 
-    fn stack_read(&mut self) -> u16 {
+    fn stack_read(&mut self, memory: &mut EmulatedMemory) -> u16 {
         let mut sp = self.registers[4].get();
         let mut values = vec![0; 2];
 
-        values[0] = self.memory.read(sp);
+        values[0] = memory.read(sp);
         sp += 1;
-        values[1] = self.memory.read(sp);
+        values[1] = memory.read(sp);
         sp += 1;
         
         self.registers[4].set(sp);
         LittleEndian::read_u16(&values)
     }
 
-    fn stack_write(&mut self, value: u16) {
+    fn stack_write(&mut self, value: u16, memory: &mut EmulatedMemory) {
         let mut sp = self.registers[4].get();
 
         sp -= 1;
-        self.memory.write(sp, (value >> 8) as u8, true);
+        memory.write(sp, (value >> 8) as u8, true);
         sp -= 1;
-        self.memory.write(sp, value as u8, true);
+        memory.write(sp, value as u8, true);
 
         self.registers[4].set(sp);
     }
@@ -981,8 +982,8 @@ impl Cpu {
 
     
     // Jumps.
-    fn jump(&mut self) {
-        self.pc = LittleEndian::read_u16(&vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)]);
+    fn jump(&mut self, memory: &mut EmulatedMemory) {
+        self.pc = LittleEndian::read_u16(&vec![memory.read(self.pc + 1), memory.read(self.pc + 2)]);
         self.instruction_finished(0, 16);
     }
 
@@ -991,7 +992,7 @@ impl Cpu {
         self.instruction_finished(0, 4);
     }
 
-    fn jump_conditional(&mut self, condition: Condition) {
+    fn jump_conditional(&mut self, condition: Condition, memory: &mut EmulatedMemory) {
         let condition_met = match condition {
             Condition::ZNotSet => !Cpu::check_bit(self.registers[0].get_low(), Z_FLAG),
             Condition::ZSet => Cpu::check_bit(self.registers[0].get_low(), Z_FLAG),
@@ -1000,21 +1001,21 @@ impl Cpu {
         };
 
         if condition_met {
-            self.jump();
+            self.jump(memory);
         }
         else {
             self.instruction_finished(3, 12);
         }
     }
 
-    fn jump_relative(&mut self) {
-        let target = self.memory.read(self.pc + 1) as i8;
+    fn jump_relative(&mut self, memory: &mut EmulatedMemory) {
+        let target = memory.read(self.pc + 1) as i8;
 
         self.pc = self.pc.wrapping_add(target as u16);
         self.instruction_finished(2, 12);
     }
 
-    fn jump_relative_conditional(&mut self, condition: Condition) {
+    fn jump_relative_conditional(&mut self, condition: Condition, memory: &mut EmulatedMemory) {
         let condition_met = match condition {
             Condition::ZNotSet => !Cpu::check_bit(self.registers[0].get_low(), Z_FLAG),
             Condition::ZSet => Cpu::check_bit(self.registers[0].get_low(), Z_FLAG),
@@ -1023,7 +1024,7 @@ impl Cpu {
         };
 
         if condition_met {
-            self.jump_relative();
+            self.jump_relative(memory);
         }
         else {
             self.instruction_finished(2, 8);
@@ -1032,16 +1033,16 @@ impl Cpu {
 
 
     // Calls and Returns.
-    fn call(&mut self) {
-        let target = LittleEndian::read_u16(&vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)]);
+    fn call(&mut self, memory: &mut EmulatedMemory) {
+        let target = LittleEndian::read_u16(&vec![memory.read(self.pc + 1), memory.read(self.pc + 2)]);
         let ret_addr = self.pc + 3;
 
         self.pc = target;
-        self.stack_write(ret_addr);
+        self.stack_write(ret_addr, memory);
         self.instruction_finished(0, 24);
     }
 
-    fn call_conditional(&mut self, condition: Condition) {
+    fn call_conditional(&mut self, condition: Condition, memory: &mut EmulatedMemory) {
         let condition_met = match condition {
             Condition::ZNotSet => !Cpu::check_bit(self.registers[0].get_low(), Z_FLAG),
             Condition::ZSet => Cpu::check_bit(self.registers[0].get_low(), Z_FLAG),
@@ -1050,24 +1051,24 @@ impl Cpu {
         };
 
         if condition_met {
-            self.call();
+            self.call(memory);
         }
         else {
             self.instruction_finished(3, 12);
         }
     }
 
-    fn ret(&mut self) {
-        self.pc = self.stack_read();
+    fn ret(&mut self, memory: &mut EmulatedMemory) {
+        self.pc = self.stack_read(memory);
         self.instruction_finished(0, 16);
     }
 
-    fn reti(&mut self) {
+    fn reti(&mut self, memory: &mut EmulatedMemory) {
         self.interrupts.can_interrupt = true;
-        self.ret();
+        self.ret(memory);
     }
 
-    fn return_conditional(&mut self, condition: Condition) {
+    fn return_conditional(&mut self, condition: Condition, memory: &mut EmulatedMemory) {
         let condition_met = match condition {
             Condition::ZNotSet => !Cpu::check_bit(self.registers[0].get_low(), Z_FLAG),
             Condition::ZSet => Cpu::check_bit(self.registers[0].get_low(), Z_FLAG),
@@ -1076,7 +1077,7 @@ impl Cpu {
         };
 
         if condition_met {
-            self.ret();
+            self.ret(memory);
         }
         else {
             self.instruction_finished(1, 8);
@@ -1097,8 +1098,8 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn load_hi_to_hl(&mut self, source: usize) {
-        self.memory.write(self.registers[3].get(), self.registers[source].get_hi(), true);
+    fn load_hi_to_hl(&mut self, source: usize, memory: &mut EmulatedMemory) {
+        memory.write(self.registers[3].get(), self.registers[source].get_hi(), true);
         self.instruction_finished(1, 8);
     }
 
@@ -1114,84 +1115,84 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn load_low_to_hl(&mut self, source: usize) {
-        self.memory.write(self.registers[3].get(), self.registers[source].get_low(), true);
+    fn load_low_to_hl(&mut self, source: usize, memory: &mut EmulatedMemory) {
+        memory.write(self.registers[3].get(), self.registers[source].get_low(), true);
         self.instruction_finished(1, 8);
     }
 
 
     // Register immediate loads.
-    fn load_immediate_to_hi(&mut self, register: usize) {
-        let value = self.memory.read(self.pc + 1);
+    fn load_immediate_to_hi(&mut self, register: usize, memory: &mut EmulatedMemory) {
+        let value = memory.read(self.pc + 1);
         self.registers[register].set_hi(value);
         self.instruction_finished(2, 8);
     }
 
-    fn load_immediate_to_low(&mut self, register: usize) {
-        let value = self.memory.read(self.pc + 1);
+    fn load_immediate_to_low(&mut self, register: usize, memory: &mut EmulatedMemory) {
+        let value = memory.read(self.pc + 1);
         self.registers[register].set_low(value);
         self.instruction_finished(2, 8);
     }
 
-    fn load_immediate_to_full(&mut self, register: usize) {
-        let value = LittleEndian::read_u16(&vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)]);
+    fn load_immediate_to_full(&mut self, register: usize, memory: &mut EmulatedMemory) {
+        let value = LittleEndian::read_u16(&vec![memory.read(self.pc + 1), memory.read(self.pc + 2)]);
         self.registers[register].set(value);
         self.instruction_finished(3, 12);
     }
 
 
     // Register loads from memory.
-    fn load_a_from_full(&mut self, register: usize) {
-        let value = self.memory.read(self.registers[register].get());
+    fn load_a_from_full(&mut self, register: usize, memory: &mut EmulatedMemory) {
+        let value = memory.read(self.registers[register].get());
 
         self.registers[0].set_hi(value);
         self.instruction_finished(1, 8);
     }
 
-    fn load_a_from_hl_inc(&mut self) {
+    fn load_a_from_hl_inc(&mut self, memory: &mut EmulatedMemory) {
         let target = self.registers[3].get();
-        self.registers[0].set_hi(self.memory.read(target));
+        self.registers[0].set_hi(memory.read(target));
         self.registers[3].set(target.wrapping_add(1));
         self.instruction_finished(1, 8);
     }
 
-    fn load_a_from_hl_dec(&mut self) {
+    fn load_a_from_hl_dec(&mut self, memory: &mut EmulatedMemory) {
         let target = self.registers[3].get();
-        let value = self.memory.read(target);
+        let value = memory.read(target);
         
         self.registers[0].set_hi(value);
         self.registers[3].set(target.wrapping_sub(1));
         self.instruction_finished(1, 8);
     }
 
-    fn load_a_from_ff_immediate(&mut self) {
-        let address = 0xFF00 + self.memory.read(self.pc + 1) as u16;
-        self.registers[0].set_hi(self.memory.read(address));
+    fn load_a_from_ff_immediate(&mut self, memory: &mut EmulatedMemory) {
+        let address = 0xFF00 + memory.read(self.pc + 1) as u16;
+        self.registers[0].set_hi(memory.read(address));
         self.instruction_finished(2, 12);
     }
 
-    fn load_a_from_ff_c(&mut self) {
+    fn load_a_from_ff_c(&mut self, memory: &mut EmulatedMemory) {
         let address = 0xFF00 + self.registers[1].get_low() as u16;
-        self.registers[0].set_hi(self.memory.read(address));
+        self.registers[0].set_hi(memory.read(address));
         self.instruction_finished(1, 8);
     }
 
-    fn load_a_from_immediate(&mut self) {
-        let address = LittleEndian::read_u16(&vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)]);
-        let value = self.memory.read(address);
+    fn load_a_from_immediate(&mut self, memory: &mut EmulatedMemory) {
+        let address = LittleEndian::read_u16(&vec![memory.read(self.pc + 1), memory.read(self.pc + 2)]);
+        let value = memory.read(address);
 
         self.registers[0].set_hi(value);
         self.instruction_finished(3, 16);
     }
 
-    fn load_hl_to_hi(&mut self, target: usize) {
-        let value = self.memory.read(self.registers[3].get());
+    fn load_hl_to_hi(&mut self, target: usize, memory: &mut EmulatedMemory) {
+        let value = memory.read(self.registers[3].get());
         self.registers[target].set_hi(value);
         self.instruction_finished(1, 8);
     }
 
-    fn load_hl_to_low(&mut self, target: usize) {
-        let value = self.memory.read(self.registers[3].get());
+    fn load_hl_to_low(&mut self, target: usize, memory: &mut EmulatedMemory) {
+        let value = memory.read(self.registers[3].get());
         self.registers[target].set_low(value);
         self.instruction_finished(1, 8);
     }
@@ -1226,9 +1227,9 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn increment_at_hl(&mut self) {
-        let result = self.increment(self.memory.read(self.registers[3].get()));
-        self.memory.write(self.registers[3].get(), result, true);
+    fn increment_at_hl(&mut self, memory: &mut EmulatedMemory) {
+        let result = self.increment(memory.read(self.registers[3].get()));
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(1, 12);
     }
 
@@ -1259,9 +1260,9 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn decrement_at_hl(&mut self) {
-        let result = self.decrement(self.memory.read(self.registers[3].get()));
-        self.memory.write(self.registers[3].get(), result, true);
+    fn decrement_at_hl(&mut self, memory: &mut EmulatedMemory) {
+        let result = self.decrement(memory.read(self.registers[3].get()));
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(1, 12);
     }
 
@@ -1290,13 +1291,13 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn add_hl(&mut self) {
-        self.add(self.memory.read(self.registers[3].get()));
+    fn add_hl(&mut self, memory: &mut EmulatedMemory) {
+        self.add(memory.read(self.registers[3].get()));
         self.instruction_finished(1, 8);
     }
 
-    fn add_immediate(&mut self) {
-        self.add(self.memory.read(self.pc + 1));
+    fn add_immediate(&mut self, memory: &mut EmulatedMemory) {
+        self.add(memory.read(self.pc + 1));
         self.instruction_finished(2, 8);
     }
 
@@ -1321,13 +1322,13 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn sub_hl(&mut self) {
-        self.sub(self.memory.read(self.registers[3].get()));
+    fn sub_hl(&mut self, memory: &mut EmulatedMemory) {
+        self.sub(memory.read(self.registers[3].get()));
         self.instruction_finished(1, 8);
     }
 
-    fn sub_immediate(&mut self) {
-        self.sub(self.memory.read(self.pc + 1));
+    fn sub_immediate(&mut self, memory: &mut EmulatedMemory) {
+        self.sub(memory.read(self.pc + 1));
         self.instruction_finished(2, 8);
     }
 
@@ -1335,13 +1336,13 @@ impl Cpu {
     // ADC.
     fn adc(&mut self, value: u8) {
         let carry = Cpu::check_bit(self.registers[0].get_low(), C_FLAG) as u8;
-        let register = self.registers[0].get_low();
+        let register = self.registers[0].get_hi();
+        let result = register as u16 + value as u16 + carry as u16;
 
-        let hf = ((register & 0xF) + (value & 0xF) + carry) > 0xF;
+        let hf = ((register & 0x0F) + (value & 0x0F) + carry) > 0x0F;
+        let carry = result > 0xFF;
 
-        let result = self.registers[0].get_hi() as u16 + value as u16 + carry as u16;
-
-        self.update_flags(Some(result == 0), Some(false), Some(hf), Some(result > 0xFF));
+        self.update_flags(Some(result == 0), Some(false), Some(hf), Some(carry));
         self.registers[0].set_hi(result as u8);
     }
 
@@ -1355,23 +1356,26 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn adc_hl(&mut self) {
-        self.adc(self.memory.read(self.registers[3].get()));
+    fn adc_hl(&mut self, memory: &mut EmulatedMemory) {
+        self.adc(memory.read(self.registers[3].get()));
         self.instruction_finished(1, 8);
     }
 
-    fn adc_immediate(&mut self) {
-        self.adc(self.memory.read(self.pc + 1));
+    fn adc_immediate(&mut self, memory: &mut EmulatedMemory) {
+        self.adc(memory.read(self.pc + 1));
         self.instruction_finished(2, 8);
     }
 
 
     // SBC.
     fn sbc(&mut self, value: u8) {
+        let register = self.registers[0].get_hi();
         let carry = Cpu::check_bit(self.registers[0].get_low(), C_FLAG) as i16;
-        let result = self.registers[0].get_hi() as i16 - value as i16 - carry;
+        let result = register as i16 - value as i16 - carry;
 
-        self.update_flags(Some(result == 0), Some(true), Some(false), Some(result < 0));
+        let hf = ((register as i16 & 0x0F) - ((value as i16) & 0x0F) - carry) < 0;
+
+        self.update_flags(Some(result == 0), Some(true), Some(hf), Some(result < 0));
         self.registers[0].set_hi(result as u8);
     }
 
@@ -1385,13 +1389,13 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn sbc_hl(&mut self) {
-        self.sbc(self.memory.read(self.registers[3].get()));
+    fn sbc_hl(&mut self, memory: &mut EmulatedMemory) {
+        self.sbc(memory.read(self.registers[3].get()));
         self.instruction_finished(1, 8);
     }
 
-    fn sbc_immediate(&mut self) {
-        self.sbc(self.memory.read(self.pc + 1));
+    fn sbc_immediate(&mut self, memory: &mut EmulatedMemory) {
+        self.sbc(memory.read(self.pc + 1));
         self.instruction_finished(2, 8);
     }
 
@@ -1413,13 +1417,13 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn and_hl(&mut self) {
-        self.and(self.memory.read(self.registers[3].get()));
+    fn and_hl(&mut self, memory: &mut EmulatedMemory) {
+        self.and(memory.read(self.registers[3].get()));
         self.instruction_finished(1, 8);
     }
 
-    fn and_immediate(&mut self) {
-        self.and(self.memory.read(self.pc + 1));
+    fn and_immediate(&mut self, memory: &mut EmulatedMemory) {
+        self.and(memory.read(self.pc + 1));
         self.instruction_finished(2, 8);
     }
 
@@ -1441,13 +1445,13 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn xor_hl(&mut self) {
-        self.xor(self.memory.read(self.registers[3].get()));
+    fn xor_hl(&mut self, memory: &mut EmulatedMemory) {
+        self.xor(memory.read(self.registers[3].get()));
         self.instruction_finished(1, 8);
     }
 
-    fn xor_immediate(&mut self) {
-        self.xor(self.memory.read(self.pc + 1));
+    fn xor_immediate(&mut self, memory: &mut EmulatedMemory) {
+        self.xor(memory.read(self.pc + 1));
         self.instruction_finished(2, 8);
     }
 
@@ -1469,13 +1473,13 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn or_hl(&mut self) {
-        self.or(self.memory.read(self.registers[3].get()));
+    fn or_hl(&mut self, memory: &mut EmulatedMemory) {
+        self.or(memory.read(self.registers[3].get()));
         self.instruction_finished(1, 8);
     }
 
-    fn or_immediate(&mut self) {
-        self.or(self.memory.read(self.pc + 1));
+    fn or_immediate(&mut self, memory: &mut EmulatedMemory) {
+        self.or(memory.read(self.pc + 1));
         self.instruction_finished(2, 8);
     }
 
@@ -1496,14 +1500,14 @@ impl Cpu {
         self.instruction_finished(1, 4);
     }
 
-    fn cp_hl(&mut self) {
-        let value = self.memory.read(self.registers[3].get());
+    fn cp_hl(&mut self, memory: &mut EmulatedMemory) {
+        let value = memory.read(self.registers[3].get());
         self.cp(value);
         self.instruction_finished(1, 8);
     }
 
-    fn cp_immediate(&mut self) {
-        let value = self.memory.read(self.pc + 1);
+    fn cp_immediate(&mut self, memory: &mut EmulatedMemory) {
+        let value = memory.read(self.pc + 1);
         self.cp(value);
         self.instruction_finished(2, 8);
     }
@@ -1565,14 +1569,14 @@ impl Cpu {
 
 
     // Push and Pop registers.
-    fn pop_register(&mut self, target: usize) {
-        let value = self.stack_read();
+    fn pop_register(&mut self, target: usize, memory: &mut EmulatedMemory) {
+        let value = self.stack_read(memory);
         self.registers[target].set(value);
         self.instruction_finished(1, 12);
     }
 
-    fn push_register(&mut self, target: usize) {
-        self.stack_write(self.registers[target].get());
+    fn push_register(&mut self, target: usize, memory: &mut EmulatedMemory) {
+        self.stack_write(self.registers[target].get(), memory);
         self.instruction_finished(1, 16);
     }
 
@@ -1590,79 +1594,82 @@ impl Cpu {
 
 
     // Save A to memory.
-    fn save_a_to_full(&mut self, register: usize) {
+    fn save_a_to_full(&mut self, register: usize, memory: &mut EmulatedMemory) {
         let value = self.registers[0].get_hi();
         let address = self.registers[register].get();
-        self.memory.write(address, value, true);
+        memory.write(address, value, true);
         self.instruction_finished(1, 8);
     }
 
-    fn save_a_to_hl_inc(&mut self) {
+    fn save_a_to_hl_inc(&mut self, memory: &mut EmulatedMemory) {
         let target = self.registers[3].get();
-        self.memory.write(target, self.registers[0].get_hi(), true);
+        memory.write(target, self.registers[0].get_hi(), true);
         self.registers[3].set(target.wrapping_add(1));
         self.instruction_finished(1, 8);
     }
 
-    fn save_a_to_hl_dec(&mut self) {
+    fn save_a_to_hl_dec(&mut self, memory: &mut EmulatedMemory) {
         let target = self.registers[3].get();
-        self.memory.write(target, self.registers[0].get_hi(), true);
+        memory.write(target, self.registers[0].get_hi(), true);
         self.registers[3].set(target.wrapping_sub(1));
         self.instruction_finished(1, 8);
     }
 
-    fn save_a_to_immediate(&mut self) {
-        let address = LittleEndian::read_u16(&vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)]);
-        self.memory.write(address, self.registers[0].get_hi(), true);
+    fn save_a_to_immediate(&mut self, memory: &mut EmulatedMemory) {
+        let address = LittleEndian::read_u16(&vec![memory.read(self.pc + 1), memory.read(self.pc + 2)]);
+        memory.write(address, self.registers[0].get_hi(), true);
         self.instruction_finished(3, 16);
     }
 
-    fn save_a_to_ff_immediate(&mut self) {
-        let target = 0xFF00 + self.memory.read(self.pc + 1) as u16;
-        self.memory.write(target, self.registers[0].get_hi(), true);
+    fn save_a_to_ff_immediate(&mut self, memory: &mut EmulatedMemory) {
+        let target = 0xFF00 + memory.read(self.pc + 1) as u16;
+        memory.write(target, self.registers[0].get_hi(), true);
         self.instruction_finished(2, 12);
     }
 
-    fn save_a_to_ff_c(&mut self) {
+    fn save_a_to_ff_c(&mut self, memory: &mut EmulatedMemory) {
         let target = 0xFF00 + self.registers[1].get_low() as u16;
-        self.memory.write(target, self.registers[0].get_hi(), true);
+        memory.write(target, self.registers[0].get_hi(), true);
         self.instruction_finished(1, 8);
     }
 
 
     // Save SP to address pointed by immediate 16bit value.
-    fn save_sp_to_immediate(&mut self) {
-        let address = LittleEndian::read_u16(&vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)]);
+    fn save_sp_to_immediate(&mut self, memory: &mut EmulatedMemory) {
+        let address = LittleEndian::read_u16(&vec![memory.read(self.pc + 1), memory.read(self.pc + 2)]);
 
-        self.memory.write(address, self.registers[4].get_low(), true);
-        self.memory.write(address + 1, self.registers[4].get_hi(), true);
+        memory.write(address, self.registers[4].get_low(), true);
+        memory.write(address + 1, self.registers[4].get_hi(), true);
         self.instruction_finished(3, 20);
     }
 
 
     // Save the immediate 8bit value to address pointed by HL.
-    fn save_immediate_to_hl(&mut self) {
-        let value = self.memory.read(self.pc + 1);
-        self.memory.write(self.registers[3].get(), value, true);
+    fn save_immediate_to_hl(&mut self, memory: &mut EmulatedMemory) {
+        let value = memory.read(self.pc + 1);
+        memory.write(self.registers[3].get(), value, true);
         self.instruction_finished(2, 12);
     }
 
 
     // Add signed immediate value to SP.
-    fn add_signed_immediate_to_sp(&mut self) {
-        let value = self.memory.read(self.pc + 1) as i8;
-        let hf = Cpu::check_hf_u16((self.registers[4].get(), value as u16));
-        let result = self.registers[4].get().wrapping_add(value as u16);
+    fn add_signed_immediate_to_sp(&mut self, memory: &mut EmulatedMemory) {
+        let register = self.registers[4].get();
+        let value = memory.read(self.pc + 1) as i8;
+        let result = register.wrapping_add(value as u16);
+
+        let hf = ((register ^ value as u16 ^ (result & 0xFFFF)) & 0x10) == 0x10;
+        let carry = ((register ^ value as u16 ^ (result & 0xFFFF)) & 0x100) == 0x100;
 
         self.registers[4].set(result);
-        self.update_flags(Some(false), Some(false), Some(hf), Some(false));
+        self.update_flags(Some(false), Some(false), Some(hf), Some(carry));
         self.instruction_finished(2, 16);
     }
 
 
     // Reset PC to address.
-    fn rst(&mut self, address: u16) {
-        self.stack_write(self.pc + 1);
+    fn rst(&mut self, address: u16, memory: &mut EmulatedMemory) {
+        self.stack_write(self.pc + 1, memory);
         self.pc = address;
         self.instruction_finished(0, 16);
     }
@@ -1678,12 +1685,16 @@ impl Cpu {
 
     
     // Save (SP + signed 8bit immediate) to HL.
-    fn load_sp_plus_signed_to_hl(&mut self) {
-        let value = self.memory.read(self.pc + 1) as i8;
-        let result = self.registers[4].get().overflowing_add(value as u16);
+    fn load_sp_plus_signed_to_hl(&mut self, memory: &mut EmulatedMemory) {
+        let register = self.registers[4].get();
+        let value = memory.read(self.pc + 1) as i8;
+        let result = register.wrapping_add(value as u16);
 
-        self.registers[3].set(result.0);
-        self.update_flags(Some(false), Some(false), None, Some(result.1));
+        let hf = ((register ^ value as u16 ^ (result & 0xFFFF)) & 0x10) == 0x10;
+        let carry = ((register ^ value as u16 ^ (result & 0xFFFF)) & 0x100) == 0x100;
+
+        self.registers[3].set(result);
+        self.update_flags(Some(false), Some(false), Some(hf), Some(carry));
         self.instruction_finished(2, 12);
     }
 
@@ -1723,9 +1734,9 @@ impl Cpu {
         self.instruction_finished(2, 8);
     }
 
-    fn rlc_hl(&mut self) {
-        let result = self.rlc(self.memory.read(self.registers[3].get()));
-        self.memory.write(self.registers[3].get(), result, true);
+    fn rlc_hl(&mut self, memory: &mut EmulatedMemory) {
+        let result = self.rlc(memory.read(self.registers[3].get()));
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(2, 16);
     }
 
@@ -1749,9 +1760,9 @@ impl Cpu {
         self.instruction_finished(2, 8);
     }
 
-    fn rrc_hl(&mut self) {
-        let result = self.rrc(self.memory.read(self.registers[3].get()));
-        self.memory.write(self.registers[3].get(), result, true);
+    fn rrc_hl(&mut self, memory: &mut EmulatedMemory) {
+        let result = self.rrc(memory.read(self.registers[3].get()));
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(2, 8);
     }
 
@@ -1776,9 +1787,9 @@ impl Cpu {
         self.instruction_finished(2, 8);
     }
 
-    fn rl_hl(&mut self) {
-        let result = self.rl(self.memory.read(self.registers[3].get()));
-        self.memory.write(self.registers[3].get(), result, true);
+    fn rl_hl(&mut self, memory: &mut EmulatedMemory) {
+        let result = self.rl(memory.read(self.registers[3].get()));
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(2, 16);
     }
 
@@ -1803,9 +1814,9 @@ impl Cpu {
         self.instruction_finished(2, 8);
     }
 
-    fn rr_hl(&mut self) {
-        let result = self.rr(self.memory.read(self.registers[3].get()));
-        self.memory.write(self.registers[3].get(), result, true);
+    fn rr_hl(&mut self, memory: &mut EmulatedMemory) {
+        let result = self.rr(memory.read(self.registers[3].get()));
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(2, 16);
     }
 
@@ -1829,9 +1840,9 @@ impl Cpu {
         self.instruction_finished(2, 8);
     }
 
-    fn sla_hl(&mut self) {
-        let result = self.sla(self.memory.read(self.registers[3].get()));
-        self.memory.write(self.registers[3].get(), result, true);
+    fn sla_hl(&mut self, memory: &mut EmulatedMemory) {
+        let result = self.sla(memory.read(self.registers[3].get()));
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(2, 16);
     }
 
@@ -1863,9 +1874,9 @@ impl Cpu {
         self.instruction_finished(2, 8);
     }
 
-    fn sra_hl(&mut self) {
-        let result = self.sra(self.memory.read(self.registers[3].get()));
-        self.memory.write(self.registers[3].get(), result, true);
+    fn sra_hl(&mut self, memory: &mut EmulatedMemory) {
+        let result = self.sra(memory.read(self.registers[3].get()));
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(2, 16);
     }
 
@@ -1887,9 +1898,9 @@ impl Cpu {
         self.instruction_finished(2, 8);
     }
 
-    fn swap_hl(&mut self) {
-        let result = self.swap(self.memory.read(self.registers[3].get()));
-        self.memory.write(self.registers[3].get(), result, true);
+    fn swap_hl(&mut self, memory: &mut EmulatedMemory) {
+        let result = self.swap(memory.read(self.registers[3].get()));
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(2, 16);
     }
 
@@ -1913,9 +1924,9 @@ impl Cpu {
         self.instruction_finished(2, 8);
     }
 
-    fn srl_hl(&mut self) {
-        let result = self.srl(self.memory.read(self.registers[3].get()));
-        self.memory.write(self.registers[3].get(), result, true);
+    fn srl_hl(&mut self, memory: &mut EmulatedMemory) {
+        let result = self.srl(memory.read(self.registers[3].get()));
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(2, 16);
     }
 
@@ -1934,8 +1945,8 @@ impl Cpu {
         self.instruction_finished(2, 8);
     }
 
-    fn bit_hl(&mut self, bit: u8) {
-        self.bit(self.memory.read(self.registers[3].get()), bit);
+    fn bit_hl(&mut self, bit: u8, memory: &mut EmulatedMemory) {
+        self.bit(memory.read(self.registers[3].get()), bit);
         self.instruction_finished(2, 16);
     }
 
@@ -1955,9 +1966,9 @@ impl Cpu {
         self.instruction_finished(2, 8);
     }
 
-    fn res_hl(&mut self, bit: u8) {
-        let result = self.res(self.memory.read(self.registers[3].get()), bit);
-        self.memory.write(self.registers[3].get(), result, true);
+    fn res_hl(&mut self, bit: u8, memory: &mut EmulatedMemory) {
+        let result = self.res(memory.read(self.registers[3].get()), bit);
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(2, 16);
     }
 
@@ -1977,9 +1988,9 @@ impl Cpu {
         self.instruction_finished(2, 8);
     }
 
-    fn set_hl(&mut self, bit: u8) {
-        let result = self.set(self.memory.read(self.registers[3].get()), bit);
-        self.memory.write(self.registers[3].get(), result, true);
+    fn set_hl(&mut self, bit: u8, memory: &mut EmulatedMemory) {
+        let result = self.set(memory.read(self.registers[3].get()), bit);
+        memory.write(self.registers[3].get(), result, true);
         self.instruction_finished(2, 16);
     }
 

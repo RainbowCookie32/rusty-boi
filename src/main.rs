@@ -30,7 +30,7 @@ use glium::Texture2d;
 use glium::backend::Facade;
 use glium::texture::{ClientFormat, UncompressedFloatFormat, MipmapsOption, RawImage2d};
 
-pub static GLOBAL_CYCLE_COUNTER: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+pub static CLOCK_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 pub enum InputEvent {
     A,
@@ -84,26 +84,25 @@ impl ImguiSystem {
 
         let _emulator_thread = std::thread::Builder::new().name("emulator_thread".to_string()).spawn(move || {
             // Emulated GB memory. CPU memory is a placeholder until a ROM is loaded.
-            let shared_memory = Arc::new(memory::SharedMemory::new());
-            let cpu_memory = memory::Memory::new(load_bootrom(), None, shared_memory.clone());
+            let mut emu_memory = memory::EmulatedMemory::new(load_bootrom());
 
             // Emulated components.
-            let mut cpu = cpu::Cpu::new(cpu_object, input_rx, cpu_memory);
-            let mut video = video::VideoChip::new(fb_tx, shared_memory);
+            let mut cpu = cpu::Cpu::new(cpu_object, input_rx);
+            let mut video = video::VideoChip::new(fb_tx);
 
             loop {
                 if !cpu.cpu_paused {
-                    cpu.step();
-                    video.step();
+                    cpu.step(&mut emu_memory);
+                    video.step(&mut emu_memory);
                 }
                 else {
                     if cpu.cpu_step {
-                        cpu.step();
-                        video.step();
+                        cpu.step(&mut emu_memory);
+                        video.step(&mut emu_memory);
                         cpu.cpu_step = false;
                     }
                     else {
-                        cpu.update_ui_object();
+                        cpu.update_ui_object(&mut emu_memory);
                     }
                 }
             }
