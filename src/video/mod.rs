@@ -17,9 +17,7 @@ pub enum VideoMode {
     Hblank,
     Vblank,
     OamSearch,
-    LcdTransfer,
-    LyCoincidence,
-    NotLyCoincidence,
+    LcdTransfer
 }
 
 #[derive(Clone)]
@@ -99,9 +97,9 @@ pub struct VideoChip {
     tile_palette: ColorPalette,
     sprite_palettes: Vec<ColorPalette>,
 
-    oam_state: (u64, bool),
-    t0_state: (u64, bool),
-    t1_state: (u64, bool),
+    oam_hash: u64,
+    t0_hash: u64,
+    t1_hash: u64,
 
     render_data: VideoData,
     sender: Sender<VideoData>
@@ -121,9 +119,9 @@ impl VideoChip {
             tile_palette: ColorPalette::new(),
             sprite_palettes: vec![ColorPalette::new(), ColorPalette::new()],
 
-            oam_state: (0, false),
-            t0_state: (0, false),
-            t1_state: (0, false),
+            oam_hash: 0,
+            t0_hash: 0,
+            t1_hash: 0,
 
             render_data: VideoData::new(vec![0; 256*256], 0, 0, vec![0; 256*256], false, Vec::new()),
             sender: sender
@@ -139,19 +137,6 @@ impl VideoChip {
             self.tile_palette.update_palette(memory.read(0xFF47));
             self.sprite_palettes[0].update_palette(memory.read(0xFF48));
             self.sprite_palettes[1].update_palette(memory.read(0xFF49));
-
-            if self.t0_state.1 {
-                self.make_tiles(0, memory);
-                self.t0_state.1 = false;
-            }
-            if self.t1_state.1 {
-                self.make_tiles(1, memory);
-                self.t1_state.1 = false;
-            }
-            if self.oam_state.1 {
-                self.make_sprites();
-                self.oam_state.1 = false;
-            }
 
             match self.mode {
                 VideoMode::Hblank => {
@@ -177,19 +162,10 @@ impl VideoChip {
                         self.current_cycles = self.current_cycles % 172;
                         self.lcd_transfer_mode(memory);
                     }
-                },
-                _ => {}
+                }
             };
 
-            let ly = memory.read(LY);
-            let lyc = memory.read(LYC);
-
-            if ly == lyc {
-                self.update_video_mode(VideoMode::LyCoincidence, memory);
-            }
-            else {
-                self.update_video_mode(VideoMode::NotLyCoincidence, memory);
-            }
+            self.check_lyc(memory);
         }
     }
 
@@ -202,19 +178,19 @@ impl VideoChip {
         let t0_hash = memory.get_t0_hash();
         let t1_hash = memory.get_t1_hash();
 
-        if !self.oam_state.1 {
-            self.oam_state.1 = self.oam_state.0 != oam_hash;
-            self.oam_state.0 = oam_hash;
+        if t0_hash != self.t0_hash {
+            self.make_tiles(0, memory);
+            self.t0_hash = t0_hash;
         }
 
-        if !self.t0_state.1 {
-            self.t0_state.1 = self.t0_state.0 != t0_hash;
-            self.t0_state.0 = t0_hash;
+        if t1_hash != self.t1_hash {
+            self.make_tiles(1, memory);
+            self.t1_hash = t1_hash;
         }
 
-        if !self.t1_state.1 {
-            self.t1_state.1 = self.t1_state.0 != t1_hash;
-            self.t1_state.0 = t1_hash;
+        if oam_hash != self.oam_hash {
+            self.make_sprites();
+            self.oam_hash = oam_hash;
         }
     }
 
@@ -248,15 +224,6 @@ impl VideoChip {
                 }
     
                 if_value |= 1;
-            },
-            VideoMode::LyCoincidence => {
-                stat_value |= 4;
-                if ((stat_value >> 6) & 1) != 0 {
-                    if_value |= 2;
-                }
-            },
-            VideoMode::NotLyCoincidence => {
-                stat_value &= 0xFB;
             }
         }
 
@@ -326,6 +293,23 @@ impl VideoChip {
         self.current_cycles = 0;
         self.mode = VideoMode::Hblank;
         self.update_video_mode(VideoMode::Hblank, memory);
+    }
+
+    fn check_lyc(&self, memory: &mut EmulatedMemory) {
+        let ly = memory.read(LY);
+        let lyc = memory.read(LYC);
+
+        if ly == lyc {
+            let lcd_stat = memory.read(LCD_STATUS);
+            let interrupt = ((lcd_stat >> 6) & 1) == 1;
+
+            if interrupt {
+                let if_value = memory.read(0xFF0F);
+                memory.write(0xFF0F, if_value | 2, false);
+            }
+
+            memory.write(LCD_STATUS, lcd_stat | 4, false);
+        }
     }
 
     // Drawing to screen.
