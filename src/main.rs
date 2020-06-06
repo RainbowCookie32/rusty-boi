@@ -240,8 +240,8 @@ impl ImguiSystem {
                         full_window_texture = Texture2d::new(display.get_context(), raw_window).unwrap();
 
                         let bg_blit_target = glium::BlitTarget {
-                            left: (video_data.bg_scx as i8 * -1) as u32,
-                            bottom: (video_data.bg_scy as i8 * -1) as u32,
+                            left: 0 as u32,
+                            bottom: 0 as u32,
                             width: 256 * scale_factor,
                             height: 256 * scale_factor,
                         };

@@ -23,30 +23,25 @@ pub enum VideoMode {
 #[derive(Clone)]
 pub struct VideoData {
     pub background: Vec<u8>,
-    pub bg_scx: u8,
-    pub bg_scy: u8,
+    pub sprites: Vec<Vec<u8>>,
+    pub window: Vec<u8>,
 
     pub wx: u8,
     pub wy: u8,
-    pub window: Vec<u8>,
     pub window_enabled: bool,
-
-    pub sprites: Vec<u8>,
 }
 
 impl VideoData {
-    pub fn new(bg: Vec<u8>, scx: u8, scy: u8, window: Vec<u8>, wenabled: bool, sprites: Vec<u8>) -> VideoData {
+    pub fn new(bg: Vec<u8>, window: Vec<u8>, wenabled: bool, sprites: Vec<Vec<u8>>) -> VideoData {
         VideoData {
             background: bg,
-            bg_scx: scx,
-            bg_scy: scy,
+            sprites: sprites,
+            window: window,
 
             wx: 0,
             wy: 0,
-            window: window,
-            window_enabled: wenabled,
-
-            sprites: sprites
+            
+            window_enabled: wenabled
         }
     }
 }
@@ -123,7 +118,7 @@ impl VideoChip {
             t0_hash: 0,
             t1_hash: 0,
 
-            render_data: VideoData::new(vec![0; 256*256], 0, 0, vec![0; 256*256], false, Vec::new()),
+            render_data: VideoData::new(vec![255; 256*256], vec![255; 256*256], false, Vec::new()),
             sender: sender
         }
     }
@@ -147,7 +142,7 @@ impl VideoChip {
                 },
                 VideoMode::Vblank => {
                     if self.current_cycles >= 456 {
-                        self.current_cycles = self.current_cycles % 4560;
+                        self.current_cycles = self.current_cycles % 456;
                         self.vblank_mode(memory);
                     }
                 },
@@ -242,11 +237,9 @@ impl VideoChip {
 
         if window_enabled {
             self.draw_window(memory);
-            self.render_data.window_enabled = false;
         }
-        else {
-            self.render_data.window_enabled = false;
-        }
+
+        self.render_data.window_enabled = window_enabled;
 
         let ly_value = memory.read(LY).wrapping_add(1);
         memory.write(LY, ly_value, false);
@@ -280,6 +273,7 @@ impl VideoChip {
             memory.write(LY, 0, false);
 
             let _result = self.sender.send(self.render_data.clone());
+            self.render_data = VideoData::new(vec![255; 256*256], vec![255; 256*256], false, Vec::new());
         }
     }
 
@@ -312,31 +306,32 @@ impl VideoChip {
         }
     }
 
-    // Drawing to screen.
     fn draw_background(&mut self, memory: &mut EmulatedMemory) {
-        // Scrolling is not working properly right now, since it doesn't account for new scrolling
-        // values being set while drawing the frame. A possible solution to this would be to have a
-        // line struct that is fed with the bytes for that line, and then constructs a vector with the
-        // scrolling value for that line applied. Initialize a vector with 256 items, then assign initial index to
-        // the value of scroll_x and add one 256 times. wrapping_add should give me proper wrapping.
-        let line = memory.read(LY) as u32;
+        let line = memory.read(LY);
         let lcd_control = memory.read(LCD_CONTROL);
         let use_signed_tiles = (lcd_control & 0x10) == 0;
-        let background_address = (if (lcd_control & 0x08) == 0 {0x9800} else {0x9C00}) + (32 * (line / 8) as u16);
-
-        let tile_y_offset = line % 8;
-
-        let mut drawn_tiles = 0;
+        
+        let background_address = (32 * (line / 8) as u16) +
+            if (lcd_control & 0x08) == 0 {
+                0x9800
+            } 
+            else {
+                0x9C00
+            }
+        ;
 
         let scy = memory.read(SCROLL_Y);
         let scx = memory.read(SCROLL_X);
+        let tile_y_offset = line % 8;
 
-        let mut target_idx = 256 * line;
+        let mut drawn_tiles = 0;
+        let mut target_idx = 256 * (line as u16).wrapping_sub(scy as u16);
         
         while drawn_tiles < 32 {
             let tile: &Vec<u8>;
             let tile_idx = memory.read(background_address + drawn_tiles);
-            let mut drawn_pixels = 0;
+            
+            let mut drawn_pixels_tile = 0;
             let mut draw_idx = 8 * tile_y_offset;
 
             if use_signed_tiles {
@@ -346,26 +341,31 @@ impl VideoChip {
                 tile = &self.tbank_0[tile_idx as usize];
             }
                 
-            while drawn_pixels < 8 {
+            while drawn_pixels_tile < 8 {
                 let color = self.tile_palette.get_color(tile[draw_idx as usize]);
-                self.render_data.background[target_idx as usize] = color;
+                self.render_data.background[target_idx.wrapping_sub(scx as u16) as usize] = color;
+
                 target_idx += 1;
                 draw_idx += 1;
-                drawn_pixels += 1;
+                drawn_pixels_tile += 1;
             }
 
             drawn_tiles += 1;
         }
-
-        self.render_data.bg_scx = scx;
-        self.render_data.bg_scy = scy;
     }
 
     fn draw_window(&mut self, memory: &mut EmulatedMemory) {
         let line = memory.read(LY);
         let lcd_control = memory.read(LCD_CONTROL);
         let use_signed_tiles = (lcd_control & 0x10) == 0;
-        let background_address = (if (lcd_control & 0x40) == 0 {0x9800} else {0x9C00}) + (32 * (line / 8) as u16);
+        let background_address = (32 * (line / 8) as u16) +
+            if (lcd_control & 0x40) == 0 {
+                0x9800
+            } 
+            else {
+                0x9C00
+            }
+        ;
 
         let tile_y_offset = line % 8;
 
