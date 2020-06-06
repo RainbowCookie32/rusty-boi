@@ -30,7 +30,7 @@ use glium::Texture2d;
 use glium::backend::Facade;
 use glium::texture::{ClientFormat, UncompressedFloatFormat, MipmapsOption, RawImage2d};
 
-pub static CLOCK_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub static GLOBAL_CYCLE_COUNTER: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 
 pub enum InputEvent {
     A,
