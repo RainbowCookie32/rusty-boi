@@ -205,7 +205,7 @@ pub struct MBC2Cart {
 }
 
 impl MBC2Cart {
-    pub fn new(data: Vec<u8>) -> MBC2Cart {
+    pub fn new(_data: Vec<u8>) -> MBC2Cart {
         log::warn!("Loader: Generating cart with MBC2 controller");
         MBC2Cart {
 
@@ -214,11 +214,11 @@ impl MBC2Cart {
 }
 
 impl GameboyCart for MBC2Cart {
-    fn read(&self, address: u16) -> u8 {
+    fn read(&self, _address: u16) -> u8 {
         0
     }
 
-    fn write(&mut self, address: u16, value: u8) {
+    fn write(&mut self, _address: u16, _value: u8) {
         
     }
 }
@@ -339,6 +339,15 @@ pub fn new_cart(data: Vec<u8>) -> Box<dyn GameboyCart> {
     }
     if MBC3_BYTES.contains(&cart_type) {
         return Box::from(MBC3Cart::new(data))
+    }
+    if MBC5_BYTES.contains(&cart_type) {
+        unimplemented!();
+    }
+    if MBC6_BYTES.contains(&cart_type) {
+        unimplemented!();
+    }
+    if MBC7_BYTES.contains(&cart_type) {
+        unimplemented!();
     }
     
     panic!("Unhandled cart type {:X}", cart_type)
