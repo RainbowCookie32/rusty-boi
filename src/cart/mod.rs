@@ -341,7 +341,7 @@ pub fn new_cart(data: Vec<u8>) -> Box<dyn GameboyCart> {
         return Box::from(MBC3Cart::new(data))
     }
     
-    panic!("Unhandled cart type")
+    panic!("Unhandled cart type {:X}", cart_type)
 }
 
 pub fn dummy_cart() -> Box<dyn GameboyCart> {
