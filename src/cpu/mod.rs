@@ -15,7 +15,6 @@ const H_FLAG: u8 = 5;
 const C_FLAG: u8 = 4;
 
 pub enum Condition {
-
     ZSet,
     ZNotSet,
     CSet,
