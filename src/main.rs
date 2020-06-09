@@ -46,8 +46,12 @@ pub enum InputEvent {
 
 struct EmuState {
     show_cpu_debugger: bool,
+    show_cpu_breakpoints: bool,
     show_video_debugger: bool,
     show_io_regs_debugger: bool,
+
+    cpu_breakpoint_value: i32,
+    selected_cpu_breakpoint: i32,
 
     scale_factor: i32,
     shared_object: Arc<Mutex<UiObject>>,
@@ -67,8 +71,12 @@ impl EmuState {
     pub fn new(shared_object: Arc<Mutex<UiObject>>, input_tx: mpsc::Sender<InputEvent>) -> EmuState {
         EmuState {
             show_cpu_debugger: false,
+            show_cpu_breakpoints: false,
             show_video_debugger: false,
             show_io_regs_debugger: false,
+
+            cpu_breakpoint_value: 0,
+            selected_cpu_breakpoint: 0,
 
             scale_factor: 3,
             shared_object: shared_object,
@@ -119,20 +127,34 @@ impl ImguiSystem {
             let mut memory = memory::EmulatedMemory::new(load_bootrom());
 
             loop {
-                if !cpu.cpu_paused {
-                    cpu.step(&mut memory);
-                    video.step(&mut memory);
-                }
-                else {
-                    if cpu.cpu_step {
+                match cpu.cpu_status {
+                    cpu::Status::NotReady => {
+                        let mut lock = cpu.ui.lock().unwrap();
+                        if lock.update_cart {
+                            memory.set_cart_data(lock.new_cart_data.clone());
+                            lock.update_cart = false;
+                            cpu.cpu_status = cpu::Status::Waiting;
+                        }
+                    },
+                    cpu::Status::Waiting => {
+                        if !cpu.cpu_paused {
+                            cpu.cpu_status = cpu::Status::Running;
+                        }
+                    },
+                    cpu::Status::Running => {
                         cpu.step(&mut memory);
                         video.step(&mut memory);
-                        cpu.cpu_step = false;
-                    }
-                    else {
-                        cpu.update_ui_object(&mut memory);
-                    }
-                }
+                    },
+                    cpu::Status::Paused => {
+                        if cpu.cpu_step {
+                            cpu.step(&mut memory);
+                            video.step(&mut memory);
+                            cpu.cpu_step = false;
+                        }
+                    },
+                };
+
+                cpu.update_ui_object(&mut memory);
             }
         }).unwrap();
 
@@ -147,6 +169,7 @@ impl ImguiSystem {
 
                 ImguiSystem::general_window(&ui, &mut emu_state);
                 ImguiSystem::cpu_debugger_window(&ui, &mut emu_state);
+                ImguiSystem::cpu_breakpoints_window(&ui, &mut emu_state);
                 ImguiSystem::io_registers_window(&ui, &mut emu_state);
                 ImguiSystem::video_debugger_window(&ui, &mut emu_state);
 
@@ -418,10 +441,13 @@ impl ImguiSystem {
                 ui.separator();
 
                 if lock.cpu_paused {
-                    ui.text_colored([1.0, 0.5, 1.0, 1.0], "Status: Paused by debugger");
-                }
-                else if lock.breakpoint_hit {
-                    ui.text_colored([0.3, 1.0, 1.0, 1.0], "Status: Breakpoint hit");
+                    if lock.breakpoint_hit {
+                        ui.text_colored([0.3, 1.0, 1.0, 1.0], "Status: Breakpoint hit");
+                    }
+                    else {
+                        ui.text_colored([1.0, 0.5, 1.0, 1.0], "Status: Paused by debugger");
+                    }
+                    
                 }
                 else if lock.halted {
                     ui.text_colored([0.7, 1.0, 1.0, 1.0], "Status: CPU Halted");
@@ -439,6 +465,7 @@ impl ImguiSystem {
                     if emu_state.started {
                         lock.cpu_paused = true;
                         lock.cpu_should_step = true;
+                        lock.breakpoint_hit = false;
                     }
                 }
                 ui.same_line(122.0);
@@ -446,12 +473,46 @@ impl ImguiSystem {
                     if emu_state.started {
                         lock.cpu_paused = false;
                         lock.cpu_should_step = false;
+                        lock.breakpoint_hit = false;
                     }
                 }
                 ui.separator();
 
+                ui.checkbox(im_str!("Show breakpoints"), &mut emu_state.show_cpu_breakpoints);
                 ui.checkbox(im_str!("Show interrupts state"), &mut emu_state.show_io_regs_debugger);
             });
+        }
+    }
+
+    fn cpu_breakpoints_window(ui: &Ui, emu_state: &mut EmuState) {
+        if emu_state.show_cpu_breakpoints {
+            Window::new(im_str!("Rusty Boi - CPU Breakpoints")).build(&ui, || {
+                let mut lock = emu_state.shared_object.lock().unwrap();
+                let mut all_breakpoints = Vec::new();
+
+                for set_breakpoint in lock.breakpoints.iter() {
+                    all_breakpoints.push(ImString::from(format!("{:04X}", set_breakpoint)))
+                }
+
+                let strings: Vec<&ImStr> = all_breakpoints.iter().map(|s| s.as_ref()).collect();
+                ui.list_box(im_str!("CPU Breakpoints"), &mut emu_state.selected_cpu_breakpoint, 
+                &strings[..], 10);
+
+                if ui.input_int(im_str!("Breakpoint address: "), &mut emu_state.cpu_breakpoint_value)
+                .chars_hexadecimal(true)
+                .chars_noblank(true)
+                .enter_returns_true(true)
+                .build() {
+                    lock.breakpoints.push(emu_state.cpu_breakpoint_value as u16);
+                }
+
+                if ui.button(im_str!("Remove"), [50.0, 20.0]) {
+                    if lock.breakpoints.len() > 0 {
+                        lock.breakpoints.remove(emu_state.selected_cpu_breakpoint as usize);
+                    }
+                }
+            });
+            
         }
     }
 

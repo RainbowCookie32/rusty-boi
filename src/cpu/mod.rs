@@ -5,14 +5,22 @@ use std::sync::atomic::Ordering;
 use log::{info};
 use byteorder::{ByteOrder, LittleEndian};
 
-use super::timer::Timer;
 use super::InputEvent;
+use super::timer::Timer;
 use super::memory::EmulatedMemory;
 
 const Z_FLAG: u8 = 7;
 const N_FLAG: u8 = 6;
 const H_FLAG: u8 = 5;
 const C_FLAG: u8 = 4;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Status {
+    NotReady,
+    Waiting,
+    Running,
+    Paused,
+}
 
 pub enum Condition {
     ZSet,
@@ -91,9 +99,9 @@ pub struct Cpu {
     stopped: bool,
     
     pub ui: Arc<Mutex<UiObject>>,
-    pub cpu_paused: bool,
-    pub cpu_ready: bool,
+    pub cpu_status: Status,
     pub cpu_step: bool,
+    pub cpu_paused: bool,
 
     input_rx: mpsc::Receiver<InputEvent>,
 
@@ -112,9 +120,9 @@ impl Cpu {
             stopped: false,
             
             ui: ui,
-            cpu_paused: true,
-            cpu_ready: false,
+            cpu_status: Status::NotReady,
             cpu_step: false,
+            cpu_paused: true,
 
             input_rx: rx,
 
@@ -124,15 +132,6 @@ impl Cpu {
     }
 
     pub fn step(&mut self, memory: &mut EmulatedMemory) {
-        if !self.cpu_ready {
-            let mut lock = self.ui.lock().unwrap();
-            if lock.update_cart {
-                memory.set_cart_data(lock.new_cart_data.clone());
-                lock.update_cart = false;
-                self.cpu_ready = true;
-            }
-        }
-
         self.update_input(memory);
         self.handle_interrupts(memory);
 
@@ -148,7 +147,6 @@ impl Cpu {
             self.instruction_finished(0, 4);
         }
 
-        self.update_ui_object(memory);
         self.timer.step(super::GLOBAL_CYCLE_COUNTER.load(Ordering::Relaxed), memory);
     }
 
@@ -160,20 +158,15 @@ impl Cpu {
         }
 
         let mut lock = lock.unwrap();
+
         lock.registers[0] = self.registers[0].get();
         lock.registers[1] = self.registers[1].get();
         lock.registers[2] = self.registers[2].get();
         lock.registers[3] = self.registers[3].get();
         lock.registers[4] = self.registers[4].get();
+
         lock.pc = self.pc;
         lock.opcode = memory.read(self.pc);
-
-        for address in &lock.breakpoints {
-            if *address == self.pc {
-                lock.breakpoint_hit = true;
-                break;
-            }
-        }
 
         lock.halted = self.halted;
         lock.if_value = memory.read(0xFF0F);
@@ -188,8 +181,23 @@ impl Cpu {
         self.cpu_paused = lock.cpu_paused;
         self.cpu_step = lock.cpu_should_step;
 
-        if lock.cpu_should_step {
-            lock.cpu_should_step = false;
+        if self.cpu_status != Status::NotReady {
+            if lock.cpu_paused || lock.cpu_should_step {
+                self.cpu_status = Status::Paused;
+                lock.cpu_should_step = false;
+            }
+            else {
+                self.cpu_status = Status::Running;
+            }
+        }
+
+        for address in &lock.breakpoints {
+            if *address == self.pc {
+                lock.breakpoint_hit = true;
+                lock.cpu_paused = true;
+                self.cpu_status = Status::Paused;
+                break;
+            }
         }
     }
 
