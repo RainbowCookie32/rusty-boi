@@ -325,7 +325,8 @@ impl VideoChip {
         let tile_y_offset = line % 8;
 
         let mut drawn_tiles = 0;
-        let mut target_idx = 256 * (line as u16).wrapping_sub(scy as u16);
+        let offset = line.wrapping_sub(scy);
+        let mut target_idx = 256 * offset as u16;
         
         while drawn_tiles < 32 {
             let tile: &Vec<u8>;
