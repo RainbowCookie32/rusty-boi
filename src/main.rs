@@ -405,15 +405,15 @@ impl ImguiSystem {
             if ui.button(im_str!("A"), [50.0, 20.0]) {
                 emu_state.input_tx.send(InputEvent::A).unwrap();
             }
-            ui.same_line(45.0);
+            ui.same_line(65.0);
             if ui.button(im_str!("B"), [50.0, 20.0]) {
                 emu_state.input_tx.send(InputEvent::B).unwrap();
             }
-            ui.same_line(90.0);
+            ui.same_line(120.0);
             if ui.button(im_str!("Start"), [50.0, 20.0]) {
                 emu_state.input_tx.send(InputEvent::Start).unwrap();
             }
-            ui.same_line(135.0);
+            ui.same_line(180.0);
             if ui.button(im_str!("Select"), [50.0, 20.0]) {
                 emu_state.input_tx.send(InputEvent::Select).unwrap();
             }
@@ -421,15 +421,15 @@ impl ImguiSystem {
             if ui.button(im_str!("Up"), [50.0, 20.0]) {
                 emu_state.input_tx.send(InputEvent::Up).unwrap();
             }
-            ui.same_line(45.0);
+            ui.same_line(65.0);
             if ui.button(im_str!("Down"), [50.0, 20.0]) {
                 emu_state.input_tx.send(InputEvent::Down).unwrap();
             }
-            ui.same_line(90.0);
+            ui.same_line(120.0);
             if ui.button(im_str!("Left"), [50.0, 20.0]) {
                 emu_state.input_tx.send(InputEvent::Left).unwrap();
             }
-            ui.same_line(135.0);
+            ui.same_line(180.0);
             if ui.button(im_str!("Right"), [50.0, 20.0]) {
                 emu_state.input_tx.send(InputEvent::Right).unwrap();
             }
