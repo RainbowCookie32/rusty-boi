@@ -263,21 +263,22 @@ impl VideoChip {
     }
 
     fn vblank_mode(&mut self) {
-        self.current_cycles = 0;
-        let ly_value = self.memory.read(LY) + 1;
-        self.memory.write(LY, ly_value, false);
+        let mut ly_value = self.memory.read(LY) + 1;
 
-        self.update_video_mode(VideoMode::Vblank);
+        self.current_cycles = 0;
         self.draw_background();
+        self.update_video_mode(VideoMode::Vblank);
 
         if ly_value == 154 {
+            ly_value = 0;
             self.mode = VideoMode::OamSearch;
             self.update_video_mode(VideoMode::OamSearch);
-            self.memory.write(LY, 0, false);
 
             let _result = self.sender.send(self.render_data.clone());
             self.render_data = VideoData::new(vec![255; 256*256], vec![255; 256*256], false, Vec::new());
         }
+
+        self.memory.write(LY, ly_value, false);
     }
 
     fn oam_scan_mode(&mut self) {
