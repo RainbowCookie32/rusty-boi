@@ -325,7 +325,7 @@ impl GameboyCart for MBC3Cart {
     }
 }
 
-pub fn new_cart(data: Vec<u8>) -> Box<dyn GameboyCart> {
+pub fn new_cart(data: Vec<u8>) -> Box<dyn GameboyCart + Send> {
     let cart_type = data[0x147];
 
     if NO_MBC_BYTES.contains(&cart_type) {
@@ -353,6 +353,6 @@ pub fn new_cart(data: Vec<u8>) -> Box<dyn GameboyCart> {
     panic!("Unhandled cart type {:X}", cart_type)
 }
 
-pub fn dummy_cart() -> Box<dyn GameboyCart> {
-    Box::from(SimpleCart::new(vec![0xFF; 16384]))
+pub fn dummy_cart() -> Box<dyn GameboyCart + Send> {
+    Box::from(SimpleCart::new(vec![0xFF; 32768]))
 }

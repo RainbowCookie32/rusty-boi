@@ -3,6 +3,7 @@ mod cart;
 mod video;
 mod timer;
 mod memory;
+mod instructions;
 
 use std::fs;
 use std::io;
@@ -12,6 +13,7 @@ use std::sync::mpsc;
 use std::borrow::Cow;
 
 use cpu::UiObject;
+use memory::EmulatedMemory;
 
 use log::info;
 
@@ -52,9 +54,11 @@ struct EmuState {
 
     cpu_breakpoint_value: i32,
     selected_cpu_breakpoint: i32,
+    selected_memory_entry: i32,
 
     scale_factor: i32,
     shared_object: Arc<Mutex<UiObject>>,
+    shared_memory: Arc<Mutex<EmulatedMemory>>,
     input_tx: mpsc::Sender<InputEvent>,
 
     started: bool,
@@ -68,7 +72,7 @@ struct EmuState {
 }
 
 impl EmuState {
-    pub fn new(shared_object: Arc<Mutex<UiObject>>, input_tx: mpsc::Sender<InputEvent>) -> EmuState {
+    pub fn new(ui: Arc<Mutex<UiObject>>, mem: Arc<Mutex<EmulatedMemory>>, tx: mpsc::Sender<InputEvent>) -> EmuState {
         EmuState {
             show_cpu_debugger: false,
             show_cpu_breakpoints: false,
@@ -77,10 +81,12 @@ impl EmuState {
 
             cpu_breakpoint_value: 0,
             selected_cpu_breakpoint: 0,
+            selected_memory_entry: 0,
 
             scale_factor: 3,
-            shared_object: shared_object,
-            input_tx: input_tx,
+            shared_object: ui,
+            shared_memory: mem,
+            input_tx: tx,
 
             started: false,
             selected_rom_data: None,
@@ -118,15 +124,19 @@ impl ImguiSystem {
         let shared_object = Arc::new(Mutex::new(UiObject::new()));
         let cpu_object = shared_object.clone();
 
-        let mut emu_state = EmuState::new(shared_object, input_tx);
+        let memory = Arc::new(Mutex::new(memory::EmulatedMemory::new(load_bootrom())));
+        let emu_memory = memory.clone();
+
+        let mut emu_state = EmuState::new(shared_object, memory, input_tx);
 
         let _emulator_thread = std::thread::Builder::new().name("emulator_thread".to_string()).spawn(move || {
             // Emulated components.
             let mut cpu = cpu::Cpu::new(cpu_object, input_rx);
             let mut video = video::VideoChip::new(fb_tx);
-            let mut memory = memory::EmulatedMemory::new(load_bootrom());
+            let memory = emu_memory;
 
             loop {
+                let mut memory = memory.lock().unwrap();
                 match cpu.cpu_status {
                     cpu::Status::NotReady => {
                         let mut lock = cpu.ui.lock().unwrap();
@@ -170,6 +180,7 @@ impl ImguiSystem {
                 ImguiSystem::general_window(&ui, &mut emu_state);
                 ImguiSystem::cpu_debugger_window(&ui, &mut emu_state);
                 ImguiSystem::cpu_breakpoints_window(&ui, &mut emu_state);
+                ImguiSystem::memory_disassembly_window(&ui, &mut emu_state);
                 ImguiSystem::io_registers_window(&ui, &mut emu_state);
                 ImguiSystem::video_debugger_window(&ui, &mut emu_state);
 
@@ -514,6 +525,25 @@ impl ImguiSystem {
             });
             
         }
+    }
+
+    fn memory_disassembly_window(ui: &Ui, emu_state: &mut EmuState) {
+        Window::new(im_str!("Rusty Boi - Memory Disassembler")).build(&ui, || {
+            let lock = emu_state.shared_memory.lock().unwrap();
+            let mut address = 0;
+            let mut all_entries = Vec::new();
+
+            while address < 0xFFFF {
+                all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut address, &lock)));
+            }
+
+            // Get $FFFF in there as well
+            all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut 0xFFFF, &lock)));
+
+            let strings: Vec<&ImStr> = all_entries.iter().map(|s| s.as_ref()).collect();
+            ui.list_box(im_str!("Memory"), &mut emu_state.selected_memory_entry, 
+            &strings[..], 20);
+        });
     }
 
     fn video_debugger_window(ui: &Ui, emu_state: &mut EmuState) {

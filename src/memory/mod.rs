@@ -8,7 +8,7 @@ use super::cart::GameboyCart;
 
 pub struct EmulatedMemory {
     bootrom: Vec<u8>,
-    cartridge: Box<dyn GameboyCart>,
+    cartridge: Box<dyn GameboyCart + Send>,
 
     character_ram: Vec<u8>,
     background_data: Vec<u8>,
@@ -40,7 +40,7 @@ impl EmulatedMemory {
             ram: vec![0xFF; 8192],
             oam: vec![0xFF; 160],
             io_registers: vec![0xFF; 128],
-            hram: vec![0; 128],
+            hram: vec![0xFF; 128],
 
             interrupts: 0,
             bootrom_enabled: bootrom_enabled,
