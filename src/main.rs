@@ -58,11 +58,13 @@ struct EmuState {
 
     scale_factor: i32,
     shared_object: Arc<Mutex<UiObject>>,
-    shared_memory: Arc<Mutex<EmulatedMemory>>,
+    shared_memory: Arc<EmulatedMemory>,
+
+    cart_tx: mpsc::Sender<Vec<u8>>,
     input_tx: mpsc::Sender<InputEvent>,
+    mem_rx: mpsc::Receiver<Arc<EmulatedMemory>>,
 
     started: bool,
-    selected_rom_data: Option<Vec<u8>>,
     selected_rom_title: String,
 
     screen_tex_id: Option<TextureId>,
@@ -72,7 +74,10 @@ struct EmuState {
 }
 
 impl EmuState {
-    pub fn new(ui: Arc<Mutex<UiObject>>, mem: Arc<Mutex<EmulatedMemory>>, tx: mpsc::Sender<InputEvent>) -> EmuState {
+    pub fn new(ui: Arc<Mutex<UiObject>>, mem: Arc<EmulatedMemory>, 
+        input_tx: mpsc::Sender<InputEvent>, cart_tx: mpsc::Sender<Vec<u8>>, 
+        mem_rx: mpsc::Receiver<Arc<EmulatedMemory>>) -> EmuState {
+
         EmuState {
             show_cpu_debugger: false,
             show_cpu_breakpoints: false,
@@ -86,10 +91,12 @@ impl EmuState {
             scale_factor: 3,
             shared_object: ui,
             shared_memory: mem,
-            input_tx: tx,
+
+            cart_tx: cart_tx,
+            input_tx: input_tx,
+            mem_rx: mem_rx,
 
             started: false,
-            selected_rom_data: None,
             selected_rom_title: String::from("None"),
 
             screen_tex_id: None,
@@ -119,52 +126,57 @@ impl ImguiSystem {
         } = self;
 
         let (fb_tx, fb_rx) = mpsc::channel();
+        let (mem_tx, mem_rx) = mpsc::channel();
+        let (cart_tx, cart_rx) = mpsc::channel();
         let (input_tx, input_rx) = mpsc::channel();
 
         let shared_object = Arc::new(Mutex::new(UiObject::new()));
         let cpu_object = shared_object.clone();
 
-        let memory = Arc::new(Mutex::new(memory::EmulatedMemory::new(load_bootrom())));
-        let emu_memory = memory.clone();
-
-        let mut emu_state = EmuState::new(shared_object, memory, input_tx);
+        let memory = Arc::new(memory::EmulatedMemory::new(load_bootrom()));
+        let mut emu_state = EmuState::new(shared_object, memory, input_tx, cart_tx, mem_rx);
 
         let _emulator_thread = std::thread::Builder::new().name("emulator_thread".to_string()).spawn(move || {
             // Emulated components.
-            let mut cpu = cpu::Cpu::new(cpu_object, input_rx);
-            let mut video = video::VideoChip::new(fb_tx);
-            let memory = emu_memory;
+            let mut emu_memory = memory::EmulatedMemory::new(load_bootrom());
 
             loop {
-                let mut memory = memory.lock().unwrap();
+                let res = cart_rx.try_recv();
+
+                if res.is_ok() {
+                    emu_memory.set_cart_data(res.unwrap());
+                    break;
+                }
+            }
+
+            let emu_memory = Arc::new(emu_memory);
+
+            let mut cpu = cpu::Cpu::new(cpu_object, emu_memory.clone(), input_rx);
+            let mut video = video::VideoChip::new(emu_memory.clone(), fb_tx);
+
+            mem_tx.send(emu_memory).unwrap();
+
+            loop {
                 match cpu.cpu_status {
-                    cpu::Status::NotReady => {
-                        let mut lock = cpu.ui.lock().unwrap();
-                        if lock.update_cart {
-                            memory.set_cart_data(lock.new_cart_data.clone());
-                            lock.update_cart = false;
-                            cpu.cpu_status = cpu::Status::Waiting;
-                        }
-                    },
                     cpu::Status::Waiting => {
                         if !cpu.cpu_paused {
                             cpu.cpu_status = cpu::Status::Running;
                         }
                     },
                     cpu::Status::Running => {
-                        cpu.step(&mut memory);
-                        video.step(&mut memory);
+                        cpu.step();
+                        video.step();
                     },
                     cpu::Status::Paused => {
                         if cpu.cpu_step {
-                            cpu.step(&mut memory);
-                            video.step(&mut memory);
+                            cpu.step();
+                            video.step();
                             cpu.cpu_step = false;
                         }
                     },
                 };
 
-                cpu.update_ui_object(&mut memory);
+                cpu.update_ui_object();
             }
         }).unwrap();
 
@@ -326,7 +338,6 @@ impl ImguiSystem {
                     let filename = ImString::from(file.file_name().into_string().unwrap());
 
                     if MenuItem::new(&filename).build_with_ref(&ui, &mut false) {
-                        let mut lock = emu_state.shared_object.lock().unwrap();
                         let read_data = fs::read(file.path()).unwrap();
                         
                         emu_state.selected_rom_title.clear();
@@ -339,9 +350,8 @@ impl ImguiSystem {
                             }
                         }
 
-                        emu_state.selected_rom_data = Some(read_data.clone());
-                        lock.update_cart = true;
-                        lock.new_cart_data = read_data;
+                        emu_state.cart_tx.send(read_data).unwrap();
+                        emu_state.shared_memory = emu_state.mem_rx.recv().unwrap();
                     }
                 }
 
@@ -358,10 +368,8 @@ impl ImguiSystem {
             ui.bullet_text(im_str!("Emulation Controls"));
             if ui.button(im_str!("Start/Resume"), [120.0, 20.0]) {
                 if !emu_state.started {
-                    if emu_state.selected_rom_data.is_some() {
-                        emu_state.started = true;
-                        emu_state.shared_object.lock().unwrap().cpu_paused = false;
-                    }
+                    emu_state.started = true;
+                    emu_state.shared_object.lock().unwrap().cpu_paused = false;
                 }
                 else {
                     emu_state.shared_object.lock().unwrap().cpu_paused = false;
@@ -529,16 +537,17 @@ impl ImguiSystem {
 
     fn memory_disassembly_window(ui: &Ui, emu_state: &mut EmuState) {
         Window::new(im_str!("Rusty Boi - Memory Disassembler")).build(&ui, || {
-            let lock = emu_state.shared_memory.lock().unwrap();
             let mut address = 0;
             let mut all_entries = Vec::new();
 
-            while address < 0xFFFF {
-                all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut address, &lock)));
+            while address < 0xFF80 {
+                all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut address, 
+                    &emu_state.shared_memory)));
             }
 
             // Get $FFFF in there as well
-            all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut 0xFFFF, &lock)));
+            /*all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut 0xFFFF, 
+                &emu_state.shared_memory)));*/
 
             let strings: Vec<&ImStr> = all_entries.iter().map(|s| s.as_ref()).collect();
             ui.list_box(im_str!("Memory"), &mut emu_state.selected_memory_entry, 

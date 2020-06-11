@@ -3,6 +3,12 @@ use super::memory::EmulatedMemory;
 
 pub fn get_instruction_disassembly(memory_addr: &mut u16, memory: &EmulatedMemory) -> String {
     let address = *memory_addr;
+
+    if address >= 0xFEA0 && address <= 0xFEFF {
+        *memory_addr += 1;
+        return format!("${:04X} - ${:<10X} - RST $38", address, 0xFF);
+    }
+    
     let opcode = memory.read(address);
 
     match opcode {

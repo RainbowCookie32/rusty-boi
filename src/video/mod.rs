@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use std::sync::atomic::Ordering;
 
@@ -96,12 +97,13 @@ pub struct VideoChip {
     t0_hash: u64,
     t1_hash: u64,
 
+    memory: Arc<EmulatedMemory>,
     render_data: VideoData,
     sender: Sender<VideoData>
 }
 
 impl VideoChip {
-    pub fn new(sender: Sender<VideoData>) -> VideoChip {
+    pub fn new(memory: Arc<EmulatedMemory>, sender: Sender<VideoData>) -> VideoChip {
         VideoChip {
             mode: VideoMode::Hblank,
             current_cycles: 0,
@@ -118,68 +120,69 @@ impl VideoChip {
             t0_hash: 0,
             t1_hash: 0,
 
+            memory: memory,
             render_data: VideoData::new(vec![255; 256*256], vec![255; 256*256], false, Vec::new()),
             sender: sender
         }
     }
 
-    pub fn step(&mut self, memory: &mut EmulatedMemory) {
-        self.update_video_values(memory);
+    pub fn step(&mut self) {
+        self.update_video_values();
 
         self.current_cycles = self.current_cycles.wrapping_add(super::GLOBAL_CYCLE_COUNTER.load(Ordering::Relaxed));
 
         if self.display_enabled {
-            self.tile_palette.update_palette(memory.read(0xFF47));
-            self.sprite_palettes[0].update_palette(memory.read(0xFF48));
-            self.sprite_palettes[1].update_palette(memory.read(0xFF49));
+            self.tile_palette.update_palette(self.memory.read(0xFF47));
+            self.sprite_palettes[0].update_palette(self.memory.read(0xFF48));
+            self.sprite_palettes[1].update_palette(self.memory.read(0xFF49));
 
             match self.mode {
                 VideoMode::Hblank => {
                     if self.current_cycles >= 204 {
                         self.current_cycles = self.current_cycles % 204;
-                        self.hblank_mode(memory);
+                        self.hblank_mode();
                     }
                 },
                 VideoMode::Vblank => {
                     if self.current_cycles >= 456 {
                         self.current_cycles = self.current_cycles % 456;
-                        self.vblank_mode(memory);
+                        self.vblank_mode();
                     }
                 },
                 VideoMode::OamSearch => {
                     if self.current_cycles >= 80 {
                         self.current_cycles = self.current_cycles % 80;
-                        self.oam_scan_mode(memory);
+                        self.oam_scan_mode();
                     }
                 },
                 VideoMode::LcdTransfer => {
                     if self.current_cycles >= 172 {
                         self.current_cycles = self.current_cycles % 172;
-                        self.lcd_transfer_mode(memory);
+                        self.lcd_transfer_mode();
                     }
                 }
             };
 
-            self.check_lyc(memory);
+            self.check_lyc();
         }
     }
 
-    fn update_video_values(&mut self, memory: &mut EmulatedMemory) {
-        let lcdc = memory.read(LCD_CONTROL);
+    fn update_video_values(&mut self) {
+        let lcdc = self.memory.read(LCD_CONTROL);
 
         self.display_enabled = ((lcdc >> 7) & 1) != 0;
 
-        let oam_hash = memory.get_oam_hash();
-        let t0_hash = memory.get_t0_hash();
-        let t1_hash = memory.get_t1_hash();
+        let oam_hash = self.memory.get_oam_hash();
+        let t0_hash = self.memory.get_t0_hash();
+        let t1_hash = self.memory.get_t1_hash();
 
         if t0_hash != self.t0_hash {
-            self.make_tiles(0, memory);
+            self.make_tiles(0);
             self.t0_hash = t0_hash;
         }
 
         if t1_hash != self.t1_hash {
-            self.make_tiles(1, memory);
+            self.make_tiles(1);
             self.t1_hash = t1_hash;
         }
 
@@ -189,9 +192,9 @@ impl VideoChip {
         }
     }
 
-    fn update_video_mode(&mut self, new_mode: VideoMode, memory: &mut EmulatedMemory) {
-        let mut stat_value = memory.read(LCD_STATUS);
-        let mut if_value = memory.read(0xFF0F);
+    fn update_video_mode(&mut self, new_mode: VideoMode) {
+        let mut stat_value = self.memory.read(LCD_STATUS);
+        let mut if_value = self.memory.read(0xFF0F);
 
         match new_mode {
             VideoMode::LcdTransfer => {
@@ -222,31 +225,31 @@ impl VideoChip {
             }
         }
 
-        memory.write(LCD_STATUS, stat_value, false);
-        memory.write(0xFF0F, if_value, false);
+        self.memory.write(LCD_STATUS, stat_value, false);
+        self.memory.write(0xFF0F, if_value, false);
     }
 
-    fn hblank_mode(&mut self, memory: &mut EmulatedMemory) {
-        let lcdc = memory.read(LCD_CONTROL);
+    fn hblank_mode(&mut self) {
+        let lcdc = self.memory.read(LCD_CONTROL);
         let bg_enabled = (lcdc & 1) != 0;
         let window_enabled = bg_enabled && ((lcdc >> 5) & 1) != 0;
 
         if bg_enabled {
-            self.draw_background(memory);
+            self.draw_background();
         }
 
         if window_enabled {
-            self.draw_window(memory);
+            self.draw_window();
         }
 
         self.render_data.window_enabled = window_enabled;
 
-        let ly_value = memory.read(LY).wrapping_add(1);
-        memory.write(LY, ly_value, false);
+        let ly_value = self.memory.read(LY).wrapping_add(1);
+        self.memory.write(LY, ly_value, false);
 
         self.current_cycles = 0;
         self.mode = VideoMode::Hblank;
-        self.update_video_mode(VideoMode::Hblank, memory);
+        self.update_video_mode(VideoMode::Hblank);
 
         if ly_value == 144 {
             if ((lcdc >> 1) & 1) != 0 {
@@ -259,56 +262,56 @@ impl VideoChip {
         }
     }
 
-    fn vblank_mode(&mut self, memory: &mut EmulatedMemory) {
+    fn vblank_mode(&mut self) {
         self.current_cycles = 0;
-        let ly_value = memory.read(LY) + 1;
-        memory.write(LY, ly_value, false);
+        let ly_value = self.memory.read(LY) + 1;
+        self.memory.write(LY, ly_value, false);
 
-        self.update_video_mode(VideoMode::Vblank, memory);
-        self.draw_background(memory);
+        self.update_video_mode(VideoMode::Vblank);
+        self.draw_background();
 
         if ly_value == 154 {
             self.mode = VideoMode::OamSearch;
-            self.update_video_mode(VideoMode::OamSearch, memory);
-            memory.write(LY, 0, false);
+            self.update_video_mode(VideoMode::OamSearch);
+            self.memory.write(LY, 0, false);
 
             let _result = self.sender.send(self.render_data.clone());
             self.render_data = VideoData::new(vec![255; 256*256], vec![255; 256*256], false, Vec::new());
         }
     }
 
-    fn oam_scan_mode(&mut self, memory: &mut EmulatedMemory) {
+    fn oam_scan_mode(&mut self) {
         self.current_cycles = 0;
         self.mode = VideoMode::LcdTransfer;
-        self.update_video_mode(VideoMode::LcdTransfer, memory);
+        self.update_video_mode(VideoMode::LcdTransfer);
     }
 
-    fn lcd_transfer_mode(&mut self, memory: &mut EmulatedMemory) {
+    fn lcd_transfer_mode(&mut self) {
         self.current_cycles = 0;
         self.mode = VideoMode::Hblank;
-        self.update_video_mode(VideoMode::Hblank, memory);
+        self.update_video_mode(VideoMode::Hblank);
     }
 
-    fn check_lyc(&self, memory: &mut EmulatedMemory) {
-        let ly = memory.read(LY);
-        let lyc = memory.read(LYC);
+    fn check_lyc(&self) {
+        let ly = self.memory.read(LY);
+        let lyc = self.memory.read(LYC);
 
         if ly == lyc {
-            let lcd_stat = memory.read(LCD_STATUS);
+            let lcd_stat = self.memory.read(LCD_STATUS);
             let interrupt = ((lcd_stat >> 6) & 1) == 1;
 
             if interrupt {
-                let if_value = memory.read(0xFF0F);
-                memory.write(0xFF0F, if_value | 2, false);
+                let if_value = self.memory.read(0xFF0F);
+                self.memory.write(0xFF0F, if_value | 2, false);
             }
 
-            memory.write(LCD_STATUS, lcd_stat | 4, false);
+            self.memory.write(LCD_STATUS, lcd_stat | 4, false);
         }
     }
 
-    fn draw_background(&mut self, memory: &mut EmulatedMemory) {
-        let line = memory.read(LY);
-        let lcd_control = memory.read(LCD_CONTROL);
+    fn draw_background(&mut self) {
+        let line = self.memory.read(LY);
+        let lcd_control = self.memory.read(LCD_CONTROL);
         let use_signed_tiles = (lcd_control & 0x10) == 0;
         
         let background_address = (32 * (line / 8) as u16) +
@@ -320,8 +323,8 @@ impl VideoChip {
             }
         ;
 
-        let scy = memory.read(SCROLL_Y);
-        let scx = memory.read(SCROLL_X);
+        let scy = self.memory.read(SCROLL_Y);
+        let scx = self.memory.read(SCROLL_X);
         let tile_y_offset = line % 8;
 
         let mut drawn_tiles = 0;
@@ -330,7 +333,7 @@ impl VideoChip {
         
         while drawn_tiles < 32 {
             let tile: &Vec<u8>;
-            let tile_idx = memory.read(background_address + drawn_tiles);
+            let tile_idx = self.memory.read(background_address + drawn_tiles);
             
             let mut drawn_pixels_tile = 0;
             let mut draw_idx = 8 * tile_y_offset;
@@ -346,7 +349,7 @@ impl VideoChip {
                 let color = self.tile_palette.get_color(tile[draw_idx as usize]);
                 self.render_data.background[target_idx.wrapping_sub(scx as u16) as usize] = color;
 
-                target_idx += 1;
+                target_idx = target_idx.wrapping_add(1);
                 draw_idx += 1;
                 drawn_pixels_tile += 1;
             }
@@ -355,9 +358,9 @@ impl VideoChip {
         }
     }
 
-    fn draw_window(&mut self, memory: &mut EmulatedMemory) {
-        let line = memory.read(LY);
-        let lcd_control = memory.read(LCD_CONTROL);
+    fn draw_window(&mut self) {
+        let line = self.memory.read(LY);
+        let lcd_control = self.memory.read(LCD_CONTROL);
         let use_signed_tiles = (lcd_control & 0x10) == 0;
         let background_address = (32 * (line / 8) as u16) +
             if (lcd_control & 0x40) == 0 {
@@ -375,7 +378,7 @@ impl VideoChip {
 
         while drawn_tiles < 32 {
             let tile: &Vec<u8>;
-            let tile_idx = memory.read(background_address + drawn_tiles);
+            let tile_idx = self.memory.read(background_address + drawn_tiles);
             let mut draw_idx = 8 * tile_y_offset;
             let mut drawn_pixels = 0;
 
@@ -397,15 +400,15 @@ impl VideoChip {
             drawn_tiles += 1;
         }
 
-        self.render_data.wx = memory.read(WX);
-        self.render_data.wy = memory.read(WY);
+        self.render_data.wx = self.memory.read(WX);
+        self.render_data.wy = self.memory.read(WY);
     }
 
     fn draw_sprites(&mut self) {
         
     }
 
-    fn make_tiles(&mut self, target_bank: u8, memory: &mut EmulatedMemory) {
+    fn make_tiles(&mut self, target_bank: u8) {
         let start_position = if target_bank == 0 {0x8000} else {0x8800};
         let end_position = if target_bank == 0 {0x8FFF} else {0x97FF};
         let mut memory_position = start_position;
@@ -416,7 +419,7 @@ impl VideoChip {
             let mut tile_bytes: Vec<u8> = vec![0; 16];
 
             while loaded_bytes < 16 {
-                tile_bytes[loaded_bytes] = memory.read(memory_position);
+                tile_bytes[loaded_bytes] = self.memory.read(memory_position);
                 memory_position += 1;
                 loaded_bytes += 1;
             }

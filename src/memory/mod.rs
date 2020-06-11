@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 
@@ -7,56 +8,64 @@ use super::cart;
 use super::cart::GameboyCart;
 
 pub struct EmulatedMemory {
-    bootrom: Vec<u8>,
-    cartridge: Box<dyn GameboyCart + Send>,
+    bootrom: Vec<AtomicU8>,
+    cartridge: Box<dyn GameboyCart + Send + Sync>,
 
-    character_ram: Vec<u8>,
-    background_data: Vec<u8>,
+    character_ram: Vec<AtomicU8>,
+    background_data: Vec<AtomicU8>,
 
-    ram: Vec<u8>,
-    oam: Vec<u8>,
-    io_registers: Vec<u8>,
-    hram: Vec<u8>,
+    ram: Vec<AtomicU8>,
+    oam: Vec<AtomicU8>,
+    io_registers: Vec<AtomicU8>,
+    hram: Vec<AtomicU8>,
 
-    interrupts: u8,
-    bootrom_enabled: bool,
+    interrupts: AtomicU8,
+    bootrom_enabled: AtomicBool,
 
-    t0_hash: u64,
-    t1_hash: u64,
-    oam_hash: u64
+    t0_hash: AtomicU64,
+    t1_hash: AtomicU64,
+    oam_hash: AtomicU64
 }
 
 impl EmulatedMemory {
     pub fn new(bootrom: Option<Vec<u8>>) -> EmulatedMemory {
-        let bootrom_enabled = bootrom.is_some();
+        let mut data = Vec::new();
+
+        let use_bootrom = bootrom.is_some();
+
+        if use_bootrom {
+            for byte in bootrom.unwrap() {
+                data.push(AtomicU8::new(byte));
+            }
+        }
 
         EmulatedMemory {
-            bootrom: if bootrom.is_some() { bootrom.unwrap() } else { Vec::new() },
+            bootrom: data,
             cartridge: cart::dummy_cart(),
 
-            character_ram: vec![0xFF; 6144],
-            background_data: vec![0xFF; 2048],
+            character_ram: create_atomic_vec(6144),
+            background_data: create_atomic_vec(2048),
 
-            ram: vec![0xFF; 8192],
-            oam: vec![0xFF; 160],
-            io_registers: vec![0xFF; 128],
-            hram: vec![0xFF; 128],
+            ram: create_atomic_vec(8192),
+            oam: create_atomic_vec(160),
+            io_registers: create_atomic_vec(128),
+            hram: create_atomic_vec(128),
 
-            interrupts: 0,
-            bootrom_enabled: bootrom_enabled,
+            interrupts: AtomicU8::new(0),
+            bootrom_enabled: AtomicBool::from(use_bootrom),
 
-            t0_hash: 0,
-            t1_hash: 0,
-            oam_hash: 0
+            t0_hash: AtomicU64::new(0),
+            t1_hash: AtomicU64::new(0),
+            oam_hash: AtomicU64::new(0)
         }
     }
 
     pub fn get_bootrom_state(&self) -> bool {
-        self.bootrom_enabled
+        self.bootrom_enabled.load(Ordering::Relaxed)
     }
 
-    pub fn disable_bootrom(&mut self) {
-        self.bootrom_enabled = false;
+    pub fn disable_bootrom(&self) {
+        self.bootrom_enabled.store(false, Ordering::Relaxed);
     }
 
     pub fn set_cart_data(&mut self, data: Vec<u8>) {
@@ -64,55 +73,63 @@ impl EmulatedMemory {
     }
 
     pub fn get_t0_hash(&self) -> u64 {
-        self.t0_hash
+        self.t0_hash.load(Ordering::Relaxed)
     }
 
     pub fn get_t1_hash(&self) -> u64 {
-        self.t1_hash
+        self.t1_hash.load(Ordering::Relaxed)
     }
 
     pub fn get_oam_hash(&self) -> u64 {
-        self.oam_hash
+        self.oam_hash.load(Ordering::Relaxed)
     }
 
-    fn hash_signed_tiles(&mut self) {
+    fn hash_signed_tiles(&self) {
         let mut index: usize = 2047;
         let mut hashable_vec: Vec<u8> = Vec::with_capacity(3072);
 
         while index < 6144 {
-            hashable_vec.push(self.character_ram[index]);
+            hashable_vec.push(self.character_ram[index].load(Ordering::Relaxed));
             index += 1;
         }
 
         let mut hasher = DefaultHasher::new();
         hashable_vec.hash(&mut hasher);
-        self.t1_hash = hasher.finish();
+        self.t1_hash.store(hasher.finish(), Ordering::Relaxed);
     }
 
-    fn hash_unsigned_tiles(&mut self) {
+    fn hash_unsigned_tiles(&self) {
         let mut index: usize = 0;
         let mut hashable_vec: Vec<u8> = Vec::with_capacity(3072);
 
         while index < 4096 {
-            hashable_vec.push(self.character_ram[index]);
+            hashable_vec.push(self.character_ram[index].load(Ordering::Relaxed));
             index += 1;
         }
 
         let mut hasher = DefaultHasher::new();
         hashable_vec.hash(&mut hasher);
-        self.t0_hash = hasher.finish();
+        self.t0_hash.store(hasher.finish(), Ordering::Relaxed);
     }
 
-    fn hash_oam(&mut self) {
+    fn hash_oam(&self) {
+        let mut index: usize = 0;
+        let mut hashable_vec: Vec<u8> = Vec::with_capacity(3072);
+
+        while index < self.oam.len() {
+            hashable_vec.push(self.character_ram[index].load(Ordering::Relaxed));
+            index += 1;
+        }
+
         let mut hasher = DefaultHasher::new();
-        self.oam.hash(&mut hasher);
-        self.oam_hash = hasher.finish();
+        hashable_vec.hash(&mut hasher);
+        self.oam_hash.store(hasher.finish(), Ordering::Relaxed);
     }
 
     pub fn read(&self, address: u16) -> u8 {
         if address < 0x0100 {
-            if self.bootrom_enabled {
-                self.bootrom[address as usize]
+            if self.bootrom_enabled.load(Ordering::Relaxed) {
+                self.bootrom[address as usize].load(Ordering::Relaxed)
             }
             else {
                 self.cartridge.read(address)
@@ -122,47 +139,47 @@ impl EmulatedMemory {
             self.cartridge.read(address)
         }
         else if address >= 0x8000 && address <= 0x97FF {
-            self.character_ram[(address - 0x8000) as usize]
+            self.character_ram[(address - 0x8000) as usize].load(Ordering::Relaxed)
         }
         else if address >= 0x9800 && address <= 0x9FFF {
-            self.background_data[(address - 0x9800) as usize]
+            self.background_data[(address - 0x9800) as usize].load(Ordering::Relaxed)
         }
         else if address >= 0xA000 && address <= 0xBFFF {
             self.cartridge.read(address)
         }
         else if address >= 0xC000 && address <= 0xDFFF {
-            self.ram[(address - 0xC000) as usize]
+            self.ram[(address - 0xC000) as usize].load(Ordering::Relaxed)
         }
         else if address >= 0xE000 && address <= 0xFDFF {
-            self.ram[(address - 0xE000) as usize]
+            self.ram[(address - 0xE000) as usize].load(Ordering::Relaxed)
         }
         else if address >= 0xFE00 && address <= 0xFE9F {
-            self.oam[(address - 0xFE00) as usize]
+            self.oam[(address - 0xFE00) as usize].load(Ordering::Relaxed)
         }
         else if address >= 0xFEA0 && address <= 0xFEFF {
             warn!("Memory: Read to unusable memory at address {:X}", address);
             0xFF
         }
         else if address >= 0xFF00 && address <= 0xFF7F {
-            self.io_registers[(address - 0xFF00) as usize]
+            self.io_registers[(address - 0xFF00) as usize].load(Ordering::Relaxed)
         }
         else if address >= 0xFF80 && address <= 0xFFFE {
-            self.hram[(address - 0xFF80) as usize]
+            self.hram[(address - 0xFF80) as usize].load(Ordering::Relaxed)
         }
         else if address == 0xFFFF {
-            self.interrupts
+            self.interrupts.load(Ordering::Relaxed)
         }
         else {
             unreachable!()
         }
     }
 
-    pub fn write(&mut self, address: u16, value: u8, cpu: bool) {
+    pub fn write(&self, address: u16, value: u8, cpu: bool) {
         if address <= 0x7FFF {
             self.cartridge.write(address, value);
         }
         else if address >= 0x8000 && address <= 0x97FF {
-            self.character_ram[(address - 0x8000) as usize] = value;
+            self.character_ram[(address - 0x8000) as usize].store(value, Ordering::Relaxed);
             if address >= 0x8000 && address <= 0x9000 {
                 self.hash_unsigned_tiles();
             }
@@ -171,19 +188,19 @@ impl EmulatedMemory {
             }
         }
         else if address >= 0x9800 && address <= 0x9FFF {
-            self.background_data[(address - 0x9800) as usize] = value;
+            self.background_data[(address - 0x9800) as usize].store(value, Ordering::Relaxed);
         }
         else if address >= 0xA000 && address <= 0xBFFF {
             self.cartridge.write(address, value);
         }
         else if address >= 0xC000 && address <= 0xDFFF {
-            self.ram[(address - 0xC000) as usize] = value;
+            self.ram[(address - 0xC000) as usize].store(value, Ordering::Relaxed);
         }
         else if address >= 0xE000 && address <= 0xFDFF {
-            self.ram[(address - 0xE000) as usize] = value;
+            self.ram[(address - 0xE000) as usize].store(value, Ordering::Relaxed);
         }
         else if address >= 0xFE00 && address <= 0xFE9F {
-            self.oam[(address - 0xFE00) as usize] = value;
+            self.oam[(address - 0xFE00) as usize].store(value, Ordering::Relaxed);
             self.hash_oam();
         }
         else if address >= 0xFEA0 && address <= 0xFEFF {
@@ -216,24 +233,24 @@ impl EmulatedMemory {
                 _ => {}
             }
 
-            self.io_registers[(address - 0xFF00) as usize] = value;
+            self.io_registers[(address - 0xFF00) as usize].store(value, Ordering::Relaxed);
 
             if address == 0xFF46 {
                 self.dma_transfer(value);
             }
         }
         else if address >= 0xFF80 && address <= 0xFFFE {
-            self.hram[(address - 0xFF80) as usize] = value;
+            self.hram[(address - 0xFF80) as usize].store(value, Ordering::Relaxed);
         }
         else if address == 0xFFFF {
-            self.interrupts = value;
+            self.interrupts.store(value, Ordering::Relaxed);
         }
         else {
             unreachable!()
         }
     }
 
-    fn dma_transfer(&mut self, value: u8) {
+    fn dma_transfer(&self, value: u8) {
         let address = (value as u16) << 8;
         let end_address = address + 0x009F;
         let mut transfer_progress = (address, 0xFE00);
@@ -245,4 +262,14 @@ impl EmulatedMemory {
             transfer_progress.1 += 1;
         }
     }
+}
+
+fn create_atomic_vec(size: usize) -> Vec<AtomicU8> {
+    let mut result = Vec::with_capacity(size);
+
+    for _foo in 0..size {
+        result.push(AtomicU8::new(0xFF));
+    }
+
+    result
 }
