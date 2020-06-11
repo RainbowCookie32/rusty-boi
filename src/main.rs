@@ -51,6 +51,7 @@ struct EmuState {
     show_cpu_breakpoints: bool,
     show_video_debugger: bool,
     show_io_regs_debugger: bool,
+    show_memory_disassembler: bool,
 
     cpu_breakpoint_value: i32,
     selected_cpu_breakpoint: i32,
@@ -83,6 +84,7 @@ impl EmuState {
             show_cpu_breakpoints: false,
             show_video_debugger: false,
             show_io_regs_debugger: false,
+            show_memory_disassembler: false,
 
             cpu_breakpoint_value: 0,
             selected_cpu_breakpoint: 0,
@@ -499,6 +501,7 @@ impl ImguiSystem {
 
                 ui.checkbox(im_str!("Show breakpoints"), &mut emu_state.show_cpu_breakpoints);
                 ui.checkbox(im_str!("Show interrupts state"), &mut emu_state.show_io_regs_debugger);
+                ui.checkbox(im_str!("Show memory disassembler"), &mut emu_state.show_memory_disassembler);
             });
         }
     }
@@ -536,23 +539,25 @@ impl ImguiSystem {
     }
 
     fn memory_disassembly_window(ui: &Ui, emu_state: &mut EmuState) {
-        Window::new(im_str!("Rusty Boi - Memory Disassembler")).build(&ui, || {
-            let mut address = 0;
-            let mut all_entries = Vec::new();
-
-            while address < 0xFF80 {
-                all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut address, 
-                    &emu_state.shared_memory)));
-            }
-
-            // Get $FFFF in there as well
-            /*all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut 0xFFFF, 
-                &emu_state.shared_memory)));*/
-
-            let strings: Vec<&ImStr> = all_entries.iter().map(|s| s.as_ref()).collect();
-            ui.list_box(im_str!("Memory"), &mut emu_state.selected_memory_entry, 
-            &strings[..], 20);
-        });
+        if emu_state.show_memory_disassembler {
+            Window::new(im_str!("Rusty Boi - Memory Disassembler")).build(&ui, || {
+                let mut address = 0;
+                let mut all_entries = Vec::new();
+    
+                while address < 0xFF80 {
+                    all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut address, 
+                        &emu_state.shared_memory)));
+                }
+    
+                // Get $FFFF in there as well
+                /*all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut 0xFFFF, 
+                    &emu_state.shared_memory)));*/
+    
+                let strings: Vec<&ImStr> = all_entries.iter().map(|s| s.as_ref()).collect();
+                ui.list_box(im_str!("Memory"), &mut emu_state.selected_memory_entry, 
+                &strings[..], 20);
+            });
+        }
     }
 
     fn video_debugger_window(ui: &Ui, emu_state: &mut EmuState) {
