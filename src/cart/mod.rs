@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
 
 const NO_MBC_BYTES: [u8; 3] = [0x00, 0x08, 0x09];
 const MBC1_BYTES: [u8; 3] = [0x01, 0x02, 0x03];
@@ -208,25 +208,77 @@ impl GameboyCart for MBC1Cart {
 
 // Carts using MBC2.
 pub struct MBC2Cart {
+    rom_banks: Vec<Vec<AtomicU8>>,
+    ram_bank: Vec<AtomicU8>,
 
+    selected_rom_bank: AtomicU8,
+
+    ram_enabled: AtomicBool,
 }
 
 impl MBC2Cart {
-    pub fn new(_data: Vec<u8>) -> MBC2Cart {
-        log::warn!("Loader: Generating cart with MBC2 controller");
-        MBC2Cart {
+    pub fn new(data: Vec<u8>) -> MBC2Cart {
+        let mut banks: Vec<Vec<AtomicU8>> = Vec::new();
+        let mut data_idx = 0;
 
+        while data_idx < data.len() {
+            let mut new_bank = Vec::with_capacity(16384);
+            for _idx in 0..16384 {
+                new_bank.push(AtomicU8::new(data[data_idx]));
+                data_idx += 1;
+            }
+
+            banks.push(new_bank);
+        }
+        
+        log::info!("Loader: Generating cart with MBC2 controller");
+        MBC2Cart {
+            rom_banks: banks,
+            ram_bank: create_atomic_vec(512),
+
+            selected_rom_bank: AtomicU8::new(1),
+
+            ram_enabled: AtomicBool::from(false),
         }
     }
 }
 
 impl GameboyCart for MBC2Cart {
-    fn read(&self, _address: u16) -> u8 {
-        0
+    fn read(&self, address: u16) -> u8 {
+        if address <= 0x3FFF {
+            self.rom_banks[0][address as usize].load(Ordering::Relaxed)
+        }
+        else if address >= 0x4000 && address <= 0x7FFF {
+            self.rom_banks[self.selected_rom_bank.load(Ordering::Relaxed) as usize]
+                [(address - 0x4000) as usize].load(Ordering::Relaxed)
+        }
+        else if address >= 0xA000 && address <= 0xA1FF {
+            if self.ram_enabled.load(Ordering::Relaxed) {
+                self.ram_bank[(address - 0xA000) as usize].load(Ordering::Relaxed) & 0x0F
+            }
+            else {
+                0x0F
+            }
+        }
+        else {
+            0xFF
+        }
     }
 
-    fn write(&self, _address: u16, _value: u8) {
-        
+    fn write(&self, address: u16, value: u8) {
+        if address <= 0x1FFF {
+            if (address & 0x100) == 0 {
+                self.ram_enabled.store(value != 0, Ordering::Relaxed)
+            }
+        }
+        else if address >= 0x2000 && address <= 0x3FFF {
+            if (address & 0x100) != 0 {
+                self.selected_rom_bank.store(value & 0x0F, Ordering::Relaxed)
+            }
+        }
+        else if address >= 0xA000 && address <= 0xA1FF {
+            self.ram_bank[(address - 0xA000) as usize].store(value & 0x0F, Ordering::Relaxed);
+        }
     }
 }
 
@@ -335,6 +387,95 @@ impl GameboyCart for MBC3Cart {
     }
 }
 
+
+pub struct MBC5Cart {
+    rom_banks: Vec<Vec<AtomicU8>>,
+    ram_banks: Vec<Vec<AtomicU8>>,
+
+    selected_rom_bank: AtomicU16,
+    selected_ram_bank: AtomicU8,
+
+    has_ram: AtomicBool,
+    ram_enabled: AtomicBool,
+}
+
+impl MBC5Cart {
+    pub fn new(data: Vec<u8>) -> MBC5Cart {
+        let mut banks: Vec<Vec<AtomicU8>> = Vec::new();
+        let mut data_idx = 0;
+
+        let has_ram = data[0x149] != 0;
+
+        while data_idx < data.len() {
+            let mut new_bank = Vec::with_capacity(16384);
+            for _idx in 0..16384 {
+                new_bank.push(AtomicU8::new(data[data_idx]));
+                data_idx += 1;
+            }
+
+            banks.push(new_bank);
+        }
+        
+        log::info!("Loader: Generating cart with MBC3 controller");
+        MBC5Cart {
+            rom_banks: banks,
+            ram_banks: Vec::new(),
+
+            selected_rom_bank: AtomicU16::new(1),
+            selected_ram_bank: AtomicU8::new(0),
+
+            has_ram: AtomicBool::from(has_ram),
+            ram_enabled: AtomicBool::from(false),
+        }
+    }
+}
+
+impl GameboyCart for MBC5Cart {
+    fn read(&self, address: u16) -> u8 {
+        if address <= 0x3FFF {
+            self.rom_banks[0][address as usize].load(Ordering::Relaxed)
+        }
+        else if address >= 0x4000 && address <= 0x7FFF {
+            self.rom_banks[self.selected_rom_bank.load(Ordering::Relaxed) as usize]
+                [(address - 0x4000) as usize].load(Ordering::Relaxed)
+        }
+        else if address >= 0xA000 && address <= 0xBFFF {
+            if self.has_ram.load(Ordering::Relaxed) && self.ram_enabled.load(Ordering::Relaxed) {
+                self.ram_banks[self.selected_ram_bank.load(Ordering::Relaxed) as usize]
+                    [(address - 0xA000) as usize].load(Ordering::Relaxed)
+            }
+            else {
+                0xFF
+            }
+        }
+        else {
+            0xFF
+        }
+    }
+
+    fn write(&self, address: u16, value: u8) {
+        if address <= 0x1FFF {
+            self.ram_enabled.store(value == 0x0A, Ordering::Relaxed);
+        }
+        else if address >= 0x2000 && address <= 0x3FFF {
+            let current_bnk = self.selected_rom_bank.load(Ordering::Relaxed);
+
+            if address <= 0x2FFF {
+                let value = value as u16;
+                self.selected_rom_bank.store((current_bnk & 0x100) | value, Ordering::Relaxed);
+            }
+            else {
+                let value = (value as u16) << 8;
+                self.selected_rom_bank.store((current_bnk & 0xFF) | value, Ordering::Relaxed);
+            }
+        }
+        else if address >= 0x4000 && address <= 0x5FFF {
+            self.selected_ram_bank.store(value, Ordering::Relaxed);
+        }
+    }
+}
+
+
 pub fn new_cart(data: Vec<u8>) -> Box<dyn GameboyCart + Send + Sync> {
     let cart_type = data[0x147];
 
@@ -351,7 +492,7 @@ pub fn new_cart(data: Vec<u8>) -> Box<dyn GameboyCart + Send + Sync> {
         return Box::from(MBC3Cart::new(data))
     }
     if MBC5_BYTES.contains(&cart_type) {
-        unimplemented!();
+        return Box::from(MBC5Cart::new(data))
     }
     if MBC6_BYTES.contains(&cart_type) {
         unimplemented!();
