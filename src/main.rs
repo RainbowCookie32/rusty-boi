@@ -449,7 +449,8 @@ impl ImguiSystem {
                 ui.text(format!("SP: {:04X}", lock.registers[4]));
                 ui.same_line(80.0);
                 ui.text(format!("PC: {:04X}", lock.pc));
-                ui.text(format!("Current instruction: {:02X}", lock.opcode));
+                ui.text(format!("Current instruction: {}", instructions::get_instruction_disassembly(
+                    &mut lock.pc.clone(), &emu_state.shared_memory).split('-').last().unwrap().trim()));
                 ui.separator();
 
                 ui.bullet_text(im_str!("CPU State and Controls"));
