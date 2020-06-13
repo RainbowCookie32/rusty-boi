@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::borrow::Cow;
 
-use cpu::UiObject;
+use cpu::{UiObject, Status};
 use memory::EmulatedMemory;
 
 use log::info;
@@ -159,24 +159,18 @@ impl ImguiSystem {
             mem_tx.send(emu_memory).unwrap();
 
             loop {
-                match cpu.cpu_status {
-                    cpu::Status::Waiting => {
-                        if !cpu.cpu_paused {
-                            cpu.cpu_status = cpu::Status::Running;
-                        }
-                    },
-                    cpu::Status::Running => {
-                        cpu.step();
-                        video.step();
-                    },
-                    cpu::Status::Paused => {
-                        if cpu.cpu_step {
+                if let Status::Running{paused, breakpoint: _, step, error: _} = cpu.cpu_status {
+                    if paused {
+                        if step {
                             cpu.step();
                             video.step();
-                            cpu.cpu_step = false;
                         }
-                    },
-                };
+                    }
+                    else {
+                        cpu.step();
+                        video.step();
+                    }
+                }
 
                 cpu.update_ui_object();
             }
@@ -369,17 +363,17 @@ impl ImguiSystem {
 
             ui.bullet_text(im_str!("Emulation Controls"));
             if ui.button(im_str!("Start/Resume"), [120.0, 20.0]) {
-                if !emu_state.started {
-                    emu_state.started = true;
-                    emu_state.shared_object.lock().unwrap().cpu_paused = false;
-                }
-                else {
-                    emu_state.shared_object.lock().unwrap().cpu_paused = false;
-                }
+                let mut lock = emu_state.shared_object.lock().unwrap();
+                
+                emu_state.started = true;
+                lock.cpu_step = Some(false);
+                lock.cpu_paused = Some(false);
             }
             ui.same_line(140.0);
             if ui.button(im_str!("Pause"), [120.0, 20.0]) {
-                emu_state.shared_object.lock().unwrap().cpu_paused = true;
+                let mut lock = emu_state.shared_object.lock().unwrap();
+                
+                lock.cpu_paused = Some(true);
             }
             ui.separator();
 
@@ -461,40 +455,48 @@ impl ImguiSystem {
                 ui.bullet_text(im_str!("CPU State and Controls"));
                 ui.separator();
 
-                if lock.cpu_paused {
-                    if lock.breakpoint_hit {
-                        ui.text_colored([0.3, 1.0, 1.0, 1.0], "Status: Breakpoint hit");
+                let cpu_status = lock.cpu_status;
+
+                match cpu_status {
+                    Status::Running {paused, breakpoint, step: _, error} => {
+                        if paused {
+                            ui.text_colored([1.0, 0.5, 1.0, 1.0], "Status: Paused by debugger");
+                        }
+                        else if breakpoint {
+                            ui.text_colored([0.3, 1.0, 1.0, 1.0], "Status: Breakpoint hit");
+                        }
+                        else if error {
+                            ui.text_colored([1.0, 0.0, 0.0, 1.0], "Status: Error");
+                        }
+                        else if lock.halted {
+                            ui.text_colored([0.7, 1.0, 1.0, 1.0], "Status: CPU Halted");
+                        }
+                        else {
+                            ui.text_colored([0.0, 1.0, 0.0, 1.0], "Status: Running");
+                        }
+                    },
+                    Status::NotReady => {
+                        ui.text_colored([1.0, 0.5, 1.0, 1.0], "Status: CPU not ready.");
                     }
-                    else {
-                        ui.text_colored([1.0, 0.5, 1.0, 1.0], "Status: Paused by debugger");
-                    }
-                    
                 }
-                else if lock.halted {
-                    ui.text_colored([0.7, 1.0, 1.0, 1.0], "Status: CPU Halted");
-                }
-                else {
-                    ui.text_colored([0.0, 1.0, 0.0, 1.0], "Status: Running");
-                }
+
                 ui.separator();
 
                 if ui.button(im_str!("Break"), [50.0, 20.0]) {
-                    lock.cpu_paused = true;
+                    lock.cpu_paused = Some(true);
                 }
                 ui.same_line(65.0);
                 if ui.button(im_str!("Step"), [50.0, 20.0]) {
                     if emu_state.started {
-                        lock.cpu_paused = true;
-                        lock.cpu_should_step = true;
-                        lock.breakpoint_hit = false;
+                        lock.cpu_step = Some(true);
+                        lock.cpu_paused = Some(true);
                     }
                 }
                 ui.same_line(122.0);
                 if ui.button(im_str!("Resume"), [50.0, 20.0]) {
                     if emu_state.started {
-                        lock.cpu_paused = false;
-                        lock.cpu_should_step = false;
-                        lock.breakpoint_hit = false;
+                        lock.cpu_step = Some(false);
+                        lock.cpu_paused = Some(false);
                     }
                 }
                 ui.separator();
@@ -545,17 +547,24 @@ impl ImguiSystem {
                 let mut all_entries = Vec::new();
     
                 while address < 0xFF80 {
-                    all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut address, 
-                        &emu_state.shared_memory)));
+                    let lock = emu_state.shared_object.lock().unwrap();
+                    let mut result = String::new();
+
+                    if address == lock.pc {
+                        result.insert(0, '>');
+                    }
+
+                    result += &instructions::get_instruction_disassembly(&mut address, &emu_state.shared_memory);
+                    all_entries.push(ImString::from(result));
                 }
     
-                // Get $FFFF in there as well
+                // Get $FFFF in there as well.
+                // Overflows address, since it gets increased by 1.
                 /*all_entries.push(ImString::from(instructions::get_instruction_disassembly(&mut 0xFFFF, 
                     &emu_state.shared_memory)));*/
     
                 let strings: Vec<&ImStr> = all_entries.iter().map(|s| s.as_ref()).collect();
-                ui.list_box(im_str!("Memory"), &mut emu_state.selected_memory_entry, 
-                &strings[..], 20);
+                ui.list_box(im_str!("Memory"), &mut emu_state.selected_memory_entry, &strings[..], 20);
             });
         }
     }
@@ -563,35 +572,42 @@ impl ImguiSystem {
     fn video_debugger_window(ui: &Ui, emu_state: &mut EmuState) {
         if emu_state.show_video_debugger {
             Window::new(im_str!("Rusty Boi - Video Debugger")).build(&ui, || {
-                let lock = emu_state.shared_object.lock().unwrap();
+                let ly = emu_state.shared_memory.read(0xFF44);
+                let lyc = emu_state.shared_memory.read(0xFF45);
+                let wx = emu_state.shared_memory.read(0xFF4A);
+                let wy = emu_state.shared_memory.read(0xFF4B);
+                let lcd_stat = emu_state.shared_memory.read(0xFF41);
+                let lcd_control = emu_state.shared_memory.read(0xFF40);
 
                 ui.bullet_text(im_str!("LCD Control"));
                 ui.separator();
-                ui.text(format!("LCD Enabled: {}", (lock.lcd_control >> 7) != 0));
-                ui.text(format!("Window Tilemap: {}", if (lock.lcd_control >> 6) != 0 {"0x9C00"} else {"0x9800"}));
-                ui.text(format!("Window Enabled: {}", (lock.lcd_control >> 5) != 0));
+                ui.text(format!("LCD Enabled: {}", (lcd_control & 0x80) != 0));
+                ui.text(format!("Window Tilemap: {}", if (lcd_control & 0x40) != 0 {"0x9C00"} else {"0x9800"}));
+                ui.text(format!("Window Enabled: {}", (lcd_control & 0x20) != 0));
                 ui.text(format!("Window and BG Tile Data: {}", 
-                    if (lock.lcd_control >> 4) != 0 {"0x8800"} else {"0x8000"}));
-                ui.text(format!("BG Tilemap: {}", if (lock.lcd_control >> 3) != 0 {"0x9C00"} else {"0x9800"}));
-                ui.text(format!("Sprite Size: {}", if (lock.lcd_control >> 2) != 0 {"8x16"} else {"8x8"}));
-                ui.text(format!("Sprites Enabled: {}", (lock.lcd_control >> 1) != 0));
-                ui.text(format!("BG Enabled: {}", (lock.lcd_control & 1) != 0));
+                    if (lcd_control & 0x10) != 0 {"0x8800"} else {"0x8000"}));
+                ui.text(format!("BG Tilemap: {}", if (lcd_control & 0x08) != 0 {"0x9C00"} else {"0x9800"}));
+                ui.text(format!("Sprite Size: {}", if (lcd_control & 0x04) != 0 {"8x16"} else {"8x8"}));
+                ui.text(format!("Sprites Enabled: {}", (lcd_control & 0x02) != 0));
+                ui.text(format!("BG Enabled: {}", (lcd_control & 0x01) != 0));
                 ui.separator();
 
                 ui.bullet_text(im_str!("LCD Status"));
                 ui.separator();
-                ui.text(format!("LYC Interrupt: {}", (lock.lcd_stat >> 7) != 0));
-                ui.text(format!("OAM Mode Interrupt: {}", (lock.lcd_stat >> 6) != 0));
-                ui.text(format!("VBlank Mode Interrupt: {}", (lock.lcd_stat >> 5) != 0));
-                ui.text(format!("HBlank Mode Interrupt: {}", (lock.lcd_stat >> 4) != 0));
-                ui.text(format!("Coincidence Flag: {}", (lock.lcd_stat >> 3) != 0));
-                ui.text(format!("Current mode: {}", lock.lcd_stat & 3));
+                ui.text(format!("LYC Interrupt: {}", (lcd_stat & 0x40) != 0));
+                ui.text(format!("OAM Mode Interrupt: {}", (lcd_stat & 0x20) != 0));
+                ui.text(format!("VBlank Mode Interrupt: {}", (lcd_stat & 0x10) != 0));
+                ui.text(format!("HBlank Mode Interrupt: {}", (lcd_stat & 0x08) != 0));
+                ui.text(format!("Coincidence Flag: {}", (lcd_stat & 0x04) != 0));
+                ui.text(format!("Current mode: {}", lcd_stat & 0x03));
                 ui.separator();
 
                 ui.bullet_text(im_str!("Various"));
                 ui.separator();
-                ui.text(format!("LY: {}", lock.ly));
-                ui.text(format!("LYC: {}", lock.lyc));
+                ui.text(format!("LY: {}", ly));
+                ui.text(format!("LYC: {}", lyc));
+                ui.text(format!("WX: {}", wx));
+                ui.text(format!("WY: {}", wy));
                 ui.separator();
 
                 ui.bullet_text(im_str!("Full Background:"));
@@ -616,24 +632,25 @@ impl ImguiSystem {
     fn io_registers_window(ui: &Ui, emu_state: &mut EmuState) {
         if emu_state.show_io_regs_debugger {
             Window::new(im_str!("Rusty Boi - Interrupts")).build(&ui, || {
-                let lock = emu_state.shared_object.lock().unwrap();
+                let if_value = emu_state.shared_memory.read(0xFF0F);
+                let ie_value = emu_state.shared_memory.read(0xFFFF);
 
                 ui.bullet_text(im_str!("Enabled Interrupts"));
                 ui.separator();
-                ui.text(format!("V-Blank: {}", lock.ie_value & 1));
-                ui.text(format!("LCD STAT: {}", (lock.ie_value >> 1) & 1));
-                ui.text(format!("Timer: {}", (lock.ie_value >> 2) & 1));
-                ui.text(format!("Serial: {}", (lock.ie_value >> 3) & 1));
-                ui.text(format!("Joypad: {}", (lock.ie_value >> 4) & 1));
+                ui.text(format!("V-Blank: {}", ie_value & 1));
+                ui.text(format!("LCD STAT: {}", (ie_value >> 1) & 1));
+                ui.text(format!("Timer: {}", (ie_value >> 2) & 1));
+                ui.text(format!("Serial: {}", (ie_value >> 3) & 1));
+                ui.text(format!("Joypad: {}", (ie_value >> 4) & 1));
                 ui.separator();
 
                 ui.bullet_text(im_str!("Requested Interrupts"));
                 ui.separator();
-                ui.text(format!("V-Blank: {}", lock.if_value & 1));
-                ui.text(format!("LCD STAT: {}", (lock.if_value >> 1) & 1));
-                ui.text(format!("Timer: {}", (lock.if_value >> 2) & 1));
-                ui.text(format!("Serial: {}", (lock.if_value >> 3) & 1));
-                ui.text(format!("Joypad: {}", (lock.if_value >> 4) & 1));
+                ui.text(format!("V-Blank: {}", if_value & 1));
+                ui.text(format!("LCD STAT: {}", (if_value >> 1) & 1));
+                ui.text(format!("Timer: {}", (if_value >> 2) & 1));
+                ui.text(format!("Serial: {}", (if_value >> 3) & 1));
+                ui.text(format!("Joypad: {}", (if_value >> 4) & 1));
                 ui.separator();
             });
         }

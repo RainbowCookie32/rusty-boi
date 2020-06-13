@@ -16,9 +16,8 @@ const C_FLAG: u8 = 4;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Status {
-    Waiting,
-    Running,
-    Paused,
+    NotReady,
+    Running { paused: bool, breakpoint: bool, step: bool, error: bool },
 }
 
 pub enum Condition {
@@ -99,8 +98,6 @@ pub struct Cpu {
     
     pub ui: Arc<Mutex<UiObject>>,
     pub cpu_status: Status,
-    pub cpu_step: bool,
-    pub cpu_paused: bool,
 
     input_rx: mpsc::Receiver<InputEvent>,
 
@@ -122,9 +119,7 @@ impl Cpu {
             stopped: false,
             
             ui: ui,
-            cpu_status: Status::Waiting,
-            cpu_step: false,
-            cpu_paused: true,
+            cpu_status: Status::NotReady,
 
             input_rx: rx,
 
@@ -154,7 +149,7 @@ impl Cpu {
     }
 
     pub fn update_ui_object(&mut self) {
-        let lock = self.ui.try_lock();
+        let lock = self.ui.lock();
 
         if lock.is_err() {
             return;
@@ -172,32 +167,37 @@ impl Cpu {
         lock.opcode = self.memory.read(self.pc);
 
         lock.halted = self.halted;
-        lock.if_value = self.memory.read(0xFF0F);
-        lock.ie_value = self.memory.read(0xFFFF);
-        lock.int_enabled = self.interrupts.can_interrupt;
+        lock.cpu_status = self.cpu_status;
 
-        lock.ly = self.memory.read(0xFF44);
-        lock.lyc = self.memory.read(0xFF45);
-        lock.lcd_stat = self.memory.read(0xFF41);
-        lock.lcd_control = self.memory.read(0xFF40);
+        if let Status::Running{paused, breakpoint, step, error} = self.cpu_status {
+            self.cpu_status = Status::Running {
+                paused: if lock.cpu_paused.is_some() { lock.cpu_paused.clone().unwrap() } else { paused },
+                breakpoint: breakpoint,
+                step: if lock.cpu_step.is_some() { lock.cpu_step.clone().unwrap() } else { false },
+                error: error
+            };
 
-        self.cpu_paused = lock.cpu_paused;
-        self.cpu_step = lock.cpu_should_step;
+            lock.cpu_paused = None;
+            lock.cpu_step = None;
 
-        if lock.cpu_paused || lock.cpu_should_step {
-            self.cpu_status = Status::Paused;
-            lock.cpu_should_step = false;
+            for address in &lock.breakpoints {
+                if *address == self.pc {
+                    self.cpu_status = Status::Running{ paused: true, breakpoint: true, step: step, error: error };
+                    break;
+                }
+            }
         }
         else {
-            self.cpu_status = Status::Running;
-        }
-
-        for address in &lock.breakpoints {
-            if *address == self.pc {
-                lock.breakpoint_hit = true;
-                lock.cpu_paused = true;
-                self.cpu_status = Status::Paused;
-                break;
+            if lock.cpu_paused.is_some() || lock.cpu_step.is_some() {
+                self.cpu_status = Status::Running {
+                    paused: if lock.cpu_paused.is_some() { lock.cpu_paused.clone().unwrap() } else { true },
+                    breakpoint: false,
+                    step: if lock.cpu_step.is_some() { lock.cpu_step.clone().unwrap() } else { false },
+                    error: false
+                };
+    
+                lock.cpu_paused = None;
+                lock.cpu_step = None;
             }
         }
     }
@@ -909,7 +909,8 @@ impl Cpu {
     }
 
     fn invalid_opcode(&mut self, opcode: u8) {
-        self.ui.lock().unwrap().cpu_paused = true;
+        self.cpu_status = Status::Running{paused: true, breakpoint: false, step: false, error: true};
+        self.ui.lock().unwrap().cpu_status = self.cpu_status;
         log::error!("Tried to execute invalid opcode 0x{:02X}", opcode);
     }
 
@@ -2038,19 +2039,13 @@ pub struct UiObject {
     pub opcode: u8,
 
     pub halted: bool,
-    pub if_value: u8,
-    pub ie_value: u8,
-    pub int_enabled: bool,
 
-    pub ly: u8,
-    pub lyc: u8,
-    pub lcd_stat: u8,
-    pub lcd_control: u8,
+    pub cpu_status: Status,
+    pub cpu_paused: Option<bool>,
+    pub cpu_step: Option<bool>,
 
     pub breakpoints: Vec<u16>,
-    pub breakpoint_hit: bool,
-    pub cpu_paused: bool,
-    pub cpu_should_step: bool
+    pub breakpoint_hit: bool
 }
 
 impl UiObject {
@@ -2061,19 +2056,13 @@ impl UiObject {
             opcode: 0,
 
             halted: false,
-            if_value: 0,
-            ie_value: 0,
-            int_enabled: false,
 
-            ly: 0,
-            lyc: 0,
-            lcd_stat: 0,
-            lcd_control: 0,
+            cpu_status: Status::NotReady,
+            cpu_paused: None,
+            cpu_step: None,
 
             breakpoints: Vec::new(),
-            breakpoint_hit: false,
-            cpu_paused: true,
-            cpu_should_step: false
+            breakpoint_hit: false
         }
     }
 }

@@ -296,9 +296,9 @@ impl VideoChip {
     fn check_lyc(&self) {
         let ly = self.memory.read(LY);
         let lyc = self.memory.read(LYC);
+        let lcd_stat = self.memory.read(LCD_STATUS);
 
         if ly == lyc {
-            let lcd_stat = self.memory.read(LCD_STATUS);
             let interrupt = ((lcd_stat >> 6) & 1) == 1;
 
             if interrupt {
@@ -307,6 +307,9 @@ impl VideoChip {
             }
 
             self.memory.write(LCD_STATUS, lcd_stat | 4, false);
+        }
+        else {
+            self.memory.write(LCD_STATUS, lcd_stat & 0xFB, false);
         }
     }
 
