@@ -170,20 +170,43 @@ impl Cpu {
         lock.cpu_status = self.cpu_status;
 
         if let Status::Running{paused, breakpoint, step, error} = self.cpu_status {
+            let paused = {
+                if lock.cpu_paused.is_some() {
+                    lock.cpu_paused.unwrap()
+                }
+                else {
+                    paused
+                }
+            };
+
+            let step = {
+                if lock.cpu_step.is_some() {
+                    lock.cpu_step.unwrap()
+                }
+                else if paused && step {
+                    false
+                }
+                else {
+                    step
+                }
+            };
+
             self.cpu_status = Status::Running {
-                paused: if lock.cpu_paused.is_some() { lock.cpu_paused.clone().unwrap() } else { paused },
+                paused: paused,
                 breakpoint: breakpoint,
-                step: if lock.cpu_step.is_some() { lock.cpu_step.clone().unwrap() } else { false },
+                step: step,
                 error: error
             };
 
             lock.cpu_paused = None;
             lock.cpu_step = None;
 
-            for address in &lock.breakpoints {
-                if *address == self.pc {
-                    self.cpu_status = Status::Running{ paused: true, breakpoint: true, step: step, error: error };
-                    break;
+            if !paused {
+                for address in &lock.breakpoints {
+                    if *address == self.pc {
+                        self.cpu_status = Status::Running{ paused: true, breakpoint: true, step: false, error: error };
+                        break;
+                    }
                 }
             }
         }
