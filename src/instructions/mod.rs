@@ -76,7 +76,7 @@ pub fn get_instruction_disassembly(memory_addr: &mut u16, memory: &EmulatedMemor
         0x0E => {
             let value = memory.read(address + 1);
             *memory_addr += 2;
-            format!("${:04X} - ${:02X} ${:<6X} - LC C, ${:02X}", address, opcode, value, value)
+            format!("${:04X} - ${:02X} ${:<6X} - LD C, ${:02X}", address, opcode, value, value)
         },
         0x0F => {
             *memory_addr += 1;
@@ -146,7 +146,7 @@ pub fn get_instruction_disassembly(memory_addr: &mut u16, memory: &EmulatedMemor
         0x1E => {
             let value = memory.read(address + 1);
             *memory_addr += 2;
-            format!("${:04X} - ${:02X} ${:<6X} - LC E, ${:02X}", address, opcode, value, value)
+            format!("${:04X} - ${:02X} ${:<6X} - LD E, ${:02X}", address, opcode, value, value)
         },
         0x1F => {
             *memory_addr += 1;
@@ -217,7 +217,7 @@ pub fn get_instruction_disassembly(memory_addr: &mut u16, memory: &EmulatedMemor
         0x2E => {
             let value = memory.read(address + 1);
             *memory_addr += 2;
-            format!("${:04X} - ${:02X} ${:<6X} - LC L, ${:02X}", address, opcode, value, value)
+            format!("${:04X} - ${:02X} ${:<6X} - LD L, ${:02X}", address, opcode, value, value)
         },
         0x2F => {
             *memory_addr += 1;
@@ -288,7 +288,7 @@ pub fn get_instruction_disassembly(memory_addr: &mut u16, memory: &EmulatedMemor
         0x3E => {
             let value = memory.read(address + 1);
             *memory_addr += 2;
-            format!("${:04X} - ${:02X} ${:<6X} - LC A, ${:02X}", address, opcode, value, value)
+            format!("${:04X} - ${:02X} ${:<6X} - LD A, ${:02X}", address, opcode, value, value)
         },
         0x3F => {
             *memory_addr += 1;
@@ -878,8 +878,10 @@ pub fn get_instruction_disassembly(memory_addr: &mut u16, memory: &EmulatedMemor
                 values[1], LittleEndian::read_u16(&values))
         },
         0xCD => {
-            *memory_addr += 1;
-            format!("${:04X} - ${:<10X} - CP A, L", address, opcode)
+            let values = [memory.read(address + 1), memory.read(address + 2)];
+            *memory_addr += 3;
+            format!("${:04X} - ${:02X} ${:02X} ${:02X} - CALL, ${:04X}", address, opcode, values[0], 
+                values[1], LittleEndian::read_u16(&values))
         },
         0xCE => {
             let value = memory.read(address + 1);
