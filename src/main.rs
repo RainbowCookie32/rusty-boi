@@ -659,23 +659,30 @@ impl ImguiSystem {
             }
         }
         else {
-            let filename = ImString::from(String::from(path.file_name().unwrap().to_str().unwrap()));
-
-            if MenuItem::new(&filename).build_with_ref(&ui, &mut false) {
-                let read_data = fs::read(path).unwrap();
-                emu_state.selected_rom_title.clear();
-
-                for idx in 0x0134..0x143 {
-                    let value = read_data[idx];
-
-                    if value != 0 {
-                        emu_state.selected_rom_title.push(value as char);
-                    }
+            if path.extension().is_some() {
+                if path.extension().unwrap() != "gb" {
+                    return;
                 }
 
-                emu_state.cart_tx.send(read_data).unwrap();
-                emu_state.shared_memory = emu_state.mem_rx.recv().unwrap();
+                let filename = ImString::from(String::from(path.file_name().unwrap().to_str().unwrap()));
+
+                if MenuItem::new(&filename).build_with_ref(&ui, &mut false) {
+                    let read_data = fs::read(path).unwrap();
+                    emu_state.selected_rom_title.clear();
+
+                    for idx in 0x0134..0x143 {
+                        let value = read_data[idx];
+
+                        if value != 0 {
+                            emu_state.selected_rom_title.push(value as char);
+                        }
+                    }
+
+                    emu_state.cart_tx.send(read_data).unwrap();
+                    emu_state.shared_memory = emu_state.mem_rx.recv().unwrap();
+                }
             }
+            
         }
     }
 }
