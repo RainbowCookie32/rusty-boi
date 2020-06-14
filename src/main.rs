@@ -7,6 +7,7 @@ mod instructions;
 
 use std::fs;
 use std::io;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
@@ -328,31 +329,7 @@ impl ImguiSystem {
             ui.separator();
 
             let all_roms = get_all_roms();
-            
-            if let Some(menu) = ui.begin_menu(im_str!("Detected ROMs"), all_roms.len() > 0 && !emu_state.started) {
-                for file in all_roms {
-                    let filename = ImString::from(file.file_name().into_string().unwrap());
-
-                    if MenuItem::new(&filename).build_with_ref(&ui, &mut false) {
-                        let read_data = fs::read(file.path()).unwrap();
-                        
-                        emu_state.selected_rom_title.clear();
-
-                        for idx in 0x0134..0x143 {
-                            let value = read_data[idx];
-
-                            if value != 0 {
-                                emu_state.selected_rom_title.push(value as char);
-                            }
-                        }
-
-                        emu_state.cart_tx.send(read_data).unwrap();
-                        emu_state.shared_memory = emu_state.mem_rx.recv().unwrap();
-                    }
-                }
-
-                menu.end(&ui);
-            }
+            ImguiSystem::create_rom_list(&ui, emu_state, &all_roms);
 
             ui.text(format!("ROM Title: {}", emu_state.selected_rom_title));
             ui.separator();
@@ -656,6 +633,51 @@ impl ImguiSystem {
             });
         }
     }
+
+    fn create_rom_list(ui: &Ui, emu_state: &mut EmuState, paths: &Vec<PathBuf>) {
+        if let Some(menu) = ui.begin_menu(im_str!("Detected ROMs"), paths.len() > 0 && !emu_state.started) {
+            for entry in paths {
+                ImguiSystem::create_rom_list_entry(ui, emu_state, &entry);
+            }
+
+            menu.end(&ui);
+        }
+    }
+
+    fn create_rom_list_entry(ui: &Ui, emu_state: &mut EmuState, path: &PathBuf) {
+        if path.is_dir() {
+            let mut files: Vec<_> = fs::read_dir(path).unwrap().map(|r| r.unwrap()).collect();
+            files.sort_by_key(|dir| dir.path().to_str().unwrap().to_lowercase());
+
+            if let Some(menu) = ui.begin_menu(&ImString::from(String::from(path.file_name().unwrap().to_str().unwrap())), 
+                !emu_state.started) {
+                for entry in files {
+                    ImguiSystem::create_rom_list_entry(ui, emu_state, &entry.path());
+                }
+    
+                menu.end(&ui);
+            }
+        }
+        else {
+            let filename = ImString::from(String::from(path.file_name().unwrap().to_str().unwrap()));
+
+            if MenuItem::new(&filename).build_with_ref(&ui, &mut false) {
+                let read_data = fs::read(path).unwrap();
+                emu_state.selected_rom_title.clear();
+
+                for idx in 0x0134..0x143 {
+                    let value = read_data[idx];
+
+                    if value != 0 {
+                        emu_state.selected_rom_title.push(value as char);
+                    }
+                }
+
+                emu_state.cart_tx.send(read_data).unwrap();
+                emu_state.shared_memory = emu_state.mem_rx.recv().unwrap();
+            }
+        }
+    }
 }
 
 fn main() {
@@ -693,27 +715,24 @@ fn init_imgui() -> ImguiSystem {
     }
 }
 
-fn get_all_roms() -> Vec<fs::DirEntry> {
-
+fn get_all_roms() -> Vec<PathBuf> {
     init_dirs();
-    let mut all_roms: Vec<fs::DirEntry> = Vec::new();
-    let mut read_files: Vec<_> = fs::read_dir("roms").unwrap().map(|r| r.unwrap()).collect();
+    get_paths_in_dir(PathBuf::from("roms"))
+}
+
+fn get_paths_in_dir(path: PathBuf) -> Vec<PathBuf> {
+    let mut result = Vec::new();
+    let mut read_files: Vec<_> = fs::read_dir(path).unwrap().map(|r| r.unwrap()).collect();
+
     read_files.sort_by_key(|dir| dir.path().to_str().unwrap().to_lowercase());
-    
     for entry in read_files {
-        
-        let file_name = entry.file_name().into_string().unwrap();
-        
-        if file_name.contains(".gb") {
-            all_roms.push(entry);
-        }
+        result.push(entry.path());
     }
 
-    all_roms
+    result
 }
 
 fn init_dirs() {
-
     let roms_dir = fs::create_dir("roms");
     match roms_dir {
 
