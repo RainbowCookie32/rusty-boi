@@ -1603,7 +1603,14 @@ impl Cpu {
     // Push and Pop registers.
     fn pop_register(&mut self, target: usize) {
         let value = self.stack_read();
-        self.registers[target].set(value);
+
+        if target == 0 {
+            self.registers[target].set(value & 0xFFF0);
+        }
+        else {
+            self.registers[target].set(value);
+        }
+
         self.instruction_finished(1, 12);
     }
 

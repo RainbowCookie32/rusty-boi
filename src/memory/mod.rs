@@ -209,12 +209,43 @@ impl EmulatedMemory {
         else if address >= 0xFF00 && address <= 0xFF7F {
             let mut value = value;
 
+            // Ignore writes to unused registers, they return $FF.
+            if UNUSED_REGS.contains(&address) {
+                return;
+            }
+
             match address {
-                0xFF00 => value |= 0xC0,
+                0xFF00 => {
+                    value |= 0xC0;
+                },
+                0xFF02 => {
+                    value |= 0x7E;
+                },
                 0xFF04 => {
                     if cpu {
                         value = 0;
                     }
+                },
+                0xFF07 => {
+                    value |= 0xF8;
+                },
+                0xFF10 => {
+                    value |= 0x80;
+                },
+                0xFF1A => {
+                    value |= 0x7F;
+                },
+                0xFF1C => {
+                    value |= 0x9F;
+                },
+                0xFF20 => {
+                    value |= 0xC0;
+                },
+                0xFF23 => {
+                    value |= 0x3F;
+                },
+                0xFF26 => {
+                    value |= 0x70;
                 },
                 0xFF0F => {
                     value |= 0xE0;
@@ -229,7 +260,7 @@ impl EmulatedMemory {
                 },
                 0xFFFF => {
                     value |= 0xE0;
-                }
+                },
                 _ => {}
             }
 
@@ -273,3 +304,21 @@ fn create_atomic_vec(size: usize) -> Vec<AtomicU8> {
 
     result
 }
+
+const UNUSED_REGS: [u16; 71] = [
+    0xFF03, 0xFF08, 0xFF09, 0xFF0A, 0xFF0B,
+    0xFF0C, 0xFF0D, 0xFF0E, 0xFF15, 0xFF1F,
+    0xFF27, 0xFF28, 0xFF29, 0xFF2A, 0xFF2B,
+    0xFF2C, 0xFF2D, 0xFF2E, 0xFF2F, 0xFF4C,
+    0xFF4D, 0xFF4E, 0xFF4F, 0xFF50, 0xFF51,
+    0xFF52, 0xFF53, 0xFF54, 0xFF55, 0xFF56,
+    0xFF57, 0xFF58, 0xFF59, 0xFF5A, 0xFF5B,
+    0xFF5C, 0xFF5D, 0xFF5E, 0xFF5F, 0xFF60,
+    0xFF61, 0xFF62, 0xFF63, 0xFF64, 0xFF65,
+    0xFF66, 0xFF67, 0xFF68, 0xFF69, 0xFF6A,
+    0xFF6B, 0xFF6C, 0xFF6D, 0xFF6E, 0xFF6F,
+    0xFF70, 0xFF71, 0xFF72, 0xFF73, 0xFF74,
+    0xFF75, 0xFF76, 0xFF77, 0xFF78, 0xFF79,
+    0xFF7A, 0xFF7B, 0xFF7C, 0xFF7D, 0xFF7E,
+    0xFF7F
+];
