@@ -998,7 +998,35 @@ impl Cpu {
     }
 
     fn daa(&mut self) {
-        //todo!("DAA aka the weird one");
+        let nf = Cpu::check_bit(self.registers[0].get_low(), N_FLAG);
+        let cf = Cpu::check_bit(self.registers[0].get_low(), C_FLAG);
+        let hf = Cpu::check_bit(self.registers[0].get_low(), H_FLAG);
+
+        let mut carry = false;
+
+        let mut a = self.registers[0].get_hi();
+
+        if !nf {
+            if cf || a > 0x99 {
+                a = a.wrapping_add(0x60);
+                carry = true;
+            }
+
+            if hf || (a & 0x0F) > 0x09 {
+                a = a.wrapping_add(0x06);
+            }
+        }
+        else {
+            if cf {
+                a = a.wrapping_sub(0x60);
+            }
+            if hf {
+                a = a.wrapping_sub(0x06);
+            }
+        }
+
+        self.update_flags(Some(a == 0), None, Some(false), Some(carry));
+        self.registers[0].set_hi(a);
         self.instruction_finished(1, 4);
     }
 
