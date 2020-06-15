@@ -99,7 +99,7 @@ impl MBC1Cart {
         let mut banks: Vec<Vec<AtomicU8>> = Vec::new();
         let mut data_idx = 0;
 
-        let has_ram = data[0x149] != 0;
+        let ram_byte = data[0x149];
 
         while data_idx < data.len() {
             let mut new_bank = Vec::with_capacity(16384);
@@ -114,13 +114,13 @@ impl MBC1Cart {
         log::info!("Loader: Generating cart with MBC1 controller");
         MBC1Cart {
             rom_banks: banks,
-            ram_banks: Vec::new(),
+            ram_banks: create_ram_banks(ram_byte),
 
             selected_rom_bank: AtomicU8::new(1),
             selected_ram_bank: AtomicU8::new(0),
             ram_banking_mode: AtomicBool::from(false),
 
-            has_ram: AtomicBool::from(has_ram),
+            has_ram: AtomicBool::from(data[0x149] != 0),
             ram_enabled: AtomicBool::from(false),
         }
     }
@@ -137,8 +137,8 @@ impl GameboyCart for MBC1Cart {
         }
         else if address >= 0xA000 && address <= 0xBFFF {
             if self.has_ram.load(Ordering::Relaxed) && self.ram_enabled.load(Ordering::Relaxed) {
-                //self.ram_banks[self.selected_ram_bank as usize][(address - 0xA000) as usize]
-                0xFF
+                self.ram_banks[self.selected_ram_bank.load(Ordering::Relaxed) as usize]
+                    [(address - 0xA000) as usize].load(Ordering::Relaxed)
             }
             else {
                 0xFF
@@ -199,7 +199,8 @@ impl GameboyCart for MBC1Cart {
         }
         else if address >= 0xA000 && address <= 0xBFFF {
             if self.has_ram.load(Ordering::Relaxed) && self.ram_enabled.load(Ordering::Relaxed) {
-                //self.ram_banks[self.ram_banking_mode as usize][(address - 0xA000) as usize] = value;
+                self.ram_banks[self.ram_banking_mode.load(Ordering::Relaxed) as usize]
+                    [(address - 0xA000) as usize].store(value, Ordering::Relaxed);
             }
         }
     }
@@ -305,7 +306,7 @@ impl MBC3Cart {
         let mut banks: Vec<Vec<AtomicU8>> = Vec::new();
         let mut data_idx = 0;
 
-        let has_ram = data[0x149] != 0;
+        let ram_byte = data[0x149];
 
         while data_idx < data.len() {
             let mut new_bank = Vec::with_capacity(16384);
@@ -320,7 +321,7 @@ impl MBC3Cart {
         log::info!("Loader: Generating cart with MBC3 controller");
         MBC3Cart {
             rom_banks: banks,
-            ram_banks: Vec::new(),
+            ram_banks: create_ram_banks(ram_byte),
             rtc_registers: create_atomic_vec(5),
 
             selected_rom_bank: AtomicU8::new(1),
@@ -329,7 +330,7 @@ impl MBC3Cart {
 
             rtc_register_access: AtomicBool::from(false),
 
-            has_ram: AtomicBool::from(has_ram),
+            has_ram: AtomicBool::from(data[0x149] != 0),
             ram_enabled: AtomicBool::from(false),
             rtc_enabled: AtomicBool::from(false),
         }
@@ -404,7 +405,7 @@ impl MBC5Cart {
         let mut banks: Vec<Vec<AtomicU8>> = Vec::new();
         let mut data_idx = 0;
 
-        let has_ram = data[0x149] != 0;
+        let ram_byte = data[0x149];
 
         while data_idx < data.len() {
             let mut new_bank = Vec::with_capacity(16384);
@@ -419,12 +420,12 @@ impl MBC5Cart {
         log::info!("Loader: Generating cart with MBC3 controller");
         MBC5Cart {
             rom_banks: banks,
-            ram_banks: Vec::new(),
+            ram_banks: create_ram_banks(ram_byte),
 
             selected_rom_bank: AtomicU16::new(1),
             selected_ram_bank: AtomicU8::new(0),
 
-            has_ram: AtomicBool::from(has_ram),
+            has_ram: AtomicBool::from(data[0x149] != 0),
             ram_enabled: AtomicBool::from(false),
         }
     }
@@ -513,6 +514,43 @@ fn create_atomic_vec(size: usize) -> Vec<AtomicU8> {
 
     for _foo in 0..size {
         result.push(AtomicU8::new(0xFF));
+    }
+
+    result
+}
+
+fn create_ram_banks(ram_byte: u8) -> Vec<Vec<AtomicU8>> {
+    let mut result = Vec::new();
+
+    match ram_byte {
+        0x01 => {
+            result.push(create_atomic_vec(2048));
+        },
+        0x02 => {
+            result.push(create_atomic_vec(8192));
+        },
+        0x03 => {
+            let mut banks = 0;
+            while banks < 4 {
+                result.push(create_atomic_vec(8192));
+                banks += 1;
+            }
+        },
+        0x04 => {
+            let mut banks = 0;
+            while banks < 16 {
+                result.push(create_atomic_vec(8192));
+                banks += 1;
+            }
+        },
+        0x05 => {
+            let mut banks = 0;
+            while banks < 8 {
+                result.push(create_atomic_vec(8192));
+                banks += 1;
+            }
+        },
+        _ => {}
     }
 
     result
