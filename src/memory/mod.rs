@@ -285,8 +285,8 @@ impl EmulatedMemory {
         let address = (value as u16) << 8;
         let end_address = address + 0x009F;
         let mut transfer_progress = (address, 0xFE00);
-
-        while transfer_progress.0 < end_address {
+        
+        while transfer_progress.0 < end_address + 1 {
             let value = self.read(transfer_progress.0);
             self.write(transfer_progress.1, value, false);
             transfer_progress.0 += 1;
