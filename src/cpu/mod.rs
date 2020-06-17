@@ -145,7 +145,7 @@ impl Cpu {
             self.instruction_finished(0, 4);
         }
 
-        self.timer.step(super::GLOBAL_CYCLE_COUNTER.load(Ordering::Relaxed));
+        self.timer.step();
     }
 
     pub fn update_ui_object(&mut self) {
