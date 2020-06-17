@@ -255,8 +255,8 @@ impl ImguiSystem {
                         full_window_texture = Texture2d::new(display.get_context(), raw_window).unwrap();
 
                         let bg_blit_target = glium::BlitTarget {
-                            left: 0 as u32,
-                            bottom: 0 as u32,
+                            left: 0,
+                            bottom: 0,
                             width: 256 * scale_factor,
                             height: 256 * scale_factor,
                         };
@@ -277,25 +277,30 @@ impl ImguiSystem {
                         }
                     }
 
-                    if emu_state.screen_tex_id.is_some() {
-                        renderer.textures().replace(emu_state.screen_tex_id.unwrap(), Rc::new(final_texture));
-                    }
-                    else {
-                        emu_state.screen_tex_id = Some(renderer.textures().insert(Rc::new(final_texture)));
-                    }
-
-                    if emu_state.background_tex_id.is_some() {
-                        renderer.textures().replace(emu_state.background_tex_id.unwrap(), Rc::new(full_bg_texture));
-                    }
-                    else {
-                        emu_state.background_tex_id = Some(renderer.textures().insert(Rc::new(full_bg_texture)));
-                    }
-
-                    if emu_state.window_tex_id.is_some() {
-                        renderer.textures().replace(emu_state.window_tex_id.unwrap(), Rc::new(full_window_texture));
-                    }
-                    else {
-                        emu_state.window_tex_id = Some(renderer.textures().insert(Rc::new(full_window_texture)));
+                    if let Status::Running{paused, breakpoint: _, step: _, error: _} = 
+                        emu_state.shared_object.lock().unwrap().cpu_status {
+                        if !paused {
+                            if emu_state.screen_tex_id.is_some() {
+                                renderer.textures().replace(emu_state.screen_tex_id.unwrap(), Rc::new(final_texture));
+                            }
+                            else {
+                                emu_state.screen_tex_id = Some(renderer.textures().insert(Rc::new(final_texture)));
+                            }
+        
+                            if emu_state.background_tex_id.is_some() {
+                                renderer.textures().replace(emu_state.background_tex_id.unwrap(), Rc::new(full_bg_texture));
+                            }
+                            else {
+                                emu_state.background_tex_id = Some(renderer.textures().insert(Rc::new(full_bg_texture)));
+                            }
+        
+                            if emu_state.window_tex_id.is_some() {
+                                renderer.textures().replace(emu_state.window_tex_id.unwrap(), Rc::new(full_window_texture));
+                            }
+                            else {
+                                emu_state.window_tex_id = Some(renderer.textures().insert(Rc::new(full_window_texture)));
+                            }
+                        }
                     }
 
                     ImguiSystem::screen_window(&ui, &mut emu_state);
@@ -550,10 +555,12 @@ impl ImguiSystem {
     fn video_debugger_window(ui: &Ui, emu_state: &mut EmuState) {
         if emu_state.show_video_debugger {
             Window::new(im_str!("Rusty Boi - Video Debugger")).build(&ui, || {
+                let scy = emu_state.shared_memory.read(0xFF42);
+                let scx = emu_state.shared_memory.read(0xFF43);
                 let ly = emu_state.shared_memory.read(0xFF44);
                 let lyc = emu_state.shared_memory.read(0xFF45);
-                let wx = emu_state.shared_memory.read(0xFF4A);
-                let wy = emu_state.shared_memory.read(0xFF4B);
+                let wy = emu_state.shared_memory.read(0xFF4A);
+                let wx = emu_state.shared_memory.read(0xFF4B);
                 let lcd_stat = emu_state.shared_memory.read(0xFF41);
                 let lcd_control = emu_state.shared_memory.read(0xFF40);
 
@@ -582,10 +589,17 @@ impl ImguiSystem {
 
                 ui.bullet_text(im_str!("Various"));
                 ui.separator();
-                ui.text(format!("LY: {}", ly));
-                ui.text(format!("LYC: {}", lyc));
-                ui.text(format!("WX: {}", wx));
-                ui.text(format!("WY: {}", wy));
+                ui.text(format!("LY: {:<3} | ${:02X}", ly, ly));
+                ui.same_line(120.0);
+                ui.text(format!("LYC: {:<3} | ${:02X}", lyc, lyc));
+                ui.text(format!("SCX: {:<3} | ${:02X}", scx, scx));
+                ui.same_line(120.0);
+                ui.text(format!("SCY: {:<3} | ${:02X}", scy, scy));
+                ui.separator();
+
+                ui.text(format!("WX: {:<3} | ${:02X}", wx, wx));
+                ui.same_line(120.0);
+                ui.text(format!("WY: {:<3} | ${:02X}", wy, wy));
                 ui.separator();
 
                 ui.bullet_text(im_str!("Full Background:"));
