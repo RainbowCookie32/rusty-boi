@@ -379,35 +379,58 @@ impl ImguiSystem {
             ui.separator();
 
             if ui.button(im_str!("A"), [50.0, 20.0]) {
-                emu_state.input_tx.send(InputEvent::A).unwrap();
+                for _x in 0..4 {
+                    emu_state.input_tx.send(InputEvent::A).unwrap();
+                }
+                
             }
             ui.same_line(65.0);
             if ui.button(im_str!("B"), [50.0, 20.0]) {
-                emu_state.input_tx.send(InputEvent::B).unwrap();
+                for _x in 0..4 {
+                    emu_state.input_tx.send(InputEvent::B).unwrap();
+                }
+                
             }
             ui.same_line(120.0);
             if ui.button(im_str!("Start"), [50.0, 20.0]) {
-                emu_state.input_tx.send(InputEvent::Start).unwrap();
+                for _x in 0..4 {
+                    emu_state.input_tx.send(InputEvent::Start).unwrap();
+                }
+                
             }
             ui.same_line(180.0);
             if ui.button(im_str!("Select"), [50.0, 20.0]) {
-                emu_state.input_tx.send(InputEvent::Select).unwrap();
+                for _x in 0..4 {
+                    emu_state.input_tx.send(InputEvent::Select).unwrap();
+                }
+                
             }
 
             if ui.button(im_str!("Up"), [50.0, 20.0]) {
-                emu_state.input_tx.send(InputEvent::Up).unwrap();
+                for _x in 0..4 {
+                    emu_state.input_tx.send(InputEvent::Up).unwrap();
+                }
+                
             }
             ui.same_line(65.0);
             if ui.button(im_str!("Down"), [50.0, 20.0]) {
-                emu_state.input_tx.send(InputEvent::Down).unwrap();
+                for _x in 0..4 {
+                    emu_state.input_tx.send(InputEvent::Down).unwrap();
+                }
+                
             }
             ui.same_line(120.0);
             if ui.button(im_str!("Left"), [50.0, 20.0]) {
-                emu_state.input_tx.send(InputEvent::Left).unwrap();
+                for _x in 0..4 {
+                    emu_state.input_tx.send(InputEvent::Left).unwrap();
+                }
+                
             }
             ui.same_line(180.0);
             if ui.button(im_str!("Right"), [50.0, 20.0]) {
-                emu_state.input_tx.send(InputEvent::Right).unwrap();
+                for _x in 0..4 {
+                    emu_state.input_tx.send(InputEvent::Right).unwrap();
+                }
             }
         });
     }

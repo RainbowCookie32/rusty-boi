@@ -312,10 +312,11 @@ impl Cpu {
         let dpad = (input_reg & 0x10) == 0;
         let buttons = (input_reg & 0x20) == 0;
 
-        let received_events = self.input_rx.try_iter();
+        let received_event = self.input_rx.try_recv();
         let if_value = self.memory.read(0xFF0F);
 
-        for event in received_events {
+        if received_event.is_ok() {
+            let event = received_event.unwrap();
             input_received = true;
             match event {
                 // Direction keys.
