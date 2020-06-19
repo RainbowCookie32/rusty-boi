@@ -230,15 +230,15 @@ impl Cpu {
 
         let mut if_value = self.memory.read(0xFF0F);
 
-        let vblank_requested = (if_value & 1) != 0;
-        let lcdc_requested = (if_value & (1 << 1)) != 0;
-        let timer_requested = (if_value & (1 << 2)) != 0;
-        let serial_requested = (if_value & (1 << 3)) != 0;
-        let input_requested = (if_value & (1 << 4)) != 0;
+        let vblank_requested = (if_value & 0x01) != 0;
+        let lcdc_requested = (if_value & 0x02) != 0;
+        let timer_requested = (if_value & 0x04) != 0;
+        let serial_requested = (if_value & 0x08) != 0;
+        let input_requested = (if_value & 0x10) != 0;
 
         if vblank_requested && self.interrupts.vblank_enabled {
             if self.interrupts.can_interrupt {
-                if_value &= !1;
+                if_value &= 0xFE;
                 self.stack_write(self.pc);
                 self.pc = 0x0040;
                 self.interrupts.can_interrupt = false;
@@ -248,7 +248,7 @@ impl Cpu {
         }
         else if lcdc_requested && self.interrupts.lcdc_enabled {
             if self.interrupts.can_interrupt {
-                if_value &= !(1 << 1);
+                if_value &= 0xFD;
                 self.stack_write(self.pc);
                 self.pc = 0x0048;
                 self.interrupts.can_interrupt = false;
@@ -258,7 +258,7 @@ impl Cpu {
         }
         else if timer_requested && self.interrupts.timer_enabled {
             if self.interrupts.can_interrupt {
-                if_value &= !(1 << 2);
+                if_value &= 0xFB;
                 self.stack_write(self.pc);
                 self.pc = 0x0050;
                 self.interrupts.can_interrupt = false;
@@ -268,7 +268,7 @@ impl Cpu {
         }
         else if serial_requested && self.interrupts.serial_enabled {
             if self.interrupts.can_interrupt {
-                if_value &= !(1 << 3);
+                if_value &= 0xF7;
                 self.stack_write(self.pc);
                 self.pc = 0x0058;
                 self.interrupts.can_interrupt = false;
@@ -278,7 +278,7 @@ impl Cpu {
         }
         else if input_requested && self.interrupts.input_enabled {
             if self.interrupts.can_interrupt {
-                if_value &= !(1 << 4);
+                if_value &= 0xEF;
                 self.stack_write(self.pc);
                 self.pc = 0x0060;
                 self.interrupts.can_interrupt = false;
@@ -293,11 +293,11 @@ impl Cpu {
     fn update_interrupts(&mut self) {
         let ie_value = self.memory.read(0xFFFF);
 
-        self.interrupts.vblank_enabled = (ie_value & 1) != 0;
-        self.interrupts.lcdc_enabled = (ie_value & (1 << 1)) != 0;
-        self.interrupts.timer_enabled = (ie_value & (1 << 2)) != 0;
-        self.interrupts.serial_enabled = (ie_value & (1 << 3)) != 0;
-        self.interrupts.input_enabled = (ie_value & (1 << 4)) != 0;
+        self.interrupts.vblank_enabled = (ie_value & 0x01) != 0;
+        self.interrupts.lcdc_enabled = (ie_value & 0x02) != 0;
+        self.interrupts.timer_enabled = (ie_value & 0x04) != 0;
+        self.interrupts.serial_enabled = (ie_value & 0x08) != 0;
+        self.interrupts.input_enabled = (ie_value & 0x10) != 0;
     }
 
     fn update_input(&mut self) {
@@ -367,7 +367,7 @@ impl Cpu {
 
         self.memory.write(0xFF00, result | 0xC0, true);
         if input_received {
-            self.memory.write(0xFF0F, if_value | (1 << 4), true);
+            self.memory.write(0xFF0F, if_value | 0x10, true);
         }
     }
 
