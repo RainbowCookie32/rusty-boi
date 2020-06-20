@@ -263,8 +263,8 @@ impl ImguiSystem {
                         };
 
                         let window_blit_target = glium::BlitTarget {
-                            left: (video_data.wx.wrapping_sub(7)) as u32,
-                            bottom: video_data.wy as u32,
+                            left: (video_data.wx.wrapping_sub(7)) as u32 * scale_factor as u32,
+                            bottom: video_data.wy as u32 * scale_factor as u32,
                             width: 256 * scale_factor,
                             height: 256 * scale_factor,
                         };
