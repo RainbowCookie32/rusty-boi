@@ -24,16 +24,18 @@ pub enum VideoMode {
 #[derive(Clone)]
 pub struct VideoData {
     pub background: Vec<u8>,
-    pub sprites: Vec<Vec<u8>>,
+    pub sprites: Vec<Sprite>,
     pub window: Vec<u8>,
 
     pub wx: u8,
     pub wy: u8,
+
     pub window_enabled: bool,
+    pub sprites_enabled: bool
 }
 
 impl VideoData {
-    pub fn new(bg: Vec<u8>, window: Vec<u8>, wenabled: bool, sprites: Vec<Vec<u8>>) -> VideoData {
+    pub fn new(bg: Vec<u8>, window: Vec<u8>, wenabled: bool, sprites: Vec<Sprite>) -> VideoData {
         VideoData {
             background: bg,
             sprites: sprites,
@@ -42,7 +44,8 @@ impl VideoData {
             wx: 0,
             wy: 0,
             
-            window_enabled: wenabled
+            window_enabled: wenabled,
+            sprites_enabled: false,
         }
     }
 }
@@ -81,6 +84,33 @@ impl ColorPalette {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Sprite {
+    pub data: Vec<u8>,
+
+    pub pos_x: u8,
+    pub pos_y: u8,
+    pub y_size: u8,
+
+    pub flip_x: bool,
+    pub flip_y: bool
+}
+
+impl Sprite {
+    pub fn empty() -> Sprite {
+        Sprite {
+            data: vec![0; 8*8],
+
+            pos_x: 0,
+            pos_y: 0,
+            y_size: 8,
+            
+            flip_x: false,
+            flip_y: false
+        }
+    }
+}
+
 pub struct VideoChip {
     mode: VideoMode,
     current_cycles: u16,
@@ -88,7 +118,7 @@ pub struct VideoChip {
 
     tbank_0: Vec<Vec<u8>>,
     tbank_1: Vec<Vec<u8>>,
-    sprites: Vec<u8>,
+    sprites: Vec<Sprite>,
 
     tile_palette: ColorPalette,
     sprite_palettes: Vec<ColorPalette>,
@@ -111,7 +141,7 @@ impl VideoChip {
 
             tbank_0: vec![vec![0; 64]; 256],
             tbank_1: vec![vec![0; 64]; 256],
-            sprites: Vec::new(),
+            sprites: vec![Sprite::empty(); 40],
 
             tile_palette: ColorPalette::new(),
             sprite_palettes: vec![ColorPalette::new(), ColorPalette::new()],
@@ -121,7 +151,7 @@ impl VideoChip {
             t1_hash: 0,
 
             memory: memory,
-            render_data: VideoData::new(vec![255; 256*256], vec![255; 256*256], false, Vec::new()),
+            render_data: VideoData::new(vec![255; 256*256], vec![255; 256*256], false, vec![Sprite::empty(); 40]),
             sender: sender
         }
     }
@@ -252,10 +282,8 @@ impl VideoChip {
         self.update_video_mode(VideoMode::Hblank);
 
         if ly_value == 144 {
-            if ((lcdc >> 1) & 1) != 0 {
-                self.draw_sprites();
-            }
             self.mode = VideoMode::Vblank;
+            self.render_data.sprites_enabled = ((lcdc >> 1) & 1) != 0;
         }
         else {
             self.mode = VideoMode::OamSearch;
@@ -274,8 +302,10 @@ impl VideoChip {
             self.mode = VideoMode::OamSearch;
             self.update_video_mode(VideoMode::OamSearch);
 
+            self.render_data.sprites = self.sprites.clone();
+
             let _result = self.sender.send(self.render_data.clone());
-            self.render_data = VideoData::new(vec![255; 256*256], vec![255; 256*256], false, Vec::new());
+            self.render_data = VideoData::new(vec![255; 256*256], vec![255; 256*256], false, vec![Sprite::empty(); 40]);
         }
 
         self.memory.write(LY, ly_value, false);
@@ -408,10 +438,6 @@ impl VideoChip {
         self.render_data.wy = self.memory.read(WY);
     }
 
-    fn draw_sprites(&mut self) {
-        
-    }
-
     fn make_tiles(&mut self, target_bank: u8) {
         let start_position = if target_bank == 0 {0x8000} else {0x8800};
         let end_position = if target_bank == 0 {0x8FFF} else {0x97FF};
@@ -460,6 +486,37 @@ impl VideoChip {
     }
 
     fn make_sprites(&mut self) {
-        
+        let mut address = 0xFE00;
+
+
+        for generated_sprites in 0..40 {
+            let pos_y = self.memory.read(address);
+            let pos_x = self.memory.read(address + 1);
+            let tile = self.memory.read(address + 2);
+            let flags = self.memory.read(address + 3);
+
+            self.sprites[generated_sprites].pos_x = pos_x;
+            self.sprites[generated_sprites].pos_y = pos_y;
+
+            address += 4;
+
+            let _priority = (flags & 0x80) != 0;
+            let flip_y = (flags & 0x40) != 0;
+            let flip_x = (flags & 0x20) != 0;
+            let palette = ((flags >> 4) & 1) as usize;
+
+            let sprite_tile = self.tbank_0[tile as usize].clone();
+
+            self.sprites[generated_sprites].flip_x = flip_x;
+            self.sprites[generated_sprites].flip_y = flip_y;
+
+            let mut data = Vec::new();
+
+            for point in sprite_tile {
+                data.push(self.sprite_palettes[palette].get_color(point));
+            }
+
+            self.sprites[generated_sprites].data = data;
+        }
     }
 }

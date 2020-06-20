@@ -114,10 +114,10 @@ impl EmulatedMemory {
 
     fn hash_oam(&self) {
         let mut index: usize = 0;
-        let mut hashable_vec: Vec<u8> = Vec::with_capacity(3072);
+        let mut hashable_vec: Vec<u8> = Vec::with_capacity(160);
 
         while index < self.oam.len() {
-            hashable_vec.push(self.character_ram[index].load(Ordering::Relaxed));
+            hashable_vec.push(self.oam[index].load(Ordering::Relaxed));
             index += 1;
         }
 

@@ -196,6 +196,7 @@ impl ImguiSystem {
                 if emu_state.started {
                     let scale_factor = emu_state.scale_factor;
                     let received_data = fb_rx.try_iter();
+                    
                     let final_texture = Texture2d::empty_with_format(&display, UncompressedFloatFormat::U8U8U8,
                         MipmapsOption::NoMipmap, 160 * scale_factor as u32, 144 * scale_factor as u32).unwrap();
                     let mut full_bg_texture = Texture2d::empty_with_format(&display, UncompressedFloatFormat::U8U8U8,
@@ -270,6 +271,50 @@ impl ImguiSystem {
 
                         full_bg_texture.as_surface().blit_whole_color_to(&final_texture.as_surface(), &bg_blit_target, 
                             glium::uniforms::MagnifySamplerFilter::Nearest);
+
+                        
+                        if video_data.sprites_enabled {
+                            for sprite in video_data.sprites {
+                                let mut sprite_data = Vec::with_capacity(8*8);
+                                for y in 0..8 {
+                                    let offset = 8 * y;
+                                    for x in 0..8 {
+                                        let index = x + offset;
+                                        let color = sprite.data[index];
+                                        sprite_data.push(color);
+                                        sprite_data.push(color);
+                                        sprite_data.push(color);
+                                    }
+                                }
+
+                                let raw_sprite = RawImage2d {
+                                    data: Cow::Owned(sprite_data),
+                                    width: 8,
+                                    height: 8,
+                                    format: ClientFormat::U8U8U8
+                                };
+
+                                let sprite_height = sprite.y_size;
+                                let sprite_tex = Texture2d::new(display.get_context(), raw_sprite).unwrap();
+                                let sprite_blit_target = glium::BlitTarget {
+                                    left: (sprite.pos_x as u32 * scale_factor as u32) - (8 * scale_factor as u32),
+                                    bottom: (sprite.pos_y as u32 * scale_factor as u32) - (16 * scale_factor as u32),
+                                    // Negative dimensions flip the sprite.
+                                    width: if sprite.flip_x { (8 * scale_factor) * -1 } else { 8 * scale_factor },
+                                    height: if sprite.flip_y { 
+                                        (sprite_height as i32 * scale_factor) * -1 
+                                    } 
+                                    else { 
+                                        sprite_height as i32 * scale_factor 
+                                    },
+                                };
+
+                                if sprite.pos_x > 0 && sprite.pos_y > 0 {
+                                    sprite_tex.as_surface().blit_whole_color_to(&final_texture.as_surface(), 
+                                        &sprite_blit_target, glium::uniforms::MagnifySamplerFilter::Nearest);
+                                }
+                            }
+                        }
 
                         if video_data.window_enabled {
                             full_window_texture.as_surface().blit_whole_color_to(&final_texture.as_surface(), &window_blit_target, 
