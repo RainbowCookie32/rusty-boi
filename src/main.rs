@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
-use std::borrow::Cow;
 
 use cpu::{UiObject, Status};
 use memory::EmulatedMemory;
@@ -31,7 +30,7 @@ use glium::{Display, Surface};
 
 use glium::Texture2d;
 use glium::backend::Facade;
-use glium::texture::{ClientFormat, UncompressedFloatFormat, MipmapsOption, RawImage2d};
+use glium::texture::{UncompressedFloatFormat, MipmapsOption, RawImage2d};
 
 pub static GLOBAL_CYCLE_COUNTER: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 
@@ -197,11 +196,11 @@ impl ImguiSystem {
                     let scale_factor = emu_state.scale_factor;
                     let received_data = fb_rx.try_iter();
                     
-                    let final_texture = Texture2d::empty_with_format(&display, UncompressedFloatFormat::U8U8U8,
+                    let final_texture = Texture2d::empty_with_format(&display, UncompressedFloatFormat::U8U8U8U8,
                         MipmapsOption::NoMipmap, 160 * scale_factor as u32, 144 * scale_factor as u32).unwrap();
-                    let mut full_bg_texture = Texture2d::empty_with_format(&display, UncompressedFloatFormat::U8U8U8,
+                    let mut full_bg_texture = Texture2d::empty_with_format(&display, UncompressedFloatFormat::U8U8U8U8,
                         MipmapsOption::NoMipmap, 256, 256).unwrap();
-                    let mut full_window_texture = Texture2d::empty_with_format(&display, UncompressedFloatFormat::U8U8U8,
+                    let mut full_window_texture = Texture2d::empty_with_format(&display, UncompressedFloatFormat::U8U8U8U8,
                         MipmapsOption::NoMipmap, 256, 256).unwrap();
 
                     final_texture.as_surface().clear_color(255.0, 255.0, 255.0, 1.0);
@@ -224,6 +223,7 @@ impl ImguiSystem {
                                 bg_data.push(color);
                                 bg_data.push(color);
                                 bg_data.push(color);
+                                bg_data.push(255);
                             }
                         }
 
@@ -235,22 +235,12 @@ impl ImguiSystem {
                                 window_data.push(color);
                                 window_data.push(color);
                                 window_data.push(color);
+                                window_data.push(255);
                             }
                         }
 
-                        let raw_bg = RawImage2d {
-                            data: Cow::Owned(bg_data),
-                            width: 256,
-                            height: 256,
-                            format: ClientFormat::U8U8U8
-                        };
-
-                        let raw_window = RawImage2d {
-                            data: Cow::Owned(window_data),
-                            width: 256,
-                            height: 256,
-                            format: ClientFormat::U8U8U8
-                        };
+                        let raw_bg = RawImage2d::from_raw_rgba(bg_data, (256, 256));
+                        let raw_window = RawImage2d::from_raw_rgba(window_data, (256, 256));
 
                         full_bg_texture = Texture2d::new(display.get_context(), raw_bg).unwrap();
                         full_window_texture = Texture2d::new(display.get_context(), raw_window).unwrap();
@@ -275,27 +265,16 @@ impl ImguiSystem {
                         
                         if video_data.sprites_enabled {
                             for sprite in video_data.sprites {
-                                let mut sprite_data = Vec::with_capacity(8*8);
-                                for y in 0..8 {
-                                    let offset = 8 * y;
-                                    for x in 0..8 {
-                                        let index = x + offset;
-                                        let color = sprite.data[index];
-                                        sprite_data.push(color);
-                                        sprite_data.push(color);
-                                        sprite_data.push(color);
-                                    }
+                                let sprite_height = sprite.y_size as u32;
+                                let amount_of_colors = (8 * sprite_height as usize) * 4;
+                                let mut sprite_data = Vec::with_capacity(amount_of_colors);
+                                for index in 0..amount_of_colors {
+                                    sprite_data.push(sprite.data[index as usize]);
                                 }
 
-                                let raw_sprite = RawImage2d {
-                                    data: Cow::Owned(sprite_data),
-                                    width: 8,
-                                    height: 8,
-                                    format: ClientFormat::U8U8U8
-                                };
-
-                                let sprite_height = sprite.y_size;
+                                let raw_sprite = RawImage2d::from_raw_rgba(sprite_data, (8, sprite_height));
                                 let sprite_tex = Texture2d::new(display.get_context(), raw_sprite).unwrap();
+
                                 let sprite_blit_target = glium::BlitTarget {
                                     left: (sprite.pos_x as u32 * scale_factor as u32) - (8 * scale_factor as u32),
                                     bottom: (sprite.pos_y as u32 * scale_factor as u32) - (16 * scale_factor as u32),

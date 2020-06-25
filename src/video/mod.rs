@@ -99,7 +99,7 @@ pub struct Sprite {
 impl Sprite {
     pub fn empty() -> Sprite {
         Sprite {
-            data: vec![0; 8*8],
+            data: vec![0; 256],
 
             pos_x: 0,
             pos_y: 0,
@@ -208,6 +208,7 @@ impl VideoChip {
 
         if t0_hash != self.t0_hash {
             self.make_tiles(0);
+            self.make_sprites();
             self.t0_hash = t0_hash;
         }
 
@@ -487,16 +488,26 @@ impl VideoChip {
 
     fn make_sprites(&mut self) {
         let mut address = 0xFE00;
-
+        let use_big_sprites = (self.memory.read(LCD_CONTROL) & 0x04) != 0;
 
         for generated_sprites in 0..40 {
             let pos_y = self.memory.read(address);
             let pos_x = self.memory.read(address + 1);
-            let tile = self.memory.read(address + 2);
+            let tile_value = self.memory.read(address + 2);
+            let tile = {
+                
+                if use_big_sprites {
+                    tile_value & 0xFE
+                }
+                else {
+                    tile_value
+                }
+            };
             let flags = self.memory.read(address + 3);
 
             self.sprites[generated_sprites].pos_x = pos_x;
             self.sprites[generated_sprites].pos_y = pos_y;
+            self.sprites[generated_sprites].y_size = if use_big_sprites {16} else {8};
 
             address += 4;
 
@@ -513,7 +524,42 @@ impl VideoChip {
             let mut data = Vec::new();
 
             for point in sprite_tile {
-                data.push(self.sprite_palettes[palette].get_color(point));
+                let color = self.sprite_palettes[palette].get_color(point);
+                // Color 0 is transparent on sprites.
+                if point == 0 {
+                    data.push(255);
+                    data.push(255);
+                    data.push(255);
+                    data.push(192);
+                }
+                else {
+                    data.push(color);
+                    data.push(color);
+                    data.push(color);
+                    data.push(255);
+                }
+            }
+
+            if use_big_sprites {
+                let tile = tile_value | 0x01;
+                let sprite_tile = self.tbank_0[tile as usize].clone();
+
+                for point in sprite_tile {
+                    let color = self.sprite_palettes[palette].get_color(point);
+                    // Color 0 is transparent on sprites.
+                    if point == 0 {
+                        data.push(255);
+                        data.push(255);
+                        data.push(255);
+                        data.push(192);
+                    }
+                    else {
+                        data.push(color);
+                        data.push(color);
+                        data.push(color);
+                        data.push(255);
+                    }
+                }
             }
 
             self.sprites[generated_sprites].data = data;
