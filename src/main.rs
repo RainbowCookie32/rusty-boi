@@ -68,10 +68,12 @@ struct EmuState {
     started: bool,
     selected_rom_title: String,
 
+    selected_sprite: i32,
+
     screen_tex_id: Option<TextureId>,
     window_tex_id: Option<TextureId>,
     background_tex_id: Option<TextureId>,
-    sprite_tex_ids: Option<Vec<TextureId>>,
+    sprite_tex_ids: Vec<Option<TextureId>>,
 }
 
 impl EmuState {
@@ -101,10 +103,12 @@ impl EmuState {
             started: false,
             selected_rom_title: String::from("None"),
 
+            selected_sprite: 0,
+
             screen_tex_id: None,
             window_tex_id: None,
             background_tex_id: None,
-            sprite_tex_ids: None,
+            sprite_tex_ids: vec![None; 40],
         }
     }
 }
@@ -190,7 +194,6 @@ impl ImguiSystem {
                 ImguiSystem::cpu_breakpoints_window(&ui, &mut emu_state);
                 ImguiSystem::memory_disassembly_window(&ui, &mut emu_state);
                 ImguiSystem::io_registers_window(&ui, &mut emu_state);
-                ImguiSystem::video_debugger_window(&ui, &mut emu_state);
 
                 if emu_state.started {
                     let scale_factor = emu_state.scale_factor;
@@ -264,6 +267,7 @@ impl ImguiSystem {
 
                         
                         if video_data.sprites_enabled {
+                            let mut sprite_idx = 0;
                             for sprite in video_data.sprites {
                                 let sprite_height = sprite.y_size as u32;
                                 let amount_of_colors = (8 * sprite_height as usize) * 4;
@@ -292,6 +296,18 @@ impl ImguiSystem {
                                     sprite_tex.as_surface().blit_whole_color_to(&final_texture.as_surface(), 
                                         &sprite_blit_target, glium::uniforms::MagnifySamplerFilter::Nearest);
                                 }
+
+                                let sprite_tex = std::rc::Rc::from(sprite_tex);
+
+                                if emu_state.sprite_tex_ids[sprite_idx].is_some() {
+                                    let id = emu_state.sprite_tex_ids[sprite_idx].unwrap();
+                                    renderer.textures().replace(id, sprite_tex);
+                                }
+                                else {
+                                    emu_state.sprite_tex_ids[sprite_idx] = Some(renderer.textures().insert(sprite_tex));
+                                }
+
+                                sprite_idx += 1;
                             }
                         }
 
@@ -330,6 +346,8 @@ impl ImguiSystem {
                     ImguiSystem::screen_window(&ui, &mut emu_state);
                     ImguiSystem::controls_window(&ui, &mut emu_state);
                 }
+
+                ImguiSystem::video_debugger_window(&ui, &display, &mut renderer, &mut emu_state);
 
                 let gl_window = display.gl_window();
                 let mut target = display.draw();
@@ -599,7 +617,7 @@ impl ImguiSystem {
         }
     }
 
-    fn video_debugger_window(ui: &Ui, emu_state: &mut EmuState) {
+    fn video_debugger_window(ui: &Ui, display: &Display, renderer: &mut Renderer, emu_state: &mut EmuState) {
         if emu_state.show_video_debugger {
             Window::new(im_str!("Rusty Boi - Video Debugger")).build(&ui, || {
                 let scy = emu_state.shared_memory.read(0xFF42);
@@ -664,6 +682,46 @@ impl ImguiSystem {
                         Image::new(emu_state.window_tex_id.unwrap(), [256.0, 256.0]).build(&ui);
                     }
                 }
+
+                ui.separator();
+                ui.bullet_text(im_str!("Sprite Viewer:"));
+
+                // There can only be 40 sprites, so stay in range.
+                if emu_state.selected_sprite > 39 {
+                    emu_state.selected_sprite = 39;
+                }
+                
+                if emu_state.started {
+                    // This is a kinda ugly way to scale sprites up and have them look decently.
+                    // imgui seems to use Linear scaling to scale images up, which looks horrible.
+                    if emu_state.sprite_tex_ids[emu_state.selected_sprite as usize].is_some() {
+                        let id = emu_state.sprite_tex_ids[emu_state.selected_sprite as usize].unwrap();
+                        let base = renderer.textures().get(id);
+
+                        if base.is_some() {
+                            let base = base.unwrap();
+                            let result = Texture2d::empty_with_format(display, UncompressedFloatFormat::U8U8U8U8,
+                                MipmapsOption::NoMipmap, 8*8, 8*8).unwrap();
+                            let blit_target = glium::BlitTarget {
+                                left: 0,
+                                bottom: 0,
+                                width: 8*8,
+                                height: 8*8,
+                            };
+
+                            base.as_surface().blit_whole_color_to(&result.as_surface(), &blit_target, 
+                                glium::uniforms::MagnifySamplerFilter::Nearest);
+
+                            renderer.textures().replace(id, std::rc::Rc::from(result));
+                            Image::new(id, [8.0 * 8.0, 8.0 * 8.0]).build(&ui);
+                        }
+                        else {
+                            println!("gae");
+                        }
+                    }
+                }
+
+                ui.input_int(im_str!("Sprite Index"), &mut emu_state.selected_sprite).build();
             });
         }
     }
