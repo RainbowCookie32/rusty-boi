@@ -1,18 +1,23 @@
 use std::sync::Arc;
-use std::sync::mpsc::Receiver;
-use std::sync::atomic::{AtomicU16, Ordering};
 
 use log::error;
 use byteorder::{ByteOrder, LittleEndian};
 
-use super::timer::TimerModule;
-use super::emulator::InputEvent;
 use super::memory::Memory;
+use super::memory::DMATransfer;
 
 const ZF_BIT: u8 = 7;
 const NF_BIT: u8 = 6;
 const HF_BIT: u8 = 5;
 const CF_BIT: u8 = 4;
+
+enum InterruptType {
+    Vblank = 0,
+    Stat = 1,
+    Timer = 2,
+    Serial = 3,
+    Joypad = 4,
+}
 
 
 #[derive(Clone)]
@@ -125,48 +130,49 @@ impl Instruction {
 }
 
 pub struct Cpu {
-
     // B, C, D, E, H, L, (HL), A.
     // (HL) is added to the Vec for now, but it's not used.
-    pub registers: Vec<Register>,
-    pub cpu_flags: FlagsRegister,
+    registers: Vec<Register>,
+    cpu_flags: FlagsRegister,
 
-    pub pc: u16,
-    pub sp: u16,
-    pub cycles: Arc<AtomicU16>,
+    pc: u16,
+    sp: u16,
+    cycles: u32,
 
-    pub halted: bool,
-    pub stopped: bool,
-    pub interrupts_enabled: bool,
+    halted: bool,
+    stopped: bool,
+    interrupts_enabled: bool,
 
-    pub timer: TimerModule,
+    halt_bug: bool,
+    will_enable_interrupts: (u8, bool),
 
-    pub memory: Arc<Memory>,
+    timer: TimerModule,
 
-    pub input_receiver: Receiver<InputEvent>,
+    memory: Arc<Memory>,
+    active_transfer: Option<DMATransfer>
 }
 
 impl Cpu {
-    pub fn new(memory: Arc<Memory>, cycles: Arc<AtomicU16>, input: Receiver<InputEvent>, run_bootrom: bool) -> Cpu {
-        
-        let timer_cycles = Arc::clone(&cycles);
-        
+    pub fn new(memory: Arc<Memory>) -> Cpu {
         Cpu {
             registers: vec![Register::new(); 8],
             cpu_flags: FlagsRegister::new(),
             
-            pc: if run_bootrom {0x0} else {0x100},
+            pc: if memory.is_bootrom_enabled() {0x0} else {0x100},
             sp: 0,
-            cycles: cycles,
+            cycles: 0,
 
             halted: false,
             stopped: false,
             interrupts_enabled: false,
 
-            timer: TimerModule::new(timer_cycles, Arc::clone(&memory)),
+            halt_bug: false,
+            will_enable_interrupts: (0, false),
+
+            timer: TimerModule::new(Arc::clone(&memory)),
 
             memory: memory,
-            input_receiver: input,
+            active_transfer: None
         }
     }
 
@@ -249,7 +255,7 @@ impl Cpu {
             },
             3 => {
                 self.registers[7].set(hi);
-                self.cpu_flags.set_value(low);
+                self.cpu_flags.set_value(low & 0xF0);
             },
             _ => panic!("Invalid index for register pair"),
         }
@@ -258,7 +264,7 @@ impl Cpu {
     pub fn get_register(&mut self, index: u8) -> u8 {
         if index == 6 {
             let address = self.get_rp(2);
-            return self.memory.read(address);
+            return self.read(address);
         }
 
         self.registers[index as usize].get()
@@ -267,7 +273,7 @@ impl Cpu {
     pub fn set_register(&mut self, index: u8, value: u8) {
         if index == 6 {
             let address = self.get_rp(2);
-            self.memory.write(address, value, true);
+            self.write(address, value);
             return;
         }
 
@@ -276,7 +282,7 @@ impl Cpu {
 
     fn stack_read(&mut self) -> u16 {
         let sp = self.get_rp(3);
-        let bytes = vec![self.memory.read(sp), self.memory.read(sp + 1)];
+        let bytes = vec![self.read(sp), self.read(sp + 1)];
 
         self.set_rp(3, sp + 2);
         LittleEndian::read_u16(&bytes)
@@ -287,161 +293,153 @@ impl Cpu {
         let low = value as u8;
         let sp = self.get_rp(3);
 
-        self.memory.write(sp - 1, hi, true);
-        self.memory.write(sp - 2, low, true);
+        self.write(sp - 1, hi);
+        self.write(sp - 2, low);
         self.set_rp(3, sp - 2);
     }
 
-    pub fn execution_loop(&mut self) {
-
-        loop {
-            if self.update_input() {break}
-            self.check_interrupts();
-            if !self.halted {self.run_instruction()}
-            self.timer.timer_cycle();
-        }
+    fn read(&self, address: u16) -> u8 {
+        self.memory.read(address)
     }
 
-    fn update_input(&mut self) -> bool {
-        let event_type: InputEvent;
-        let event_happened: bool;
-        let event_message = self.input_receiver.try_recv();
+    fn write(&mut self, address: u16, value: u8) {
+        if address == 0xFF46 {
+            let address = (value as u16) << 8;
+            let transfer = DMATransfer::new(address, self.cycles, self.memory.clone());
 
-        match event_message {
-            Ok(message) => {
-                event_type = message;
-                event_happened = true;
-            },
-            Err(_error) => {
-                event_type = InputEvent::APressed;
-                event_happened = false;
-            }
-        };
-
-        if event_type == InputEvent::Quit {
-            return true;
+            self.active_transfer = Some(transfer);
         }
 
-        let mut input_value = self.memory.read(0xFF00);
+        self.memory.write(address, value);
+    }
 
-        if event_happened && (input_value == 0x30 || input_value == 0x20 || input_value == 0x10) {
+    pub fn execution_loop(&mut self) {
+        let cycles_per_frame: i32 = 4194304 / 60;
 
-            input_value |= 0xCF;
-            let if_value = self.memory.read(0xFF0F) | (1 << 4);
+        loop {
+            let start_time = std::time::Instant::now();
+            let frame_time = std::time::Duration::new(0, 16600000);
 
-            if input_value == 0xFF {
-                match event_type {
-                    InputEvent::RightPressed => { input_value = 0xFE },
-                    InputEvent::LeftPressed => { input_value = 0xFD },
-                    InputEvent::UpPressed => { input_value = 0xFB },
-                    InputEvent::DownPressed => { input_value = 0xF7 },
-                    InputEvent::APressed => { input_value = 0xFE },
-                    InputEvent::BPressed => { input_value = 0xFD },
-                    InputEvent::SelectPressed => { input_value = 0xFB },
-                    InputEvent::StartPressed => { input_value = 0xF7 },
-                    _ => {}
+            while self.cycles < cycles_per_frame as u32 {
+                self.check_interrupts();
+
+                if let Some(mut transfer) = self.active_transfer.clone() {
+                    if transfer.dma_tick(self.cycles) {
+                        self.active_transfer = None;
+                    }
+                    else {
+                        self.active_transfer = Some(transfer);
+                    }
                 }
-            }
-            else if input_value == 0xEF {
-                match event_type {
-                    InputEvent::RightPressed => { input_value = 0xEE },
-                    InputEvent::LeftPressed => { input_value = 0xED },
-                    InputEvent::UpPressed => { input_value = 0xEB },
-                    InputEvent::DownPressed => { input_value = 0xE7 },
-                    _ => {}
-                }    
-            }
-            else if input_value == 0xDF {
-                match event_type {
-                    InputEvent::APressed => { input_value = 0xDE },
-                    InputEvent::BPressed => { input_value = 0xDD },
-                    InputEvent::SelectPressed => { input_value = 0xDB },
-                    InputEvent::StartPressed => { input_value = 0xD7 },
-                    _ => {}
+
+                if !self.halted || !self.stopped {
+                    self.run_instruction();
                 }
-    
+
+                self.timer.timer_cycle(self.cycles);
             }
-            self.memory.write(0xFF0F, if_value, true);
+
+            if start_time.elapsed() < frame_time {
+                std::thread::sleep(frame_time - start_time.elapsed());
+            }
+
+            self.cycles = 0;
         }
-
-        self.memory.write(0xFF00, input_value, true);
-        false
     }
 
     fn check_interrupts(&mut self) {
-        let if_value = self.memory.read(0xFF0F);
-        let ie_value = self.memory.read(0xFFFF);
+        let if_value = self.read(0xFF0F);
+        let ie_value = self.read(0xFFFF);
 
-        let vblank_int = (if_value & 1) == 1;
-        let lcdc_int = ((if_value >> 1) & 1) == 1;
-        let timer_int = ((if_value >> 2) & 1) == 1;
-        let serial_int = ((if_value >> 3) & 1) == 1;
-        let input_int = ((if_value >> 4) & 1) == 1;
+        if self.will_enable_interrupts.1 {
+            if self.will_enable_interrupts.0 > 0 {
+                self.will_enable_interrupts.0 = 0;
+            }
+            else {
+                self.will_enable_interrupts = (0, false);
+                self.interrupts_enabled = true;
+            }
+        }
 
-        // Vblank interrupt.
-        if vblank_int {
-            if self.interrupts_enabled && (ie_value & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1), true);
-                self.stack_write(self.pc);
-                self.pc = 0x0040;
-                self.interrupts_enabled = false;
+        // Vblank interrupt requested.
+        if (if_value & 0x01) != 0 {
+            if (ie_value & 0x01) != 0 {
+                self.halted = false;
+                self.stopped = false;
+                if self.interrupts_enabled {
+                    self.trigger_interrupt(InterruptType::Vblank);
+                }
             }
-            self.halted = false;
         }
-        // LCDC interrupt.
-        else if lcdc_int {
-            if self.interrupts_enabled && ((ie_value >> 1) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 1), true);
-                self.stack_write(self.pc);
-                self.pc = 0x0048;
-                self.interrupts_enabled = false;
-
+        // LCD STAT interrupt requested.
+        if (if_value & 0x02) != 0 {
+            if (ie_value & 0x02) != 0 {
+                self.halted = false;
+                self.stopped = false;
+                if self.interrupts_enabled {
+                    self.trigger_interrupt(InterruptType::Stat);
+                }
             }
-            self.halted = false;
         }
-        // Timer interrupt.
-        else if timer_int {
-            if self.interrupts_enabled && ((ie_value >> 2) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 2), true);
-                self.stack_write(self.pc);
-                self.pc = 0x0050;
-                self.interrupts_enabled = false;
+        // Timer interrupt requested.
+        if (if_value & 0x04) != 0 {
+            if (ie_value & 0x04) != 0 {
+                self.halted = false;
+                self.stopped = false;
+                if self.interrupts_enabled {
+                    self.trigger_interrupt(InterruptType::Timer);
+                }
             }
-            self.halted = false;
         }
-        // Serial transfer interrupt.
-        else if serial_int {
-            if self.interrupts_enabled && ((ie_value >> 3) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 3), true);
-                self.stack_write(self.pc);
-                self.pc = 0x0058;
-                self.interrupts_enabled = false;
+        // Serial interrupt requested.
+        if (if_value & 0x08) != 0 {
+            if (ie_value & 0x08) != 0 {
+                self.halted = false;
+                self.stopped = false;
+                if self.interrupts_enabled {
+                    self.trigger_interrupt(InterruptType::Serial);
+                }
             }
-            self.halted = false;
         }
-        // Input interrupt.
-        else if input_int {
-            if self.interrupts_enabled && ((ie_value >> 4) & 1) == 1 {
-                self.memory.write(0xFF0F, if_value & !(1 << 4), true);
-                self.stack_write(self.pc);
-                self.pc = 0x0060;
-                self.interrupts_enabled = false;
+        // Joypad interrupt requested.
+        if (if_value & 0x10) != 0 {
+            if (ie_value & 0x10) != 0 {
+                self.halted = false;
+                self.stopped = false;
+                if self.interrupts_enabled {
+                    self.trigger_interrupt(InterruptType::Joypad);
+                }
             }
-            self.halted = false;
         }
     }
 
+    fn trigger_interrupt(&mut self, interrupt: InterruptType) {
+        let if_value = self.read(0xFF0F);
+        let new_pc = match interrupt {
+            InterruptType::Vblank => 0x40,
+            InterruptType::Stat => 0x48,
+            InterruptType::Timer => 0x50,
+            InterruptType::Serial => 0x58,
+            InterruptType::Joypad => 0x60,
+        };
+
+        self.stack_write(self.pc);
+        self.interrupts_enabled = false;
+        self.write(0xFF0F, if_value & !(1 << interrupt as u8));
+
+        self.pc = new_pc;
+    }
+
     fn run_instruction(&mut self) {
-        
         if self.pc == 0x0100 {
             log::info!("CPU: Bootrom execution finished, executing loaded ROM.");
             self.memory.bootrom_finished();
         }
         
-        let opcode = self.memory.read(self.pc);
+        let opcode = self.read(self.pc);
 
         if opcode == 0xCB {
-            let opcode = self.memory.read(self.pc + 1);
+            let opcode = self.read(self.pc + 1);
             let instruction = Instruction::new(opcode);
 
             if instruction.x == 0 {
@@ -644,9 +642,14 @@ impl Cpu {
         }
     }
 
-    fn instruction_finished(&mut self, pc: u16, cycles: u16) {
+    fn instruction_finished(&mut self, pc: u16, cycles: u32) {
+        
+        if self.halt_bug && self.read(self.pc) != 0x76 {
+            self.halt_bug = false;
+        }
+        
         self.pc += pc;
-        self.cycles.fetch_add(cycles, Ordering::Relaxed);
+        self.cycles += cycles;
     }
 
     fn nop(&mut self) {
@@ -655,13 +658,13 @@ impl Cpu {
 
     fn save_sp_to_imm(&mut self) {
         let value = self.get_rp(3);
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
         let hi = (value >> 8) as u8;
         let low = value as u8;
         let address = LittleEndian::read_u16(&bytes);
 
-        self.memory.write(address, low, true);
-        self.memory.write(address + 1, hi, true);
+        self.write(address, low);
+        self.write(address + 1, hi);
         self.instruction_finished(3, 20);
     }
 
@@ -671,7 +674,7 @@ impl Cpu {
     }
 
     fn jr(&mut self) {
-        let value = self.memory.read(self.pc + 1) as i8;
+        let value = self.read(self.pc + 1) as i8;
         self.pc = self.pc.wrapping_add(value as u16) + 2;
         self.instruction_finished(0, 12);
     }
@@ -695,7 +698,7 @@ impl Cpu {
 
     // Load 16-bit immediate value to a register pair (BC, DE, HL, SP).
     fn load_imm_to_rp(&mut self, index: u8) {
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
         
         self.set_rp(index, LittleEndian::read_u16(&bytes));
         self.instruction_finished(3, 12);
@@ -716,7 +719,7 @@ impl Cpu {
 
     fn load_a_from_rp(&mut self, index: u8) {
         let address = self.get_rp(index);
-        let value = self.memory.read(address);
+        let value = self.read(address);
 
         self.set_register(7, value);
         self.instruction_finished(1, 8);
@@ -724,7 +727,7 @@ impl Cpu {
 
     fn load_a_from_hl_inc(&mut self) {
         let address = self.get_rp(2);
-        let value = self.memory.read(address);
+        let value = self.read(address);
 
         self.set_register(7, value);
         self.set_rp(2, address.wrapping_add(1));
@@ -733,7 +736,7 @@ impl Cpu {
 
     fn load_a_from_hl_dec(&mut self) {
         let address = self.get_rp(2);
-        let value = self.memory.read(address);
+        let value = self.read(address);
 
         self.set_register(7, value);
         self.set_rp(2, address.wrapping_sub(1));
@@ -744,7 +747,7 @@ impl Cpu {
         let address = self.get_rp(index);
         let value = self.get_register(7);
 
-        self.memory.write(address, value, true);
+        self.write(address, value);
         self.instruction_finished(1, 8);
     }
 
@@ -752,7 +755,7 @@ impl Cpu {
         let address = self.get_rp(2);
         let value = self.get_register(7);
 
-        self.memory.write(address, value, true);
+        self.write(address, value);
         self.set_rp(2, address.wrapping_add(1));
         self.instruction_finished(1, 8);
     }
@@ -761,7 +764,7 @@ impl Cpu {
         let address = self.get_rp(2);
         let value = self.get_register(7);
 
-        self.memory.write(address, value, true);
+        self.write(address, value);
         self.set_rp(2, address.wrapping_sub(1));
         self.instruction_finished(1, 8);
     }
@@ -800,7 +803,7 @@ impl Cpu {
 
     // Load immediate 8-bit value into a register.
     fn load_imm_into_reg(&mut self, index: u8) {
-        let value = self.memory.read(self.pc + 1);
+        let value = self.read(self.pc + 1);
         self.set_register(index, value);
         self.instruction_finished(2, if index == 6 {12} else {8});
     }
@@ -896,7 +899,20 @@ impl Cpu {
     }
 
     fn halt(&mut self) {
-        self.halted = true;
+        if self.interrupts_enabled {
+            self.halted = true;
+        }
+        else {
+            let if_value = self.read(0xFF0F);
+            let ie_value = self.read(0xFFFF);
+
+            if ((if_value & ie_value) & 0x1F) == 0 {
+                self.halted = true;
+            }
+            else {
+                self.halt_bug = true;
+            }
+        }
         self.instruction_finished(1, 4);
     }
 
@@ -1010,45 +1026,47 @@ impl Cpu {
     }
 
     fn save_a_to_ff_imm(&mut self) {
-        let address = 0xFF00 + self.memory.read(self.pc + 1) as u16;
+        let address = 0xFF00 + self.read(self.pc + 1) as u16;
         let value = self.get_register(7);
 
-        self.memory.write(address, value, true);
+        self.write(address, value);
         self.instruction_finished(2, 12);
     }
 
     fn add_imm_to_sp(&mut self) {
-        let value = self.memory.read(self.pc + 1) as i8;
-        let result = self.get_rp(3).wrapping_add(value as u16);
+        let value = (self.read(self.pc + 1) as i8) as u16;
+        let hf = (self.get_rp(3) & 0x000F) + (value & 0x000F) > 0x000F;
+        let cf = (self.get_rp(3) & 0x00FF) + (value & 0x00FF) > 0x00FF;
+        let result = self.get_rp(3).wrapping_add(value);
 
         self.set_rp(3, result);
         self.cpu_flags.set_zf(false);
         self.cpu_flags.set_nf(false);
-        // TODO: Proper flags
-        self.cpu_flags.set_hf(false);
-        self.cpu_flags.set_cf(false);
+        self.cpu_flags.set_hf(hf);
+        self.cpu_flags.set_cf(cf);
         self.instruction_finished(2, 16);
     }
 
     // Load the value pointed by 0xFF00 + immediate value into A.
     fn load_a_from_ff_imm(&mut self) {
-        let address = 0xFF00 + self.memory.read(self.pc + 1) as u16;
-        let value = self.memory.read(address);
+        let address = 0xFF00 + self.read(self.pc + 1) as u16;
+        let value = self.read(address);
 
         self.set_register(7, value);
         self.instruction_finished(2, 12);
     }
 
     fn load_sp_imm_to_hl(&mut self) {
-        let imm = self.memory.read(self.pc + 1) as i8;
-        let result = self.get_rp(3).wrapping_add(imm as u16);
+        let value = (self.read(self.pc + 1) as i8) as u16;
+        let hf = (self.get_rp(3) & 0x000F) + (value & 0x000F) > 0x000F;
+        let cf = (self.get_rp(3) & 0x00FF) + (value & 0x00FF) > 0x00FF;
+        let result = self.get_rp(3).wrapping_add(value);
 
         self.set_rp(2, result);
         self.cpu_flags.set_zf(false);
         self.cpu_flags.set_nf(false);
-        // TODO: Proper flags
-        self.cpu_flags.set_hf(false);
-        self.cpu_flags.set_cf(false);
+        self.cpu_flags.set_hf(hf);
+        self.cpu_flags.set_cf(cf);
         self.instruction_finished(2, 12);
     }
 
@@ -1101,23 +1119,23 @@ impl Cpu {
         let address = 0xFF00 + self.get_register(1) as u16;
         let value = self.get_register(7);
 
-        self.memory.write(address, value, true);
+        self.write(address, value);
         self.instruction_finished(1, 8);
     }
 
     // Save the value of A into address at immediate value.
     fn save_a_to_imm(&mut self) {
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
         let value = self.get_register(7);
 
-        self.memory.write(LittleEndian::read_u16(&bytes), value, true);
+        self.write(LittleEndian::read_u16(&bytes), value);
         self.instruction_finished(3, 16);
     }
 
     // Read address 0xFF00 + the value of C, and load the value into A.
     fn load_a_from_ff_c(&mut self) {
         let address = 0xFF00 + self.get_register(1) as u16;
-        let value = self.memory.read(address);
+        let value = self.read(address);
 
         self.set_register(7, value);
         self.instruction_finished(1, 8);
@@ -1125,15 +1143,15 @@ impl Cpu {
 
     // Load value from address at immediate value into A.
     fn load_a_from_imm(&mut self) {
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
-        let value = self.memory.read(LittleEndian::read_u16(&bytes));
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
+        let value = self.read(LittleEndian::read_u16(&bytes));
 
         self.set_register(7, value);
         self.instruction_finished(3, 16);
     }
 
     fn jp(&mut self) {
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
         let address = LittleEndian::read_u16(&bytes);
 
         self.pc = address;
@@ -1146,7 +1164,7 @@ impl Cpu {
     }
 
     fn ei(&mut self) {
-        self.interrupts_enabled = true;
+        self.will_enable_interrupts = (1, true);
         self.instruction_finished(1, 4);
     }
 
@@ -1174,7 +1192,7 @@ impl Cpu {
     }
 
     fn call(&mut self) {
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
         let target_address = LittleEndian::read_u16(&bytes);
         let ret_address = self.pc + 3;
         
@@ -1184,8 +1202,8 @@ impl Cpu {
     }
 
     fn add_imm(&mut self) {
-        let hf = (((self.get_register(7) & 0xF) + (self.memory.read(self.pc + 1) & 0xF)) & 0x10) == 0x10;
-        let result = self.get_register(7) as u16 + self.memory.read(self.pc + 1) as u16;
+        let hf = (((self.get_register(7) & 0xF) + (self.read(self.pc + 1) & 0xF)) & 0x10) == 0x10;
+        let result = self.get_register(7) as u16 + self.read(self.pc + 1) as u16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
@@ -1196,8 +1214,8 @@ impl Cpu {
     }
 
     fn adc_imm(&mut self) {
-        let hf = (((self.get_register(7) & 0xF) + (self.memory.read(self.pc + 1) & 0xF) + (self.cpu_flags.get_cf())) & 0x10) == 0x10;
-        let result = self.get_register(7) as u16 + self.memory.read(self.pc + 1) as u16 + self.cpu_flags.get_cf() as u16;
+        let hf = (((self.get_register(7) & 0xF) + (self.read(self.pc + 1) & 0xF) + (self.cpu_flags.get_cf())) & 0x10) == 0x10;
+        let result = self.get_register(7) as u16 + self.read(self.pc + 1) as u16 + self.cpu_flags.get_cf() as u16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
@@ -1208,8 +1226,8 @@ impl Cpu {
     }
 
     fn sub_imm(&mut self) {
-        let hf = ((self.get_register(7) as i16 & 0xF) - (self.memory.read(self.pc + 1) as i16 & 0xF)) < 0;
-        let result = self.get_register(7) as i16 - self.memory.read(self.pc + 1) as i16;
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.read(self.pc + 1) as i16 & 0xF)) < 0;
+        let result = self.get_register(7) as i16 - self.read(self.pc + 1) as i16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
@@ -1220,8 +1238,8 @@ impl Cpu {
     }
 
     fn sbc_imm(&mut self) {
-        let hf = ((self.get_register(7) as i16 & 0xF) - (self.memory.read(self.pc + 1) as i16 & 0xF) - self.cpu_flags.get_cf() as i16) < 0;
-        let result = self.get_register(7) as i16 - self.memory.read(self.pc + 1) as i16 - self.cpu_flags.get_cf() as i16;
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.read(self.pc + 1) as i16 & 0xF) - self.cpu_flags.get_cf() as i16) < 0;
+        let result = self.get_register(7) as i16 - self.read(self.pc + 1) as i16 - self.cpu_flags.get_cf() as i16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
@@ -1232,7 +1250,7 @@ impl Cpu {
     }
 
     fn and_imm(&mut self) {
-        let result = self.get_register(7) & self.memory.read(self.pc + 1);
+        let result = self.get_register(7) & self.read(self.pc + 1);
 
         self.set_register(7, result);
         self.cpu_flags.set_zf(result == 0);
@@ -1243,7 +1261,7 @@ impl Cpu {
     }
 
     fn xor_imm(&mut self) {
-        let result = self.get_register(7) ^ self.memory.read(self.pc + 1);
+        let result = self.get_register(7) ^ self.read(self.pc + 1);
 
         self.set_register(7, result);
         self.cpu_flags.set_zf(result == 0);
@@ -1254,7 +1272,7 @@ impl Cpu {
     }
 
     fn or_imm(&mut self) {
-        let result = self.get_register(7) | self.memory.read(self.pc + 1);
+        let result = self.get_register(7) | self.read(self.pc + 1);
 
         self.set_register(7, result);
         self.cpu_flags.set_zf(result == 0);
@@ -1265,8 +1283,8 @@ impl Cpu {
     }
 
     fn cp_imm(&mut self) {
-        let hf = ((self.get_register(7) as i16 & 0xF) - (self.memory.read(self.pc + 1) as i16 & 0xF)) < 0;
-        let values = (self.get_register(7), self.memory.read(self.pc + 1));
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.read(self.pc + 1) as i16 & 0xF)) < 0;
+        let values = (self.get_register(7), self.read(self.pc + 1));
 
         self.cpu_flags.set_zf(values.0 == values.1);
         self.cpu_flags.set_nf(true);
@@ -1370,7 +1388,7 @@ impl Cpu {
 
     fn swap(&mut self, index: u8) {
         let value = self.get_register(index);
-        let result = ((value & 0xF0) >> 4) | ((value & 0xF) << 4);
+        let result = ((value & 0xF0) >> 4) | ((value & 0x0F) << 4);
 
         self.set_register(index, result);
         self.cpu_flags.set_zf(result == 0);
@@ -1413,5 +1431,68 @@ impl Cpu {
         let value = self.get_register(index);
         self.set_register(index, value | (1 << bit));
         self.instruction_finished(2, if index == 6 {16} else {8});
+    }
+}
+
+pub struct TimerModule {
+    div_cycles: u32,
+    timer_cycles: u32,
+    cycles_needed: u32,
+
+    shared_memory: Arc<Memory>,
+}
+
+impl TimerModule {
+    pub fn new(memory: Arc<Memory>) -> TimerModule {
+        TimerModule {
+            div_cycles: 0,
+            timer_cycles: 0,
+            cycles_needed: 0,
+
+            shared_memory: memory,
+        }
+    }
+
+    pub fn timer_cycle(&mut self, cycles: u32) {
+        let tac = self.shared_memory.read(0xFF07);
+        let timer_enabled = ((tac >> 2) & 1) == 1;
+        
+        self.div_cycles += cycles;
+
+        if self.div_cycles >= 256 {
+            let div_value = self.shared_memory.read(0xFF04);
+            self.shared_memory.write(0xFF04, div_value.wrapping_add(1));
+            self.div_cycles = 0;
+        }
+
+        if timer_enabled {
+            self.cycles_needed = TimerModule::get_timer_frequency(tac);
+            self.timer_cycles = cycles;
+
+            if self.timer_cycles >= self.cycles_needed {
+                let result = self.shared_memory.read(0xFF05).overflowing_add(1);
+                if result.1 {
+                    let if_value = self.shared_memory.read(0xFF0F) | (1 << 2);
+
+                    self.shared_memory.write(0xFF05, self.shared_memory.read(0xFF06));
+                    self.shared_memory.write(0xFF0F, if_value);
+                }
+                else {
+                    self.shared_memory.write(0xFF05, result.0);
+                }
+
+                self.timer_cycles = 0;
+            }
+        }
+    }
+
+    fn get_timer_frequency(tac_value: u8) -> u32 {
+        match tac_value & 3 {
+            0 => 1024,
+            1 => 16,
+            2 => 64,
+            3 => 256,
+            _ => 0,
+        }
     }
 }
