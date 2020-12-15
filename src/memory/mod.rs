@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 use std::sync::atomic::{AtomicU8, AtomicU64, AtomicBool, Ordering};
@@ -33,7 +34,7 @@ impl Memory {
         let bootrom_enabled = bootrom.is_some();
 
         Memory {
-            bootrom: if bootrom.is_some() {bootrom.unwrap()} else {Vec::new()},
+            bootrom: bootrom.unwrap_or(Vec::new()),
             loaded_cart: cart,
 
             char_ram: new_atomic_vec(6144),
@@ -176,7 +177,6 @@ impl Memory {
     }
 
     pub fn write(&self, address: u16, value: u8) {
-
         if address < 0x0100 && !self.bootrom_enabled.load(Ordering::Relaxed) {
             self.loaded_cart.write(address, value);
         }
@@ -222,21 +222,12 @@ impl Memory {
         }
 
         else if address >= 0xFF00 && address <= 0xFF7F {
-            
-            if address == 0xFF01 {
-                println!("{}", value as char);
-            }
-
             if address == 0xFF04 || address == 0xFF44 {
                 self.io_registers[address as usize - 0xFF00].store(0, Ordering::Relaxed);
                 return;
             }
 
             self.io_registers[address as usize - 0xFF00].store(value, Ordering::Relaxed);
-
-            if address == 0xFF46 {
-                self.dma_transfer(value);
-            }
         }
 
         else if address >= 0xFF80 && address <= 0xFFFE {
@@ -249,26 +240,11 @@ impl Memory {
     }
 
     pub fn video_write(&self, address: u16, value: u8) {
-
         if address >= 0xFF00 && address <= 0xFF7F {
             self.io_registers[address as usize - 0xFF00].store(value, Ordering::Relaxed);
         }
         else {
             unreachable!();
-        }
-    }
-
-    fn dma_transfer(&self, value: u8) {
-        let address = (value as u16) << 8;
-        let end_address = address + 0x009F;
-
-        let mut transfer_progress = (address, 0xFE00);
-
-        while transfer_progress.0 < end_address {
-            let value = self.read(transfer_progress.0);
-            self.write(transfer_progress.1, value);
-            transfer_progress.0 += 1;
-            transfer_progress.1 += 1;
         }
     }
 }
@@ -281,4 +257,45 @@ fn new_atomic_vec(size: usize) -> Vec<AtomicU8> {
     }
 
     result
+}
+
+#[derive(Clone)]
+pub struct DMATransfer {
+    source_location: u16,
+    target_location: u16,
+
+    started_at: u32,
+    memory: Arc<Memory>,
+}
+
+impl DMATransfer {
+    pub fn new(source: u16, cycles: u32, memory: Arc<Memory>) -> DMATransfer {
+        DMATransfer {
+            source_location: source,
+            target_location: 0xFE00,
+
+            started_at: cycles,
+            memory
+        }
+    }
+
+    pub fn dma_tick(&mut self, cycles: u32) -> bool {
+        let cycles_since_last_move = cycles - self.started_at;
+        let bytes_to_transfer = cycles_since_last_move / 4;
+
+        for _i in 0..bytes_to_transfer {
+            let value = self.memory.read(self.source_location);
+
+            self.memory.write(self.target_location, value);
+
+            self.source_location += 1;
+            self.target_location += 1;
+
+            if self.target_location > 0xFE9F {
+                break;
+            }
+        }
+        
+        (cycles - self.started_at) >= 160 || self.target_location >= 0xFE9F
+    }
 }

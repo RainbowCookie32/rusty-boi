@@ -15,18 +15,17 @@ use std::io::prelude::*;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 
-
-
 use log::info;
+use simple_logger::SimpleLogger;
 
 // The hash of the bootrom I use for development
 const BOOTROM_HASH: u64 = 11527078312544683961;
 
 
 fn main() {
+    let logger = SimpleLogger::new();
+    logger.with_level(log::LevelFilter::Info).init().unwrap();
 
-    // Initialize the logger.
-    simple_logger::init_with_level(log::Level::Info).unwrap();
     info!("Rusty Boi");
 
     // Try to load the bootrom.
@@ -103,20 +102,12 @@ fn main() {
 
 fn get_bootrom() -> Option<Vec<u8>> {
     let mut result = load_file(&PathBuf::from("Bootrom.bin"));
-
-    if result.is_some() {
-        result
-    }
-    else {
+    
+    if result.is_none() {
         result = load_file(&PathBuf::from("Bootrom.gb"));
-
-        if result.is_some() {
-            result
-        }
-        else {
-            None
-        }
     }
+
+    result
 }
 
 fn get_rom() -> Option<CartData> {
@@ -126,8 +117,8 @@ fn get_rom() -> Option<CartData> {
 
     let result = load_file(&PathBuf::from(rom_path.trim()));
 
-    if result.is_some() {
-        Some(CartData::new(result.unwrap()))
+    if let Some(data) = result {
+        Some(CartData::new(data))
     }
     else {
         None

@@ -143,8 +143,8 @@ impl VideoChip {
     }
 
     pub fn execution_loop(&mut self) {
-        
         let mut frames_timer = Instant::now();
+
         loop {
             self.update_video_values();
 
@@ -224,7 +224,6 @@ impl VideoChip {
     }
     
     fn hblank_mode(&mut self) {
-
         if self.current_line >= 144 {
             self.mode = VideoMode::Vblank;
             self.update_video_mode();
@@ -511,7 +510,10 @@ impl VideoChip {
 
     fn handle_sdl_events(&mut self) -> bool {
         let input_reg = self.memory.video_read(0xFF00);
-        let mut result = input_reg | 0xCF;
+        let mut result = 0b1111;
+
+        let targets_dpad = (input_reg & 0x10) == 0;
+        let targets_buttons = (input_reg & 0x20) == 0;
 
         for event in self.event_pump.poll_event() {
             match event {
@@ -522,50 +524,40 @@ impl VideoChip {
             }
         }
 
-        if (input_reg & 0x20) != 0 {
+        if (input_reg & 0x30) == 0 {
+            return false;
+        }
+
+        if targets_dpad {
             if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Down) {
-                result &= 0xF7;
+                result &= 0x07;
             }
             if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Up) {
-                result &= 0xFB;
+                result &= 0x0B;
             }
             if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Left) {
-                result &= 0xFD;
+                result &= 0x0D;
             }
             if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Right) {
-                result &= 0xFE;
+                result &= 0x0E;
             }
         }
-        else if (input_reg & 0x10) != 0 {
+        else if targets_buttons {
             if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Return) {
-                result &= 0xF7;
+                result &= 0x07;
             }
             if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::RShift) {
-                result &= 0xFB;
+                result &= 0x0B;
             }
             if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::S) {
-                result &= 0xFD;
+                result &= 0x0D;
             }
             if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::A) {
-                result &= 0xFE;
-            }
-        }
-        else {
-            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Down) || self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Return) {
-                result &= 0xF7;
-            }
-            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Up) || self.event_pump.keyboard_state().is_scancode_pressed(Scancode::RShift) {
-                result &= 0xFB;
-            }
-            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Left) || self.event_pump.keyboard_state().is_scancode_pressed(Scancode::S){
-                result &= 0xFD;
-            }
-            if self.event_pump.keyboard_state().is_scancode_pressed(Scancode::Right) || self.event_pump.keyboard_state().is_scancode_pressed(Scancode::A) {
-                result &= 0xFE;
+                result &= 0x0E;
             }
         }
 
-        self.memory.video_write(0xFF00, result);
+        self.memory.video_write(0xFF00, result | 0xC0);
         false
     }
 }

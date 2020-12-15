@@ -3,8 +3,8 @@ use std::sync::Arc;
 use log::error;
 use byteorder::{ByteOrder, LittleEndian};
 
-
 use super::memory::Memory;
+use super::memory::DMATransfer;
 
 const ZF_BIT: u8 = 7;
 const NF_BIT: u8 = 6;
@@ -130,7 +130,6 @@ impl Instruction {
 }
 
 pub struct Cpu {
-
     // B, C, D, E, H, L, (HL), A.
     // (HL) is added to the Vec for now, but it's not used.
     registers: Vec<Register>,
@@ -150,6 +149,7 @@ pub struct Cpu {
     timer: TimerModule,
 
     memory: Arc<Memory>,
+    active_transfer: Option<DMATransfer>
 }
 
 impl Cpu {
@@ -172,6 +172,7 @@ impl Cpu {
             timer: TimerModule::new(Arc::clone(&memory)),
 
             memory: memory,
+            active_transfer: None
         }
     }
 
@@ -254,7 +255,7 @@ impl Cpu {
             },
             3 => {
                 self.registers[7].set(hi);
-                self.cpu_flags.set_value(low);
+                self.cpu_flags.set_value(low & 0xF0);
             },
             _ => panic!("Invalid index for register pair"),
         }
@@ -263,7 +264,7 @@ impl Cpu {
     pub fn get_register(&mut self, index: u8) -> u8 {
         if index == 6 {
             let address = self.get_rp(2);
-            return self.memory.read(address);
+            return self.read(address);
         }
 
         self.registers[index as usize].get()
@@ -272,7 +273,7 @@ impl Cpu {
     pub fn set_register(&mut self, index: u8, value: u8) {
         if index == 6 {
             let address = self.get_rp(2);
-            self.memory.write(address, value);
+            self.write(address, value);
             return;
         }
 
@@ -281,7 +282,7 @@ impl Cpu {
 
     fn stack_read(&mut self) -> u16 {
         let sp = self.get_rp(3);
-        let bytes = vec![self.memory.read(sp), self.memory.read(sp + 1)];
+        let bytes = vec![self.read(sp), self.read(sp + 1)];
 
         self.set_rp(3, sp + 2);
         LittleEndian::read_u16(&bytes)
@@ -292,9 +293,24 @@ impl Cpu {
         let low = value as u8;
         let sp = self.get_rp(3);
 
-        self.memory.write(sp - 1, hi);
-        self.memory.write(sp - 2, low);
+        self.write(sp - 1, hi);
+        self.write(sp - 2, low);
         self.set_rp(3, sp - 2);
+    }
+
+    fn read(&self, address: u16) -> u8 {
+        self.memory.read(address)
+    }
+
+    fn write(&mut self, address: u16, value: u8) {
+        if address == 0xFF46 {
+            let address = (value as u16) << 8;
+            let transfer = DMATransfer::new(address, self.cycles, self.memory.clone());
+
+            self.active_transfer = Some(transfer);
+        }
+
+        self.memory.write(address, value);
     }
 
     pub fn execution_loop(&mut self) {
@@ -306,23 +322,34 @@ impl Cpu {
 
             while self.cycles < cycles_per_frame as u32 {
                 self.check_interrupts();
+
+                if let Some(mut transfer) = self.active_transfer.clone() {
+                    if transfer.dma_tick(self.cycles) {
+                        self.active_transfer = None;
+                    }
+                    else {
+                        self.active_transfer = Some(transfer);
+                    }
+                }
+
                 if !self.halted || !self.stopped {
                     self.run_instruction();
                 }
+
                 self.timer.timer_cycle(self.cycles);
             }
 
             if start_time.elapsed() < frame_time {
                 std::thread::sleep(frame_time - start_time.elapsed());
             }
-            self.cycles = 0;
 
+            self.cycles = 0;
         }
     }
 
     fn check_interrupts(&mut self) {
-        let if_value = self.memory.read(0xFF0F);
-        let ie_value = self.memory.read(0xFFFF);
+        let if_value = self.read(0xFF0F);
+        let ie_value = self.read(0xFFFF);
 
         if self.will_enable_interrupts.1 {
             if self.will_enable_interrupts.0 > 0 {
@@ -387,7 +414,7 @@ impl Cpu {
     }
 
     fn trigger_interrupt(&mut self, interrupt: InterruptType) {
-        let if_value = self.memory.read(0xFF0F);
+        let if_value = self.read(0xFF0F);
         let new_pc = match interrupt {
             InterruptType::Vblank => 0x40,
             InterruptType::Stat => 0x48,
@@ -398,22 +425,21 @@ impl Cpu {
 
         self.stack_write(self.pc);
         self.interrupts_enabled = false;
-        self.memory.write(0xFF0F, if_value & !(1 << interrupt as u8));
+        self.write(0xFF0F, if_value & !(1 << interrupt as u8));
 
         self.pc = new_pc;
     }
 
     fn run_instruction(&mut self) {
-        
         if self.pc == 0x0100 {
             log::info!("CPU: Bootrom execution finished, executing loaded ROM.");
             self.memory.bootrom_finished();
         }
         
-        let opcode = self.memory.read(self.pc);
+        let opcode = self.read(self.pc);
 
         if opcode == 0xCB {
-            let opcode = self.memory.read(self.pc + 1);
+            let opcode = self.read(self.pc + 1);
             let instruction = Instruction::new(opcode);
 
             if instruction.x == 0 {
@@ -618,7 +644,7 @@ impl Cpu {
 
     fn instruction_finished(&mut self, pc: u16, cycles: u32) {
         
-        if self.halt_bug && self.memory.read(self.pc) != 0x76 {
+        if self.halt_bug && self.read(self.pc) != 0x76 {
             self.halt_bug = false;
         }
         
@@ -632,13 +658,13 @@ impl Cpu {
 
     fn save_sp_to_imm(&mut self) {
         let value = self.get_rp(3);
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
         let hi = (value >> 8) as u8;
         let low = value as u8;
         let address = LittleEndian::read_u16(&bytes);
 
-        self.memory.write(address, low);
-        self.memory.write(address + 1, hi);
+        self.write(address, low);
+        self.write(address + 1, hi);
         self.instruction_finished(3, 20);
     }
 
@@ -648,7 +674,7 @@ impl Cpu {
     }
 
     fn jr(&mut self) {
-        let value = self.memory.read(self.pc + 1) as i8;
+        let value = self.read(self.pc + 1) as i8;
         self.pc = self.pc.wrapping_add(value as u16) + 2;
         self.instruction_finished(0, 12);
     }
@@ -672,7 +698,7 @@ impl Cpu {
 
     // Load 16-bit immediate value to a register pair (BC, DE, HL, SP).
     fn load_imm_to_rp(&mut self, index: u8) {
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
         
         self.set_rp(index, LittleEndian::read_u16(&bytes));
         self.instruction_finished(3, 12);
@@ -693,7 +719,7 @@ impl Cpu {
 
     fn load_a_from_rp(&mut self, index: u8) {
         let address = self.get_rp(index);
-        let value = self.memory.read(address);
+        let value = self.read(address);
 
         self.set_register(7, value);
         self.instruction_finished(1, 8);
@@ -701,7 +727,7 @@ impl Cpu {
 
     fn load_a_from_hl_inc(&mut self) {
         let address = self.get_rp(2);
-        let value = self.memory.read(address);
+        let value = self.read(address);
 
         self.set_register(7, value);
         self.set_rp(2, address.wrapping_add(1));
@@ -710,7 +736,7 @@ impl Cpu {
 
     fn load_a_from_hl_dec(&mut self) {
         let address = self.get_rp(2);
-        let value = self.memory.read(address);
+        let value = self.read(address);
 
         self.set_register(7, value);
         self.set_rp(2, address.wrapping_sub(1));
@@ -721,7 +747,7 @@ impl Cpu {
         let address = self.get_rp(index);
         let value = self.get_register(7);
 
-        self.memory.write(address, value);
+        self.write(address, value);
         self.instruction_finished(1, 8);
     }
 
@@ -729,7 +755,7 @@ impl Cpu {
         let address = self.get_rp(2);
         let value = self.get_register(7);
 
-        self.memory.write(address, value);
+        self.write(address, value);
         self.set_rp(2, address.wrapping_add(1));
         self.instruction_finished(1, 8);
     }
@@ -738,7 +764,7 @@ impl Cpu {
         let address = self.get_rp(2);
         let value = self.get_register(7);
 
-        self.memory.write(address, value);
+        self.write(address, value);
         self.set_rp(2, address.wrapping_sub(1));
         self.instruction_finished(1, 8);
     }
@@ -777,7 +803,7 @@ impl Cpu {
 
     // Load immediate 8-bit value into a register.
     fn load_imm_into_reg(&mut self, index: u8) {
-        let value = self.memory.read(self.pc + 1);
+        let value = self.read(self.pc + 1);
         self.set_register(index, value);
         self.instruction_finished(2, if index == 6 {12} else {8});
     }
@@ -877,8 +903,8 @@ impl Cpu {
             self.halted = true;
         }
         else {
-            let if_value = self.memory.read(0xFF0F);
-            let ie_value = self.memory.read(0xFFFF);
+            let if_value = self.read(0xFF0F);
+            let ie_value = self.read(0xFFFF);
 
             if ((if_value & ie_value) & 0x1F) == 0 {
                 self.halted = true;
@@ -1000,45 +1026,47 @@ impl Cpu {
     }
 
     fn save_a_to_ff_imm(&mut self) {
-        let address = 0xFF00 + self.memory.read(self.pc + 1) as u16;
+        let address = 0xFF00 + self.read(self.pc + 1) as u16;
         let value = self.get_register(7);
 
-        self.memory.write(address, value);
+        self.write(address, value);
         self.instruction_finished(2, 12);
     }
 
     fn add_imm_to_sp(&mut self) {
-        let value = self.memory.read(self.pc + 1) as i8;
-        let result = self.get_rp(3).wrapping_add(value as u16);
+        let value = (self.read(self.pc + 1) as i8) as u16;
+        let hf = (self.get_rp(3) & 0x000F) + (value & 0x000F) > 0x000F;
+        let cf = (self.get_rp(3) & 0x00FF) + (value & 0x00FF) > 0x00FF;
+        let result = self.get_rp(3).wrapping_add(value);
 
         self.set_rp(3, result);
         self.cpu_flags.set_zf(false);
         self.cpu_flags.set_nf(false);
-        // TODO: Proper flags
-        self.cpu_flags.set_hf(false);
-        self.cpu_flags.set_cf(false);
+        self.cpu_flags.set_hf(hf);
+        self.cpu_flags.set_cf(cf);
         self.instruction_finished(2, 16);
     }
 
     // Load the value pointed by 0xFF00 + immediate value into A.
     fn load_a_from_ff_imm(&mut self) {
-        let address = 0xFF00 + self.memory.read(self.pc + 1) as u16;
-        let value = self.memory.read(address);
+        let address = 0xFF00 + self.read(self.pc + 1) as u16;
+        let value = self.read(address);
 
         self.set_register(7, value);
         self.instruction_finished(2, 12);
     }
 
     fn load_sp_imm_to_hl(&mut self) {
-        let imm = self.memory.read(self.pc + 1) as i8;
-        let result = self.get_rp(3).wrapping_add(imm as u16);
+        let value = (self.read(self.pc + 1) as i8) as u16;
+        let hf = (self.get_rp(3) & 0x000F) + (value & 0x000F) > 0x000F;
+        let cf = (self.get_rp(3) & 0x00FF) + (value & 0x00FF) > 0x00FF;
+        let result = self.get_rp(3).wrapping_add(value);
 
         self.set_rp(2, result);
         self.cpu_flags.set_zf(false);
         self.cpu_flags.set_nf(false);
-        // TODO: Proper flags
-        self.cpu_flags.set_hf(false);
-        self.cpu_flags.set_cf(false);
+        self.cpu_flags.set_hf(hf);
+        self.cpu_flags.set_cf(cf);
         self.instruction_finished(2, 12);
     }
 
@@ -1091,23 +1119,23 @@ impl Cpu {
         let address = 0xFF00 + self.get_register(1) as u16;
         let value = self.get_register(7);
 
-        self.memory.write(address, value);
+        self.write(address, value);
         self.instruction_finished(1, 8);
     }
 
     // Save the value of A into address at immediate value.
     fn save_a_to_imm(&mut self) {
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
         let value = self.get_register(7);
 
-        self.memory.write(LittleEndian::read_u16(&bytes), value);
+        self.write(LittleEndian::read_u16(&bytes), value);
         self.instruction_finished(3, 16);
     }
 
     // Read address 0xFF00 + the value of C, and load the value into A.
     fn load_a_from_ff_c(&mut self) {
         let address = 0xFF00 + self.get_register(1) as u16;
-        let value = self.memory.read(address);
+        let value = self.read(address);
 
         self.set_register(7, value);
         self.instruction_finished(1, 8);
@@ -1115,15 +1143,15 @@ impl Cpu {
 
     // Load value from address at immediate value into A.
     fn load_a_from_imm(&mut self) {
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
-        let value = self.memory.read(LittleEndian::read_u16(&bytes));
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
+        let value = self.read(LittleEndian::read_u16(&bytes));
 
         self.set_register(7, value);
         self.instruction_finished(3, 16);
     }
 
     fn jp(&mut self) {
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
         let address = LittleEndian::read_u16(&bytes);
 
         self.pc = address;
@@ -1164,7 +1192,7 @@ impl Cpu {
     }
 
     fn call(&mut self) {
-        let bytes = vec![self.memory.read(self.pc + 1), self.memory.read(self.pc + 2)];
+        let bytes = vec![self.read(self.pc + 1), self.read(self.pc + 2)];
         let target_address = LittleEndian::read_u16(&bytes);
         let ret_address = self.pc + 3;
         
@@ -1174,8 +1202,8 @@ impl Cpu {
     }
 
     fn add_imm(&mut self) {
-        let hf = (((self.get_register(7) & 0xF) + (self.memory.read(self.pc + 1) & 0xF)) & 0x10) == 0x10;
-        let result = self.get_register(7) as u16 + self.memory.read(self.pc + 1) as u16;
+        let hf = (((self.get_register(7) & 0xF) + (self.read(self.pc + 1) & 0xF)) & 0x10) == 0x10;
+        let result = self.get_register(7) as u16 + self.read(self.pc + 1) as u16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
@@ -1186,8 +1214,8 @@ impl Cpu {
     }
 
     fn adc_imm(&mut self) {
-        let hf = (((self.get_register(7) & 0xF) + (self.memory.read(self.pc + 1) & 0xF) + (self.cpu_flags.get_cf())) & 0x10) == 0x10;
-        let result = self.get_register(7) as u16 + self.memory.read(self.pc + 1) as u16 + self.cpu_flags.get_cf() as u16;
+        let hf = (((self.get_register(7) & 0xF) + (self.read(self.pc + 1) & 0xF) + (self.cpu_flags.get_cf())) & 0x10) == 0x10;
+        let result = self.get_register(7) as u16 + self.read(self.pc + 1) as u16 + self.cpu_flags.get_cf() as u16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
@@ -1198,8 +1226,8 @@ impl Cpu {
     }
 
     fn sub_imm(&mut self) {
-        let hf = ((self.get_register(7) as i16 & 0xF) - (self.memory.read(self.pc + 1) as i16 & 0xF)) < 0;
-        let result = self.get_register(7) as i16 - self.memory.read(self.pc + 1) as i16;
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.read(self.pc + 1) as i16 & 0xF)) < 0;
+        let result = self.get_register(7) as i16 - self.read(self.pc + 1) as i16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
@@ -1210,8 +1238,8 @@ impl Cpu {
     }
 
     fn sbc_imm(&mut self) {
-        let hf = ((self.get_register(7) as i16 & 0xF) - (self.memory.read(self.pc + 1) as i16 & 0xF) - self.cpu_flags.get_cf() as i16) < 0;
-        let result = self.get_register(7) as i16 - self.memory.read(self.pc + 1) as i16 - self.cpu_flags.get_cf() as i16;
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.read(self.pc + 1) as i16 & 0xF) - self.cpu_flags.get_cf() as i16) < 0;
+        let result = self.get_register(7) as i16 - self.read(self.pc + 1) as i16 - self.cpu_flags.get_cf() as i16;
 
         self.set_register(7, result as u8);
         self.cpu_flags.set_zf(result as u8 == 0);
@@ -1222,7 +1250,7 @@ impl Cpu {
     }
 
     fn and_imm(&mut self) {
-        let result = self.get_register(7) & self.memory.read(self.pc + 1);
+        let result = self.get_register(7) & self.read(self.pc + 1);
 
         self.set_register(7, result);
         self.cpu_flags.set_zf(result == 0);
@@ -1233,7 +1261,7 @@ impl Cpu {
     }
 
     fn xor_imm(&mut self) {
-        let result = self.get_register(7) ^ self.memory.read(self.pc + 1);
+        let result = self.get_register(7) ^ self.read(self.pc + 1);
 
         self.set_register(7, result);
         self.cpu_flags.set_zf(result == 0);
@@ -1244,7 +1272,7 @@ impl Cpu {
     }
 
     fn or_imm(&mut self) {
-        let result = self.get_register(7) | self.memory.read(self.pc + 1);
+        let result = self.get_register(7) | self.read(self.pc + 1);
 
         self.set_register(7, result);
         self.cpu_flags.set_zf(result == 0);
@@ -1255,8 +1283,8 @@ impl Cpu {
     }
 
     fn cp_imm(&mut self) {
-        let hf = ((self.get_register(7) as i16 & 0xF) - (self.memory.read(self.pc + 1) as i16 & 0xF)) < 0;
-        let values = (self.get_register(7), self.memory.read(self.pc + 1));
+        let hf = ((self.get_register(7) as i16 & 0xF) - (self.read(self.pc + 1) as i16 & 0xF)) < 0;
+        let values = (self.get_register(7), self.read(self.pc + 1));
 
         self.cpu_flags.set_zf(values.0 == values.1);
         self.cpu_flags.set_nf(true);
